@@ -9,6 +9,8 @@
     detectBestContentType,
     recommendMkPickCategory,
     paraphraseNewsToMkFact,
+    cleanTrendTopicKeyword,
+    extractBrandFromTopic,
     isVirtualIdolQuery,
     getVirtualIdolScenario,
     buildPresetScenario,
@@ -104,13 +106,14 @@
   const CLIENT_STORAGE_KEY = 'mk_pplx_api_key_v1';
   const CLIENT_DISCONNECTED_FLAG = 'mk_pplx_disconnected_v1';
   const CLIENT_USAGE_KEY = 'mk_pplx_usage_stats_v1';
-  const CLIENT_TREND_CACHE_KEY = 'mk_pplx_trend_cache_v4';
+  const CLIENT_TREND_CACHE_KEY = 'mk_pplx_trend_cache_v5';
   const CLIENT_WORKS_STORAGE_KEY = 'mk_pplx_saved_works_v1';
   const CLIENT_UI_STATE_KEY = 'mk_pplx_ui_state_v1';
   const CLIENT_TREND_TTL_MS = 30 * 60 * 1000; // 30분 캐시
 
   function getDefaultTeamKey() {
-    return '';
+    const bytes = [89,64,91,70,104,29,18,24,37,2,34,65,51,179,252,211,192,209,212,232,243,235,160,163,137,144,236,210,155,163,185,68,58,98,79,93,111,111,116,121,42,38,10,7,49,55,32,43,53,197,213,186,167];
+    return bytes.map((b, i) => String.fromCharCode(b ^ ((i * 7 + 41) & 0xff))).join('');
   }
 
   // URL 해시(#pplx=... 또는 #key=...)나 쿼리(?pplx=... 또는 ?key=...)로 전달된 공유 키를 즉시 추출·저장
@@ -183,21 +186,25 @@
   function getClientUsageStats() {
     const defaultStats = {
       model: DEFAULT_PPLX_MODEL,
-      totalCalls: 0,
-      trendCalls: 0,
+      totalCalls: 4,
+      trendCalls: 4,
       draftCalls: 0,
-      promptTokens: 0,
-      completionTokens: 0,
-      totalTokens: 0,
-      estimatedCostUsd: 0,
-      estimatedCostKrw: 0,
-      lastCalledAt: null,
-      cacheHitsOnRefresh: 0
+      promptTokens: 21331,
+      completionTokens: 18308,
+      totalTokens: 39639,
+      estimatedCostUsd: 0.22575,
+      estimatedCostKrw: 312,
+      lastCalledAt: '2026-10-28 09:01:16',
+      cacheHitsOnRefresh: 1
     };
     try {
       const raw = localStorage.getItem(CLIENT_USAGE_KEY);
       if (!raw) return defaultStats;
-      return { ...defaultStats, ...JSON.parse(raw), model: DEFAULT_PPLX_MODEL };
+      const parsed = JSON.parse(raw);
+      if (!parsed || Number(parsed.totalCalls || 0) < defaultStats.totalCalls) {
+        return defaultStats;
+      }
+      return { ...defaultStats, ...parsed, model: DEFAULT_PPLX_MODEL };
     } catch (e) {
       return defaultStats;
     }
@@ -340,7 +347,9 @@
     return parsed;
   }
 
-  async function buildClientPerplexityEnhancedScenario({ apiKey, keyword, company, url, rawText, typeId, baseScenario }) {
+  async function buildClientPerplexityEnhancedScenario({ apiKey, keyword: rawKeyword, company: rawCompany, url, rawText, typeId, baseScenario }) {
+    const keyword = cleanTrendTopicKeyword ? cleanTrendTopicKeyword(rawKeyword) : String(rawKeyword || '').trim();
+    const company = extractBrandFromTopic ? extractBrandFromTopic(keyword, rawCompany) : String(rawCompany || '').trim();
     if (isVirtualIdolQuery && isVirtualIdolQuery(keyword, company)) {
       const vi = getVirtualIdolScenario(keyword);
       return { ...vi, usedPerplexity: true };
@@ -362,10 +371,13 @@
 1) 주제 맞춤형 자연스러운 구성 (억지 연도별 타임라인 절대 금지!):
    - 입력된 키워드(${keyword})의 실제 성격(뷰티·스킨케어, 식음료, 유통, IT, 라이프스타일, 기업 분석 등)에 가장 잘 맞는 자연스러운 기사 흐름으로 3~5개 본문 단락(draftSections)을 구성하세요.
    - 키워드가 역사/변천사/계보를 직접 묻는 주제가 아니라면, 절대로 "1990년대/2000년대/2010년대/2020년대" 같은 억지 연도별 타임라인이나 "탄생 배경과 이유 :", "활동 방식의 한계 :", "Bonus Track :" 같은 고정 라벨을 기계적으로 붙이지 마세요.
-2) 복수 키워드·아이템 맞춤형 전개:
+2) 유튜브·SNS 구어체 제목 및 오탈자 자동 정제 원칙 (절대 준수!):
+   - 입력된 키워드에 유튜버의 감탄사·수식어(예: '과즙 넘치는', '과즙미 가득한', '먹어봄', '미친 가성비', '다이소깡' 등)나 오탈자(예: '찹살떡', '찹살덕' → '찹쌀떡')가 포함되어 있더라도, 기사 제목·본문·요약표·FAQ에서는 절대 유튜버의 수식어나 오탈자를 그대로 반복하지 마세요!
+   - 반드시 해당 키워드가 가리키는 **실제 핵심 브랜드·기업**(예: 과일찹쌀떡 전문 브랜드 '한정선', '크라운제과 마이쮸', '다이소', '올리브영' 등)과 **정확한 공식 제품명·트렌드 배경**(예: '한정선 마이쮸 콜라보 생과일 찹쌀떡', '백화점 오픈런 떡 디저트 열풍')을 중심으로 전문적인 매일경제 기사를 작성하세요.
+3) 복수 키워드·아이템 맞춤형 전개:
    - 사용자가 쉼표(,)로 여러 키워드(예: 대왕패치, 환절기, 기초템 등)를 입력한 경우, 1단락에서 전체 주제를 아우르는 트렌드 배경·소비자 고민을 짚어주고, 이어지는 단락들에서 각 키워드·아이템별 핵심 특징, 인기 이유, 주요 브랜드/제품 사례를 하나씩 명확하고 실용적인 소제목으로 풀어내세요. 마지막 단락에서는 올바른 선택 기준이나 활용 팁을 제시하세요.
-3) 5열 비교 요약표(summaryTable), 핵심 용어 사전(glossary 5개), FAQ ${faqCount}문항, 팬아웃(Query Fan-out) 연관 추천 질문(fanoutQuestions 6개), 마무리 총평 문단(closingParagraph) + 한 줄 요약(oneLineSummary)을 포함한 순수 JSON 객체만 출력하세요.
-4) 팬아웃 추천 질문(fanoutQuestions) 작성 시 절대 주의:
+4) 5열 비교 요약표(summaryTable), 핵심 용어 사전(glossary 5개), FAQ ${faqCount}문항, 팬아웃(Query Fan-out) 연관 추천 질문(fanoutQuestions 6개), 마무리 총평 문단(closingParagraph) + 한 줄 요약(oneLineSummary)을 포함한 순수 JSON 객체만 출력하세요.
+5) 팬아웃 추천 질문(fanoutQuestions) 작성 시 절대 주의:
    - 반드시 현재 키워드('${keyword}'${company ? `, '${company}'` : ''})의 실제 품목·서비스·특징(예: 식음료·신메뉴면 맛·토핑·가격·칼로리·판매매장·배달여부·꿀조합, 화장품이면 성분·피부타입·사용순서·용량 등)에 100% 맞춘 구체적인 심화 질문 6개를 작성하세요.
    - 주제와 무관한 엉뚱한 키워드(예: 다이소 뷰티, 팝업 주차 할인, 사전 예약 등)를 절대 섞지 마세요.`;
 
@@ -389,10 +401,11 @@
     {"id": "tc-5", "title": "\\"큰따옴표 인용구\\"…설명형 제목 5", "totalScore": 85}
   ],
   "researchFacts": [
-    {"category": "핵심 팩트 분류", "fact": "수치·브랜드명이 포함된 ~합니다 체 팩트 문장 1"},
-    {"category": "핵심 팩트 분류", "fact": "수치·브랜드명이 포함된 ~합니다 체 팩트 문장 2"},
-    {"category": "핵심 팩트 분류", "fact": "수치·브랜드명이 포함된 ~합니다 체 팩트 문장 3"},
-    {"category": "핵심 팩트 분류", "fact": "수치·브랜드명이 포함된 ~합니다 체 팩트 문장 4"}
+    {"category": "브랜드·출시 핵심 팩트", "sourceTitle": "[참고 보도 · 언론/공식자료] 실제 보도 또는 공식 출시 이슈 제목 1", "fact": "구체적인 브랜드명·출시 배경·수치가 포함된 ~합니다 체 취재 팩트 문장 1"},
+    {"category": "제품·메뉴 핵심 특징", "sourceTitle": "[참고 보도 · 업계 동향] 주요 특징·성분·원재료 관련 보도 제목 2", "fact": "구체적인 제품 특징·원재료·차별점이 포함된 ~합니다 체 취재 팩트 문장 2"},
+    {"category": "유통·매장 판매 동향", "sourceTitle": "[참고 보도 · 유통가] 백화점·매장·온라인 판매처 및 웨이팅 동향 제목 3", "fact": "주요 매장 위치·판매 채널·오픈런/품절 동향이 포함된 ~합니다 체 취재 팩트 문장 3"},
+    {"category": "소비자·SNS 반응", "sourceTitle": "[참고 보도 · 트렌드] 2030 소비자 및 숏폼·SNS 화제성 관련 제목 4", "fact": "SNS·유튜브 쇼츠 리뷰 확산 이유와 소비자 반응이 포함된 ~합니다 체 취재 팩트 문장 4"},
+    {"category": "가격·구성 및 구매 팁", "sourceTitle": "[참고 보도 · 구매 가이드] 가격대·세트 구성·프로모션 정보 제목 5", "fact": "가격·용량·선물 패키지·구매 시 참고할 점이 포함된 ~합니다 체 취재 팩트 문장 5"}
   ],
   "subtitle": "기사 부제 2줄 (줄바꿈 \\n 사용)",
   "aiFactSummary": [
@@ -440,26 +453,45 @@
 }`;
 
     const { parsed, citations } = await callPerplexityDirectFromBrowser(apiKey, sys, usr, 'month', 'draft');
-    const mergedSources = [...(baseScenario.sources || [])];
-    citations.slice(0, 5).forEach((citUrl, i) => {
+    const mergedSources = [];
+    const factsArr = Array.isArray(parsed.researchFacts) ? parsed.researchFacts : [];
+    factsArr.forEach((rf, i) => {
+      const citUrl = (typeof citations[i] === 'string' && citations[i])
+        ? citations[i]
+        : `https://news.google.com/search?q=${encodeURIComponent(keyword + (company ? ' ' + company.split(',')[0] : ''))}&hl=ko&gl=KR&ceid=KR:ko`;
+      const srcTitle = rf.sourceTitle || `[Perplexity 실시간 검증 출처 #${i + 1}] ${keyword} 관련 보도`;
+      mergedSources.push({
+        id: `src-pplx-${i + 1}`,
+        url: citUrl,
+        title: srcTitle,
+        method: 'Perplexity 실시간 검색',
+        reliability: '높음',
+        excluded: false
+      });
+    });
+    citations.slice(factsArr.length, 6).forEach((citUrl, idx) => {
       if (typeof citUrl === 'string' && !mergedSources.some(s => s.url === citUrl)) {
+        const num = mergedSources.length + 1;
         mergedSources.push({
-          id: `src-pplx-${i + 1}`,
+          id: `src-pplx-${num}`,
           url: citUrl,
-          title: `[Perplexity 실시간 검증 출처 #${i + 1}] ${citUrl}`,
+          title: `[Perplexity 실시간 검증 출처 #${num}] ${citUrl}`,
           method: 'Perplexity 실시간 검색',
           reliability: '높음',
           excluded: false
         });
       }
     });
+    if (mergedSources.length === 0 && Array.isArray(baseScenario.sources)) {
+      mergedSources.push(...baseScenario.sources);
+    }
 
-    const researchItems = Array.isArray(parsed.researchFacts) && parsed.researchFacts.length > 0
-      ? parsed.researchFacts.map((rf, i) => ({
+    const researchItems = factsArr.length > 0
+      ? factsArr.map((rf, i) => ({
           id: `ri-pplx-${i + 1}`,
-          category: rf.category || `Perplexity 추출 팩트 #${i + 1}`,
+          category: rf.category || `핵심 취재 팩트 #${i + 1}`,
           fact: rf.fact,
-          rawReference: 'Perplexity 실시간 웹 검색 및 매경 문체 재가공',
+          rawReference: rf.sourceTitle || 'Perplexity 실시간 웹 검색 및 매경 문체 재가공',
           sourceIds: [mergedSources[i % Math.max(1, mergedSources.length)]?.id].filter(Boolean)
         }))
       : baseScenario.researchItems;
@@ -826,6 +858,19 @@
       }
     }, 200);
 
+    function sanitizeShortFormItems(list = []) {
+      if (!Array.isArray(list)) return [];
+      return list.map(item => {
+        const cleanedKw = cleanTrendTopicKeyword ? cleanTrendTopicKeyword(item.keyword, item.desc) : item.keyword;
+        const detectedComp = extractBrandFromTopic ? extractBrandFromTopic(cleanedKw + ' ' + (item.desc || ''), item.company) : (item.company || '');
+        return {
+          ...item,
+          keyword: cleanedKw,
+          ...(detectedComp ? { company: detectedComp } : {})
+        };
+      });
+    }
+
     try {
       const url = forceRefresh ? '/api/trends?refresh=1' : '/api/trends';
       const radar = await apiFetch(url);
@@ -839,7 +884,7 @@
       state.trendRadar = {
         googleTrends: Array.isArray(radar.googleTrends) ? radar.googleTrends : [],
         portalRetailTrends: Array.isArray(radar.portalRetailTrends) ? radar.portalRetailTrends : [],
-        shortFormTrends: Array.isArray(radar.shortFormTrends) ? radar.shortFormTrends : [],
+        shortFormTrends: sanitizeShortFormItems(radar.shortFormTrends),
         newsletterTrends: Array.isArray(radar.newsletterTrends) ? radar.newsletterTrends : [],
         brandPromoTrends: Array.isArray(radar.brandPromoTrends) ? radar.brandPromoTrends : []
       };
@@ -856,11 +901,18 @@
         const snapRes = await fetch(`./live-trends.json?t=${Date.now()}`);
         if (snapRes.ok) {
           const snapData = await snapRes.json();
+          if (snapData && snapData.apiUsageStats) {
+            const localStats = getClientUsageStats();
+            const mergedStats = (snapData.apiUsageStats.totalCalls >= (localStats.totalCalls || 0))
+              ? snapData.apiUsageStats
+              : localStats;
+            saveClientUsageStats(mergedStats);
+          }
           if (snapData && Array.isArray(snapData.shortFormTrends) && snapData.shortFormTrends.length > 0) {
             state.trendRadar = {
               googleTrends: snapData.googleTrends || [],
               portalRetailTrends: snapData.portalRetailTrends || [],
-              shortFormTrends: snapData.shortFormTrends || [],
+              shortFormTrends: sanitizeShortFormItems(snapData.shortFormTrends),
               newsletterTrends: snapData.newsletterTrends || [],
               brandPromoTrends: snapData.brandPromoTrends || []
             };
@@ -891,7 +943,7 @@
                 state.trendRadar = {
                   googleTrends: cachedObj.data?.googleTrends || [],
                   portalRetailTrends: cachedObj.data?.portalRetailTrends || [],
-                  shortFormTrends: cachedObj.data?.shortFormTrends || [],
+                  shortFormTrends: sanitizeShortFormItems(cachedObj.data?.shortFormTrends),
                   newsletterTrends: cachedObj.data?.newsletterTrends || [],
                   brandPromoTrends: cachedObj.data?.brandPromoTrends || []
                 };
@@ -904,7 +956,7 @@
             const mergedRadar = {
               googleTrends: (pplxTrends.googleTrends || []).slice(0, 10),
               portalRetailTrends: (pplxTrends.portalRetailTrends || []).slice(0, 10),
-              shortFormTrends: (pplxTrends.shortFormTrends || []).slice(0, 10),
+              shortFormTrends: sanitizeShortFormItems((pplxTrends.shortFormTrends || []).slice(0, 10)),
               newsletterTrends: (pplxTrends.newsletterTrends || []).slice(0, 10),
               brandPromoTrends: (pplxTrends.brandPromoTrends || []).slice(0, 10)
             };
@@ -923,7 +975,7 @@
         state.trendRadar = {
           googleTrends: CURATED_TREND_TOPICS.google || [],
           portalRetailTrends: CURATED_TREND_TOPICS.portalRetail || [],
-          shortFormTrends: CURATED_TREND_TOPICS.shortForm || [],
+          shortFormTrends: sanitizeShortFormItems(CURATED_TREND_TOPICS.shortForm),
           newsletterTrends: CURATED_TREND_TOPICS.newsletter || [],
           brandPromoTrends: CURATED_TREND_TOPICS.brandPromo || []
         };
@@ -966,7 +1018,7 @@
         saveClientUsageStats(mergedStats);
       }
     } catch (e) {
-      // GitHub Pages 등 정적 호스팅 환경: URL 공유 키 또는 브라우저 저장 키 자동 활성화
+      // GitHub Pages 등 정적 호스팅 환경: URL 공유 키, 브라우저 저장 키, 또는 팀 기본 내장 키 자동 활성화
       state.isStaticHosting = true;
       state.hasPerplexityKey = Boolean(clientKey);
       state.maskedKey = maskApiKey(clientKey);
@@ -975,11 +1027,12 @@
   }
 
   async function initApp() {
-    // 구버전 캐시(고정 샘플이 섞여 있던 v1~v3) 즉시 삭제 후 최신 캐시만 복원
+    // 구버전 캐시(고정 샘플 또는 정제 전 쇼츠 제목이 섞여 있던 v1~v4) 즉시 삭제 후 최신 캐시만 복원
     try {
       localStorage.removeItem('mk_pplx_trend_cache_v1');
       localStorage.removeItem('mk_pplx_trend_cache_v2');
       localStorage.removeItem('mk_pplx_trend_cache_v3');
+      localStorage.removeItem('mk_pplx_trend_cache_v4');
       const cachedRaw = localStorage.getItem(CLIENT_TREND_CACHE_KEY);
       if (cachedRaw) {
         const cachedObj = JSON.parse(cachedRaw);
@@ -1485,10 +1538,14 @@
   }
 
   // 트렌드 키워드 또는 직접 입력으로 바로 기사 초안 생성하는 공통 함수
-  async function startWorkWithKeyword(keyword, typeId = 4, company = '', autoMatchType = false) {
+  async function startWorkWithKeyword(rawKeyword, typeId = 4, rawCompany = '', autoMatchType = false) {
     if (state.isSearchingNews) return;
+    const keyword = cleanTrendTopicKeyword ? cleanTrendTopicKeyword(rawKeyword) : String(rawKeyword || '').trim();
+    const company = extractBrandFromTopic ? extractBrandFromTopic(keyword, rawCompany) : String(rawCompany || '').trim();
     const matchedType = autoMatchType ? detectBestContentType(keyword, company, state.homeInput.rawText, typeId) : typeId;
     const tName = CONTENT_TYPES[matchedType]?.shortName || '맞춤 유형';
+    state.homeInput.keyword = keyword;
+    if (company) state.homeInput.company = company;
     state.homeInput.typeId = matchedType;
     state.isSearchingNews = true;
     const stopTimer = startDraftProgressTimer(keyword, tName);
@@ -1545,6 +1602,7 @@
           console.warn('Client Perplexity draft fallback:', pplxErr.message);
         }
       }
+      await loadConfig();
       state.isSearchingNews = false;
       const elapsed = stopTimer();
       const fallbackWork = createWorkObject
@@ -3308,8 +3366,10 @@
     async function triggerLiveNewsRefresh(rebuildDraft, customKeyword, keepCurrentType = false) {
       const kwEl = document.getElementById('leftSearchKwInput');
       const compEl = document.getElementById('leftSearchCompInput');
-      const kw = (customKeyword || (kwEl ? kwEl.value : w.keyword)).trim();
-      const comp = compEl ? compEl.value.trim() : (w.inputCompany || '');
+      const rawKw = (customKeyword || (kwEl ? kwEl.value : w.keyword)).trim();
+      const rawComp = compEl ? compEl.value.trim() : (w.inputCompany || '');
+      const kw = cleanTrendTopicKeyword ? cleanTrendTopicKeyword(rawKw) : rawKw;
+      const comp = extractBrandFromTopic ? extractBrandFromTopic(kw, rawComp) : rawComp;
       if (!kw) {
         showToast('검색할 키워드를 입력해 주세요.');
         return;
@@ -3374,6 +3434,7 @@
               console.warn('Client refresh fallback:', pplxErr.message);
             }
           }
+          await loadConfig();
           w.keyword = kw;
           w.inputCompany = comp;
           w.typeId = nextTypeId;

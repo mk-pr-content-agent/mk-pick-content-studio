@@ -521,6 +521,131 @@ function extractFactSentencesFromSections(sections, sources) {
   return results;
 }
 
+// 유튜브 쇼츠·SNS·뉴스 제목에서 유튜버 감탄사·수식어·오탈자·구어체 어미를 제거하고 기사 작성용 핵심 주제·브랜드 키워드로 정제
+function cleanTrendTopicKeyword(rawTitle = '', fullContext = '') {
+  let base = String(rawTitle || '').trim();
+  const quotedMatch = String(fullContext || '').match(/"([^"]{5,120})"/);
+  if (quotedMatch && quotedMatch[1]) {
+    const qText = quotedMatch[1].trim();
+    const strippedBase = base.replace(/\s+/g, '');
+    const strippedQuote = qText.replace(/#[a-zA-Z0-9가-힣_]+/g, '').replace(/\s+/g, '');
+    if (
+      qText.length > base.length &&
+      (strippedQuote.includes(strippedBase.slice(0, Math.min(8, strippedBase.length))) ||
+        /(?:조회수|똥손|용기까지|잠깐만|개야르렁)/.test(base))
+    ) {
+      base = qText;
+    }
+  }
+
+  let s = base
+    .replace(/#[a-zA-Z0-9가-힣_]+/g, ' ')
+    .replace(/\[[^\]]*\]/g, ' ')
+    .replace(/\([^\)]*포토[^\)]*\)/g, ' ')
+    .replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\u{FE00}-\u{FE0F}]/gu, ' ')
+    .replace(/[;~!?‼⁉…⋯‥"“”'‘’`]+/g, ' ')
+    .replace(/[ㅋㅎㅠㅜ]{2,}/g, ' ')
+    // 오탈자 및 대표 신조어 정규화
+    .replace(/찹살떡|찹살덕|찹쌀덕/g, '찹쌀떡')
+    .replace(/올영이랑\s*다이소깡/g, '올리브영·다이소 신상 추천템')
+    .replace(/다이소깡/g, '다이소 신상 추천템')
+    .replace(/올영이랑/g, '올리브영')
+    .replace(/(^|\s)올영(\s|$)/g, '$1올리브영$2')
+    .replace(/올리브영\s*(?:vs|VS|랑|이랑)\s*다이소/g, '올리브영·다이소')
+    .replace(/올리브영\s+다이소/g, '올리브영·다이소')
+    .replace(/팝업\s+스토어/g, '팝업스토어')
+    .replace(/대구\s*더현대에?/g, '더현대 대구')
+    .replace(/더현대에(\s|$)/g, '더현대$1')
+    .replace(/올기\s*찹쌀떡/g, '생과일 딸기 찹쌀떡')
+    // 유튜버 클릭베이트 수식어·감탄사·리뷰 어미 제거
+    .replace(/조회수\s*\d+(?:\.\d+)?[만천]?회/g, ' ')
+    .replace(/논란의\s*똥손\s*\.*/g, ' ')
+    .replace(/댓글\s*반영\s*(?:화장해봄|메이크업)?/g, ' ')
+    .replace(/용기까지\s*아끼네/g, ' ')
+    .replace(/과즙미?\s*(?:넘치는|가득한|폭발하는|팡팡|가득)/g, ' ')
+    .replace(/미친\s*가성비/g, '가성비')
+    .replace(/미친\s*(?:비주얼|맛|퀄리티|텐션)/g, ' ')
+    .replace(/역대급\s*귀요미\s*팝업/g, '인기 캐릭터 팝업스토어')
+    .replace(/역대급\s*(?:귀요미|비주얼|가성비|신상)?/g, ' ')
+    .replace(/진심\s*개야르렁한\s*초코다?/g, '편의점 진한 초코 디저트 신상')
+    .replace(/진심\s*개야르렁한/g, ' ')
+    .replace(/요즘\s*(?:핫한|난리난|대세인|유행하는|뜨는)/g, ' ')
+    .replace(/드디어\s*(?:먹어본|가본|써본|구한)/g, ' ')
+    .replace(/내돈내산\s*(?:솔직)?/g, ' ')
+    .replace(/솔직\s*(?:리뷰|후기)/g, ' ')
+    .replace(/솔직\s*비교/g, '비교')
+    .replace(/\d+천원에\s*(?:종결\s*가능할까|종결)?/g, ' ')
+    .replace(/근데\s*쓸만할까/g, ' ')
+    .replace(/종결\s*가능할까/g, ' ')
+    .replace(/추천템으로\s+([가-힣A-Za-z0-9\s]+)$/g, '$1 추천템')
+    .replace(/\d+월\s*\d+일\s*끝/g, '시즌 한정')
+    .replace(/(?:먹어봄|먹어봤습니다|먹어봤어요|가봤습니다|다녀왔어요|화장해봄|써봄|리뷰해봄|언박싱|떴어요|떴다)(\s|$)/g, ' ')
+    .replace(/잠깐만/g, ' ')
+    .replace(/\.\.+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  // 문장 끝에 남은 불완전 조사 제거
+  s = s.replace(/\s+(?:에서|으로|에게|에는|까지|부터)$/, '').trim();
+
+  if (!s) return String(rawTitle || '').trim();
+  if (s.length <= 28) return s;
+  const words = s.split(' ');
+  let acc = '';
+  for (const w of words) {
+    if ((acc + ' ' + w).trim().length > 28) break;
+    acc = (acc + ' ' + w).trim();
+  }
+  return acc || s.slice(0, 28);
+}
+
+// 키워드·설명에서 핵심 기업/브랜드명을 자동 추출하는 헬퍼
+function extractBrandFromTopic(text = '', existingCompany = '') {
+  const existing = String(existingCompany || '').trim();
+  if (existing) return existing;
+  const src = String(text || '');
+  const found = [];
+  const brandRules = [
+    { pattern: /한정선/, name: '한정선' },
+    { pattern: /마이쮸/, name: '크라운제과(마이쮸)' },
+    { pattern: /올리브영|올영/, name: '올리브영' },
+    { pattern: /다이소/, name: '다이소' },
+    { pattern: /세븐일레븐/, name: '세븐일레븐' },
+    { pattern: /GS25/i, name: 'GS25' },
+    { pattern: /(^|[^A-Za-z])CU([^A-Za-z]|$)/, name: 'CU' },
+    { pattern: /더현대\s*대구|대구\s*더현대/, name: '더현대 대구' },
+    { pattern: /더현대/, name: '더현대' },
+    { pattern: /무신사/, name: '무신사' },
+    { pattern: /이디야/, name: '이디야커피' },
+    { pattern: /하인즈/, name: '하인즈' },
+    { pattern: /스타벅스/, name: '스타벅스' },
+    { pattern: /투썸/, name: '투썸플레이스' },
+    { pattern: /메가커피/, name: '메가MGC커피' },
+    { pattern: /농심/, name: '농심' },
+    { pattern: /오뚜기/, name: '오뚜기' },
+    { pattern: /삼양/, name: '삼양식품' },
+    { pattern: /롯데웰푸드/, name: '롯데웰푸드' },
+    { pattern: /성심당/, name: '성심당' },
+    { pattern: /아모레/, name: '아모레퍼시픽' },
+    { pattern: /LG생활건강/, name: 'LG생활건강' },
+    { pattern: /삼성전자|갤럭시/, name: '삼성전자' },
+    { pattern: /LG전자/, name: 'LG전자' },
+    { pattern: /오늘의집/, name: '오늘의집' },
+    { pattern: /컬리/, name: '컬리' },
+    { pattern: /이마트/, name: '이마트' },
+    { pattern: /롯데백화점/, name: '롯데백화점' },
+    { pattern: /신세계/, name: '신세계백화점' }
+  ];
+  for (const rule of brandRules) {
+    if (rule.pattern.test(src) && !found.includes(rule.name)) {
+      if (rule.name === '더현대' && found.includes('더현대 대구')) continue;
+      found.push(rule.name);
+      if (found.length >= 2) break;
+    }
+  }
+  return found.join(', ');
+}
+
 // 버츄얼 아이돌 계보(아담·키즈나아이·이세계아이돌·플레이브·나이비스·비더후드 등) 키워드 여부 판별
 function isVirtualIdolQuery(kw = '', comp = '') {
   const combined = `${kw} ${comp}`.toLowerCase();
@@ -529,8 +654,8 @@ function isVirtualIdolQuery(kw = '', comp = '') {
 
 // 실시간 뉴스 검색 결과(newsItems)에서 타 언론사 문장을 그대로 복사하지 않고, 핵심 팩트만 추출·재구성해 MK Pick 초안 생성
 function buildDynamicWorkFromNews({ keyword, company, url, rawText, typeId, newsItems = [] }) {
-  const kw = (keyword || '최신 소비 트렌드').trim();
-  const comp = (company || '').trim();
+  const kw = cleanTrendTopicKeyword((keyword || '최신 소비 트렌드').trim());
+  const comp = extractBrandFromTopic(kw, (company || '').trim());
   const tId = Number(typeId) || 2;
   const mainEntity = comp ? `${comp} · ${kw}` : kw;
 
@@ -2067,6 +2192,8 @@ if (typeof module !== 'undefined' && module.exports) {
     detectBestContentType,
     recommendMkPickCategory,
     paraphraseNewsToMkFact,
+    cleanTrendTopicKeyword,
+    extractBrandFromTopic,
     isVirtualIdolQuery,
     getVirtualIdolScenario,
     buildPresetScenario,
@@ -2085,6 +2212,8 @@ if (typeof module !== 'undefined' && module.exports) {
     detectBestContentType,
     recommendMkPickCategory,
     paraphraseNewsToMkFact,
+    cleanTrendTopicKeyword,
+    extractBrandFromTopic,
     isVirtualIdolQuery,
     getVirtualIdolScenario,
     buildPresetScenario,
