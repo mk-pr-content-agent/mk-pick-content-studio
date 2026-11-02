@@ -19,12 +19,17 @@
   } = window.MK_MOCK_DATA;
   const buildDynamicScenario = window.MK_MOCK_DATA.buildDynamicScenario || buildDynamicWorkFromNews;
 
+  const DEFAULT_MAIN_TAB_ORDER = ['trends', 'calendar', 'works'];
+  const DEFAULT_TREND_TAB_ORDER = ['shortform', 'newsletter', 'portal', 'google', 'brandpromo'];
+
   const state = {
     screen: 'home', // 'home' | 'editor'
     works: [],
     currentWork: null,
     trendTab: 'shortform', // 'shortform' | 'newsletter' | 'portal' | 'google' | 'brandpromo'
     homeDiscoveryTab: 'trends', // 'trends' | 'calendar' | 'works'
+    homeMainTabOrder: [...DEFAULT_MAIN_TAB_ORDER],
+    trendTabOrder: [...DEFAULT_TREND_TAB_ORDER],
     calendarMonth: new Date().getMonth() + 1 || 10,
     showExternalCalendarEmbed: false,
     externalCalProvider: 'nasmedia', // 'nasmedia' | 'iboss'
@@ -1023,6 +1028,12 @@
               if (uiState.screen === 'editor') state.screen = 'editor';
             }
           }
+          if (Array.isArray(uiState.homeMainTabOrder) && uiState.homeMainTabOrder.length === DEFAULT_MAIN_TAB_ORDER.length && DEFAULT_MAIN_TAB_ORDER.every(k => uiState.homeMainTabOrder.includes(k))) {
+            state.homeMainTabOrder = uiState.homeMainTabOrder;
+          }
+          if (Array.isArray(uiState.trendTabOrder) && uiState.trendTabOrder.length === DEFAULT_TREND_TAB_ORDER.length && DEFAULT_TREND_TAB_ORDER.every(k => uiState.trendTabOrder.includes(k))) {
+            state.trendTabOrder = uiState.trendTabOrder;
+          }
           if (uiState.homeDiscoveryTab) state.homeDiscoveryTab = uiState.homeDiscoveryTab;
           if (uiState.trendTab) state.trendTab = uiState.trendTab;
         }
@@ -1323,7 +1334,9 @@
         screen: state.screen,
         currentWorkId: state.currentWork?.id || null,
         homeDiscoveryTab: state.homeDiscoveryTab,
-        trendTab: state.trendTab
+        trendTab: state.trendTab,
+        homeMainTabOrder: state.homeMainTabOrder,
+        trendTabOrder: state.trendTabOrder
       }));
     } catch (e) {}
     const root = document.getElementById('appRoot');
@@ -1696,16 +1709,28 @@
       <!-- 2. 하단 통합 소재 발굴 & 작업 보관함 카드 (3개 탭으로 분리해 한 번에 하나씩만 깔끔하게 표시!) -->
       <div class="card" style="padding: 0; overflow: hidden;">
         <div class="home-main-tab-bar">
-          <div class="home-main-tabs">
-            <button type="button" class="home-main-tab-btn ${state.homeDiscoveryTab === 'trends' ? 'active' : ''}" data-home-main-tab="trends">
-              🔥 실시간 트렌드 추천
-            </button>
-            <button type="button" class="home-main-tab-btn ${state.homeDiscoveryTab === 'calendar' ? 'active' : ''}" data-home-main-tab="calendar">
-              📅 2026 월별 마케팅 캘린더
-            </button>
-            <button type="button" class="home-main-tab-btn ${state.homeDiscoveryTab === 'works' ? 'active' : ''}" data-home-main-tab="works">
-              📂 최근 작업한 기사 (${state.works.length})
-            </button>
+          <div class="home-main-tabs" id="homeMainTabsContainer">
+            ${(state.homeMainTabOrder || DEFAULT_MAIN_TAB_ORDER).map((tabKey, idx, arr) => {
+              const mainTabLabels = {
+                trends: '🔥 실시간 트렌드 추천',
+                calendar: '📅 2026 월별 마케팅 캘린더',
+                works: `📂 최근 작업한 기사 (${state.works.length})`
+              };
+              const isAct = state.homeDiscoveryTab === tabKey;
+              return `
+                <button
+                  type="button"
+                  draggable="true"
+                  class="home-main-tab-btn draggable-tab ${isAct ? 'active' : ''}"
+                  data-home-main-tab="${tabKey}"
+                  title="마우스로 드래그하여 탭 순서를 자유롭게 변경할 수 있습니다"
+                >
+                  ${state.isEditingTabOrder && idx > 0 ? `<span class="tab-move-arrow" data-move-main-tab="${tabKey}" data-move-dir="-1" title="왼쪽으로 이동">◀</span>` : ''}
+                  <span class="tab-grip-icon">⠿</span>${mainTabLabels[tabKey] || tabKey}
+                  ${state.isEditingTabOrder && idx < arr.length - 1 ? `<span class="tab-move-arrow" data-move-main-tab="${tabKey}" data-move-dir="1" title="오른쪽으로 이동">▶</span>` : ''}
+                </button>
+              `;
+            }).join('')}
           </div>
 
           <div class="flex-row" style="padding: 8px 0; gap: 10px;">
@@ -1742,28 +1767,47 @@
                 <span style="font-size: 11.5px; color: var(--text-secondary); white-space: nowrap;">기존 목록을 보시면서 바로 클릭하셔도 됩니다</span>
               </div>
             ` : ''}
-            <div class="flex-between mb-8">
+            <div class="flex-between mb-8" style="flex-wrap: wrap; gap: 8px;">
               <p style="font-size: 13px; color: var(--text-secondary);">
                 원하는 트렌드 키워드를 클릭하면 가장 알맞은 콘텐츠 유형(01~05)과 카테고리로 <strong>즉시 기사 초안이 생성</strong>됩니다.
               </p>
+              <div class="flex-row" style="gap: 8px;">
+                <span style="font-size: 11.5px; color: var(--text-muted);">⠿ 탭을 마우스로 끌어 순서 이동 가능</span>
+                <button type="button" class="text-action" id="toggleTabReorderModeBtn" style="font-size: 11.5px; color: ${state.isEditingTabOrder ? 'var(--mk-orange)' : 'var(--text-secondary)'}; font-weight: ${state.isEditingTabOrder ? '800' : '600'};">
+                  ${state.isEditingTabOrder ? '✓ 순서 편집 완료' : '⇄ 화살표로 탭 순서 바꾸기'}
+                </button>
+                ${(JSON.stringify(state.trendTabOrder) !== JSON.stringify(DEFAULT_TREND_TAB_ORDER) || JSON.stringify(state.homeMainTabOrder) !== JSON.stringify(DEFAULT_MAIN_TAB_ORDER)) ? `
+                  <button type="button" class="text-action" id="resetTabOrderBtn" style="font-size: 11.5px; color: var(--text-muted);" title="탭 순서를 초기 기본 순서로 되돌립니다">
+                    ↺ 기본 순서 복원
+                  </button>
+                ` : ''}
+              </div>
             </div>
 
-            <div class="trend-clean-tab-bar">
-              <button type="button" class="trend-clean-tab ${state.trendTab === 'shortform' ? 'active' : ''}" data-trend-tab="shortform">
-                유튜브 쇼츠 · 릴스 화제 (${(state.trendRadar.shortFormTrends || []).length})
-              </button>
-              <button type="button" class="trend-clean-tab ${state.trendTab === 'newsletter' ? 'active' : ''}" data-trend-tab="newsletter">
-                트렌드 뉴스레터 · MZ 키워드 (${state.trendRadar.newsletterTrends.length})
-              </button>
-              <button type="button" class="trend-clean-tab ${state.trendTab === 'portal' ? 'active' : ''}" data-trend-tab="portal">
-                네이버 · 포털 유통 화제 (${state.trendRadar.portalRetailTrends.length})
-              </button>
-              <button type="button" class="trend-clean-tab ${state.trendTab === 'google' ? 'active' : ''}" data-trend-tab="google">
-                구글 트렌드 급상승 (${state.trendRadar.googleTrends.length})
-              </button>
-              <button type="button" class="trend-clean-tab ${state.trendTab === 'brandpromo' ? 'active' : ''}" data-trend-tab="brandpromo">
-                🎁 브랜드 신상 · 프로모션 뉴스 (${(state.trendRadar.brandPromoTrends || []).length})
-              </button>
+            <div class="trend-clean-tab-bar" id="trendCleanTabBarContainer" style="flex-wrap: wrap;">
+              ${(state.trendTabOrder || DEFAULT_TREND_TAB_ORDER).map((tKey, idx, arr) => {
+                const trendTabMeta = {
+                  shortform: `유튜브 쇼츠 · 릴스 화제 (${(state.trendRadar.shortFormTrends || []).length})`,
+                  newsletter: `트렌드 뉴스레터 · MZ 키워드 (${(state.trendRadar.newsletterTrends || []).length})`,
+                  portal: `네이버 · 포털 유통 화제 (${(state.trendRadar.portalRetailTrends || []).length})`,
+                  google: `구글 트렌드 급상승 (${(state.trendRadar.googleTrends || []).length})`,
+                  brandpromo: `🎁 브랜드 신상 · 프로모션 뉴스 (${(state.trendRadar.brandPromoTrends || []).length})`
+                };
+                const isAct = state.trendTab === tKey;
+                return `
+                  <button
+                    type="button"
+                    draggable="true"
+                    class="trend-clean-tab draggable-tab ${isAct ? 'active' : ''}"
+                    data-trend-tab="${tKey}"
+                    title="마우스로 드래그하여 탭 순서를 자유롭게 변경할 수 있습니다"
+                  >
+                    ${state.isEditingTabOrder && idx > 0 ? `<span class="tab-move-arrow" data-move-trend-tab="${tKey}" data-move-dir="-1" title="왼쪽으로 이동">◀</span>` : ''}
+                    <span class="tab-grip-icon">⠿</span>${trendTabMeta[tKey] || tKey}
+                    ${state.isEditingTabOrder && idx < arr.length - 1 ? `<span class="tab-move-arrow" data-move-trend-tab="${tKey}" data-move-dir="1" title="오른쪽으로 이동">▶</span>` : ''}
+                  </button>
+                `;
+              }).join('')}
             </div>
 
             <div class="trend-clean-grid">
@@ -2007,22 +2051,139 @@
       });
     });
 
-    // 하단 3개 메인 탭 전환 (🔥 실시간 트렌드 / 📅 2026 마케팅 캘린더 / 📂 최근 작업 기사)
-    root.querySelectorAll('[data-home-main-tab]').forEach(btn => {
-      btn.addEventListener('click', () => {
+    // 탭 드래그 앤 드롭 & 화살표 순서 변경 공통 헬퍼
+    function bindReorderableTabBar(selector, attrName, getOrderArr, setOrderArr, onSelectTab) {
+      let draggedKey = null;
+      const tabs = Array.from(root.querySelectorAll(selector));
+
+      tabs.forEach(btn => {
+        btn.addEventListener('click', e => {
+          if (e.target.closest('.tab-move-arrow')) return;
+          syncHomeInputs();
+          const key = btn.getAttribute(attrName);
+          onSelectTab(key);
+          render(true);
+        });
+
+        btn.addEventListener('dragstart', e => {
+          draggedKey = btn.getAttribute(attrName);
+          btn.classList.add('tab-dragging');
+          if (e.dataTransfer) {
+            e.dataTransfer.effectAllowed = 'move';
+            e.dataTransfer.setData('text/plain', draggedKey);
+          }
+        });
+
+        btn.addEventListener('dragover', e => {
+          e.preventDefault();
+          const targetKey = btn.getAttribute(attrName);
+          if (!draggedKey || draggedKey === targetKey) return;
+          if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+          const rect = btn.getBoundingClientRect();
+          const insertBefore = (e.clientX - rect.left) < rect.width / 2;
+          btn.classList.toggle('tab-drag-over-left', insertBefore);
+          btn.classList.toggle('tab-drag-over-right', !insertBefore);
+        });
+
+        btn.addEventListener('dragleave', () => {
+          btn.classList.remove('tab-drag-over-left', 'tab-drag-over-right');
+        });
+
+        btn.addEventListener('drop', e => {
+          e.preventDefault();
+          btn.classList.remove('tab-drag-over-left', 'tab-drag-over-right');
+          const targetKey = btn.getAttribute(attrName);
+          const fromKey = draggedKey || (e.dataTransfer && e.dataTransfer.getData('text/plain'));
+          if (!fromKey || !targetKey || fromKey === targetKey) return;
+
+          const rect = btn.getBoundingClientRect();
+          const insertBefore = (e.clientX - rect.left) < rect.width / 2;
+          const nextOrder = getOrderArr().filter(k => k !== fromKey);
+          const targetIdx = nextOrder.indexOf(targetKey);
+          if (targetIdx === -1) return;
+          nextOrder.splice(insertBefore ? targetIdx : targetIdx + 1, 0, fromKey);
+
+          syncHomeInputs();
+          setOrderArr(nextOrder);
+          onSelectTab(fromKey);
+          showToast('✓ 탭 순서가 변경되어 자동 저장되었습니다.');
+          render(true);
+        });
+
+        btn.addEventListener('dragend', () => {
+          draggedKey = null;
+          tabs.forEach(t => t.classList.remove('tab-dragging', 'tab-drag-over-left', 'tab-drag-over-right'));
+        });
+      });
+    }
+
+    // 하단 3개 메인 탭 전환 및 드래그 순서 변경 (🔥 실시간 트렌드 / 📅 2026 마케팅 캘린더 / 📂 최근 작업 기사)
+    bindReorderableTabBar(
+      '[data-home-main-tab]',
+      'data-home-main-tab',
+      () => [...(state.homeMainTabOrder || DEFAULT_MAIN_TAB_ORDER)],
+      nextArr => { state.homeMainTabOrder = nextArr; },
+      key => { state.homeDiscoveryTab = key; }
+    );
+
+    // 트렌드 레이더 5개 서브 탭 전환 및 드래그 순서 변경
+    bindReorderableTabBar(
+      '[data-trend-tab]',
+      'data-trend-tab',
+      () => [...(state.trendTabOrder || DEFAULT_TREND_TAB_ORDER)],
+      nextArr => { state.trendTabOrder = nextArr; },
+      key => { state.trendTab = key; }
+    );
+
+    // 화살표(◀ ▶) 클릭으로 메인 탭 순서 이동
+    root.querySelectorAll('[data-move-main-tab]').forEach(arrow => {
+      arrow.addEventListener('click', e => {
+        e.stopPropagation();
+        const key = arrow.getAttribute('data-move-main-tab');
+        const dir = Number(arrow.getAttribute('data-move-dir'));
+        const arr = [...(state.homeMainTabOrder || DEFAULT_MAIN_TAB_ORDER)];
+        const idx = arr.indexOf(key);
+        const nextIdx = idx + dir;
+        if (idx === -1 || nextIdx < 0 || nextIdx >= arr.length) return;
+        const [item] = arr.splice(idx, 1);
+        arr.splice(nextIdx, 0, item);
         syncHomeInputs();
-        state.homeDiscoveryTab = btn.getAttribute('data-home-main-tab');
+        state.homeMainTabOrder = arr;
         render(true);
       });
     });
 
-    // 트렌드 레이더 서브 탭 전환
-    root.querySelectorAll('[data-trend-tab]').forEach(btn => {
-      btn.addEventListener('click', () => {
+    // 화살표(◀ ▶) 클릭으로 트렌드 서브 탭 순서 이동
+    root.querySelectorAll('[data-move-trend-tab]').forEach(arrow => {
+      arrow.addEventListener('click', e => {
+        e.stopPropagation();
+        const key = arrow.getAttribute('data-move-trend-tab');
+        const dir = Number(arrow.getAttribute('data-move-dir'));
+        const arr = [...(state.trendTabOrder || DEFAULT_TREND_TAB_ORDER)];
+        const idx = arr.indexOf(key);
+        const nextIdx = idx + dir;
+        if (idx === -1 || nextIdx < 0 || nextIdx >= arr.length) return;
+        const [item] = arr.splice(idx, 1);
+        arr.splice(nextIdx, 0, item);
         syncHomeInputs();
-        state.trendTab = btn.getAttribute('data-trend-tab');
+        state.trendTabOrder = arr;
         render(true);
       });
+    });
+
+    document.getElementById('toggleTabReorderModeBtn')?.addEventListener('click', () => {
+      syncHomeInputs();
+      state.isEditingTabOrder = !state.isEditingTabOrder;
+      render(true);
+    });
+
+    document.getElementById('resetTabOrderBtn')?.addEventListener('click', () => {
+      syncHomeInputs();
+      state.homeMainTabOrder = [...DEFAULT_MAIN_TAB_ORDER];
+      state.trendTabOrder = [...DEFAULT_TREND_TAB_ORDER];
+      state.isEditingTabOrder = false;
+      showToast('↺ 탭 순서가 초기 기본 상태로 복원되었습니다.');
+      render(true);
     });
 
     document.getElementById('refreshTrendRadarBtn')?.addEventListener('click', async () => {

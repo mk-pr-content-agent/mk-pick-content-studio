@@ -817,3 +817,67 @@ table.mk-table th {
   border: var(--border-thin);
   font-size: 13px;
 }
+
+/* 탭 순서 드래그 앤 드롭 & 화살표 이동 스타일 */
+.draggable-tab {
+  position: relative;
+  user-select: none;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease, opacity 0.15s ease, box-shadow 0.15s ease;
+}
+
+.draggable-tab .tab-grip-icon {
+  display: inline-block;
+  font-size: 11px;
+  color: var(--text-muted);
+  opacity: 0;
+  margin-right: 3px;
+  cursor: grab;
+  transition: opacity 0.15s ease;
+  vertical-align: middle;
+}
+
+.draggable-tab:hover .tab-grip-icon {
+  opacity: 0.7;
+}
+
+.draggable-tab:active .tab-grip-icon {
+  cursor: grabbing;
+}
+
+.draggable-tab.tab-dragging {
+  opacity: 0.45;
+  background-color: var(--mk-orange-light);
+}
+
+.draggable-tab.tab-drag-over-left {
+  box-shadow: inset 3px 0 0 0 var(--mk-orange);
+  background-color: var(--mk-orange-light);
+}
+
+.draggable-tab.tab-drag-over-right {
+  box-shadow: inset -3px 0 0 0 var(--mk-orange);
+  background-color: var(--mk-orange-light);
+}
+
+.tab-move-arrow {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  font-size: 10px;
+  font-weight: 800;
+  color: var(--mk-orange);
+  background-color: var(--mk-orange-light);
+  border: 1px solid var(--mk-orange-border);
+  border-radius: 4px;
+  margin: 0 2px;
+  cursor: pointer;
+  vertical-align: middle;
+}
+
+.tab-move-arrow:hover {
+  background-color: var(--mk-orange);
+  color: var(--white);
+}
