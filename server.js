@@ -257,7 +257,55 @@ function recordPerplexityUsage(usage = {}, callType = 'draft') {
   savePersistedUsageStats();
 }
 
-// JSON 문자열 파싱 안전 헬퍼 (코드블록 제거, 트레일링 콤마 교정 등)
+// JSON 문자열 내부의 이스케이프되지 않은 큰따옴표(")와 줄바꿈을 안전하게 보정하는 헬퍼
+function repairUnescapedQuotesInJson(raw = '') {
+  let out = '';
+  let inStr = false;
+  let escaped = false;
+  const len = raw.length;
+  for (let i = 0; i < len; i++) {
+    const ch = raw[i];
+    if (escaped) {
+      out += ch;
+      escaped = false;
+      continue;
+    }
+    if (ch === '\\') {
+      out += ch;
+      escaped = true;
+      continue;
+    }
+    if (ch === '"') {
+      if (!inStr) {
+        inStr = true;
+        out += ch;
+      } else {
+        // 다음 공백 아닌 문자가 :, ,, }, ] 인지 확인하여 문자열 종료 따옴표인지 판별
+        let j = i + 1;
+        while (j < len && (raw[j] === ' ' || raw[j] === '\t' || raw[j] === '\r' || raw[j] === '\n')) {
+          j++;
+        }
+        const nextChar = raw[j];
+        if (nextChar === ':' || nextChar === ',' || nextChar === '}' || nextChar === ']' || j >= len) {
+          inStr = false;
+          out += ch;
+        } else {
+          // 문자열 내부의 이스케이프 안 된 큰따옴표는 유니코드 겹따옴표(“/”)로 치환
+          out += '“';
+        }
+      }
+      continue;
+    }
+    if (inStr && (ch === '\n' || ch === '\r')) {
+      out += ch === '\n' ? '\\n' : '';
+      continue;
+    }
+    out += ch;
+  }
+  return out;
+}
+
+// JSON 문자열 파싱 안전 헬퍼 (코드블록 제거, 트레일링 콤마 교정, 내부 따옴표 자동 복구 등)
 function safeParseJsonFromText(rawText = '') {
   const cleaned = String(rawText || '')
     .replace(/```json/gi, '')
@@ -265,17 +313,21 @@ function safeParseJsonFromText(rawText = '') {
     .trim();
   const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
   if (!jsonMatch) {
-    throw new Error('Perplexity(google/gemini-4-argon) 응답에서 JSON 구조를 추출하지 못했습니다.');
+    throw new Error('Perplexity 응답에서 JSON 구조를 추출하지 못했습니다.');
   }
   let candidate = jsonMatch[0];
   try {
     return JSON.parse(candidate);
   } catch (firstErr) {
-    // 트레일링 콤마(,)나 제어문자 제거 후 재시도
-    const repaired = candidate
-      .replace(/,\s*([\]}])/g, '$1')
-      .replace(/[\u0000-\u0019]+/g, ' ');
-    return JSON.parse(repaired);
+    try {
+      const repairedQuotes = repairUnescapedQuotesInJson(candidate).replace(/,\s*([\]}])/g, '$1');
+      return JSON.parse(repairedQuotes);
+    } catch (secondErr) {
+      const repaired = repairUnescapedQuotesInJson(candidate)
+        .replace(/,\s*([\]}])/g, '$1')
+        .replace(/[\u0000-\u0019]+/g, ' ');
+      return JSON.parse(repaired);
+    }
   }
 }
 
@@ -323,74 +375,109 @@ function matchBestSearchResultServer(rf, searchResults = [], usedUrls = new Set(
   return searchResults[0] || null;
 }
 
-// Perplexity Responses API (/v1/responses, model: "google/gemini-4-argon") 호출 헬퍼
+// Perplexity Responses API (/v1/responses, model: "google/gemini-4-argon") + Sonar Pro (/chat/completions) 이중 안전 폴백 호출 헬퍼
 async function callPerplexityJson(apiKey, systemPrompt, userPrompt, recencyFilter = 'month', callType = 'draft') {
   const maxOutTokens = callType === 'trend' ? 6500 : 8192;
-  const payload = {
-    model: DEFAULT_PPLX_MODEL,
-    tools: [{ type: 'web_search' }],
-    instructions: systemPrompt,
-    input: userPrompt,
-    max_output_tokens: maxOutTokens
-  };
+  try {
+    const payload = {
+      model: DEFAULT_PPLX_MODEL,
+      tools: [{ type: 'web_search' }],
+      instructions: systemPrompt,
+      input: userPrompt,
+      max_output_tokens: maxOutTokens
+    };
 
-  const res = await fetch('https://api.perplexity.ai/v1/responses', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${apiKey.trim()}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify(payload)
-  });
+    const res = await fetch('https://api.perplexity.ai/v1/responses', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey.trim()}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(payload)
+    });
 
-  if (!res.ok) {
-    const errText = await res.text().catch(() => '');
-    throw new Error(`Perplexity API(${DEFAULT_PPLX_MODEL}) 호출 실패 (${res.status}): ${errText.slice(0, 120)}`);
-  }
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '');
+      throw new Error(`Perplexity API(${DEFAULT_PPLX_MODEL}) 호출 실패 (${res.status}): ${errText.slice(0, 120)}`);
+    }
 
-  const data = await res.json();
-  recordPerplexityUsage(data?.usage, callType);
+    const data = await res.json();
+    recordPerplexityUsage(data?.usage, callType);
 
-  const rawSearchResults = [];
-  let content = '';
-  if (Array.isArray(data?.output)) {
-    for (const item of data.output) {
-      if (Array.isArray(item?.results)) {
-        rawSearchResults.push(...item.results);
-      }
-      if (Array.isArray(item?.content)) {
-        for (const block of item.content) {
-          if (typeof block?.text === 'string') {
-            content += block.text;
+    const rawSearchResults = [];
+    let content = '';
+    if (Array.isArray(data?.output)) {
+      for (const item of data.output) {
+        if (Array.isArray(item?.results)) {
+          rawSearchResults.push(...item.results);
+        }
+        if (Array.isArray(item?.content)) {
+          for (const block of item.content) {
+            if (typeof block?.text === 'string') {
+              content += block.text;
+            }
           }
         }
       }
     }
+    if (!content && typeof data?.output_text === 'string' && data.output_text.trim()) {
+      content = data.output_text;
+    } else if (!content) {
+      content = data?.choices?.[0]?.message?.content || '';
+    }
+
+    const seenUrls = new Set();
+    const searchResults = rawSearchResults
+      .filter(r => r && isRealArticleUrl(r.url))
+      .filter(r => {
+        const u = r.url.trim();
+        if (seenUrls.has(u)) return false;
+        seenUrls.add(u);
+        return true;
+      })
+      .sort((a, b) => String(b.last_updated || b.date || '').localeCompare(String(a.last_updated || a.date || '')));
+
+    const citations = [
+      ...searchResults.map(r => r.url.trim()),
+      ...(Array.isArray(data?.citations) ? data.citations.filter(isRealArticleUrl) : [])
+    ].filter((u, idx, arr) => arr.indexOf(u) === idx);
+
+    const parsed = stripCitationBrackets(safeParseJsonFromText(content));
+    return { parsed, citations, searchResults };
+  } catch (primaryErr) {
+    // 1차 모델 호출 또는 JSON 파싱 실패 시 Perplexity 실시간 뉴스·인용 특화 모델(sonar-pro)로 자동 재시도
+    const fallbackRes = await fetch('https://api.perplexity.ai/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey.trim()}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: 'sonar-pro',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt }
+        ],
+        max_tokens: 4096,
+        temperature: 0.2
+      })
+    });
+    if (!fallbackRes.ok) {
+      throw primaryErr;
+    }
+    const fbData = await fallbackRes.json();
+    recordPerplexityUsage(fbData?.usage, callType);
+    const fbContent = fbData?.choices?.[0]?.message?.content || '';
+    const fbSearchResults = Array.isArray(fbData?.search_results)
+      ? fbData.search_results.filter(r => r && isRealArticleUrl(r.url))
+      : [];
+    const fbCitations = [
+      ...fbSearchResults.map(r => r.url.trim()),
+      ...(Array.isArray(fbData?.citations) ? fbData.citations.filter(isRealArticleUrl) : [])
+    ].filter((u, idx, arr) => arr.indexOf(u) === idx);
+    const parsed = stripCitationBrackets(safeParseJsonFromText(fbContent));
+    return { parsed, citations: fbCitations, searchResults: fbSearchResults };
   }
-  if (!content && typeof data?.output_text === 'string' && data.output_text.trim()) {
-    content = data.output_text;
-  } else if (!content) {
-    content = data?.choices?.[0]?.message?.content || '';
-  }
-
-  const seenUrls = new Set();
-  const searchResults = rawSearchResults
-    .filter(r => r && isRealArticleUrl(r.url))
-    .filter(r => {
-      const u = r.url.trim();
-      if (seenUrls.has(u)) return false;
-      seenUrls.add(u);
-      return true;
-    })
-    .sort((a, b) => String(b.last_updated || b.date || '').localeCompare(String(a.last_updated || a.date || '')));
-
-  const citations = [
-    ...searchResults.map(r => r.url.trim()),
-    ...(Array.isArray(data?.citations) ? data.citations.filter(isRealArticleUrl) : [])
-  ].filter((u, idx, arr) => arr.indexOf(u) === idx);
-
-  const parsed = stripCitationBrackets(safeParseJsonFromText(content));
-  return { parsed, citations, searchResults };
 }
 
 // Perplexity API + 최근 7일 실시간 뉴스·쇼츠·구글트렌드 원시 데이터를 결합해 '진짜 이번 주 최신 트렌드' 발굴 (5개 탭별 10개씩, 탭 간 중복 방지)
@@ -449,13 +536,13 @@ async function buildPerplexityEnhancedScenario({ apiKey, keyword: rawKeyword, co
   const isHistoryTopic = /(?:계보|변천사|타임라인|역사|세대별\s*진화)/.test(keyword);
 
   const typeInstructions = {
-    1: '유형 1(유료 업체 타겟팅 기획 콘텐츠): 1단락은 소비자 공감 질문 도입과 과거 일괄 방식 vs 최근 맞춤형 소비 트렌드 비교, 2~4단락은 타깃 파트너사 및 주요 업체·플랫폼별 핵심 서비스·혜택·강점을 구체적으로 소개, 마지막 단락은 실패 없는 업체·서비스 선택 기준 제시. 요약표는 업체·서비스별 비교표, 용어 사전 3~4개, FAQ는 7문항.',
-    2: '유형 2(특정 기념일 관련 콘텐츠): 1단락은 기념일 유래·법적 지정 배경과 의미, 2단락은 정부·지자체 공식 지원 제도 및 바우처 안내, 3~4단락은 이 기념일을 맞아 참여하는 주요 브랜드·기업별 캠페인·제품·할인 프로모션을 구체적으로 소개. 요약표는 참여 브랜드·기관별 혜택 비교표, 용어 사전 3~4개, FAQ는 5문항.',
+    1: '유형 1(파트너사·서비스 비교 기획 콘텐츠): 선택된 유형의 틀에 억지로 끼워 맞추지 말고, 검색된 최신 뉴스 팩트를 바탕으로 1단락은 소비자 핵심 고민과 최신 트렌드 배경, 2~3단락은 실제 기업·서비스의 핵심 혜택과 차별점을 실명으로 분석(절대 브랜드 A/B/C 같은 가상 알파벳 표기 금지!), 마지막 단락은 선택 체크포인트 제시. 요약표는 비교표, 용어 사전 4개, FAQ는 7문항.',
+    2: '유형 2(시즌·기념일·주요 일정 맞춤형 콘텐츠): 절대로 모든 주제를 "왜 하필 이날로 지정됐을까 / 정부24 바우처 / 브랜드 A~E" 같은 기계적인 틀에 억지로 끼워 맞추지 마세요! 입력된 키워드(예: 수능, 빼빼로데이, 김장철, 임산부의 날 등)의 실제 성격과 최신 뉴스 보도에 100% 맞춰, 그 주제의 핵심 이슈·일정·실제 기업 프로모션·독자 체크포인트를 가장 자연스러운 소제목과 단락으로 구성하세요. (가상 알파벳 브랜드 A/B/C 절대 금지!) 요약표는 핵심 비교표, 용어 사전 4개, FAQ는 5문항.',
     3: isHistoryTopic
       ? '유형 3(시대별 계보·트렌드 변천사 심층 분석): 사용자가 계보·변천사 주제를 입력했으므로 초창기 원조부터 전환기, 현재 대표 주자들까지 흐름에 따라 각 주자를 단락별로 조명하고 비교 요약표와 FAQ 5문항으로 정리.'
-      : '유형 3(최신 트렌드 반영 콘텐츠 1 - 트렌드·소비현상 심층 분석): 1단락은 독자의 일상 공감 질문 도입과 왜 지금 이 트렌드·키워드가 부상했는지 배경 및 소비자 심리 분석, 2~3단락은 트렌드를 구성하는 핵심 요소·카테고리·대표 사례를 구체적 수치·브랜드 사례와 함께 심층 분석, 마지막 단락은 소비자를 위한 현명한 활용 가이드 및 시장 시사점 제시. (억지로 연도별 역사나 1990년대/2000년대 타임라인을 만들지 말 것!) 요약표는 핵심 요소·사례 비교표, 용어 사전 3~4개, FAQ 5문항.',
-    4: '유형 4(최신 트렌드 반영 콘텐츠 2 - 신상품·뷰티·유통 아이템 및 시즌 루틴·라인업 분석): 1단락은 계절·일상 속 소비자 고민(예: 환절기 피부 고민, 장바구니 물가 등)에 공감하는 질문 도입과 왜 요즘 이 아이템·조합이 주목받는지 핵심 배경 설명, 이어지는 단락들은 입력된 키워드·제품군·대표 브랜드 상품들의 특징·성분·규격·차별점을 단락별로 알기 쉽게 상세 소개(여러 키워드나 소재가 입력되었으면 각 소재·아이템의 역할과 대표 제품 사례를 자연스럽게 나누어 설명), 마지막 단락은 똑똑한 제품 선택 기준과 사용·구매 팁 정리. (절대 억지로 2000년대~2010년대 같은 연도별 타임라인이나 탄생 배경/활동 방식의 한계/Bonus Track 틀에 끼워 맞추지 말 것!) 요약표는 카테고리·제품별 핵심 특징·성분·활용법 비교표, 용어 사전 3~4개, FAQ는 5문항.',
-    5: '유형 5(영업 기업 맞춤 기획 콘텐츠): 1단락은 독자 질문 도입 1문단 뒤 Q1~Q4 시장 메가 트렌드·소비자 페인포인트 문답, 2단락은 Q5~Q6 선택 기준 문답, 3단락은 Q7에서 영업 타깃 기업의 핵심 솔루션·경쟁력을 집중 소개. 요약표는 대상 기업 핵심 기능·기대효과 요약표, 용어 사전 3~4개, FAQ는 7문항.'
+      : '유형 3(최신 트렌드·이슈 심층 분석 콘텐츠 1): 선택된 유형의 틀에 억지로 끼워 맞추지 말고, 최신 뉴스 검색 결과를 바탕으로 1단락은 왜 지금 이 키워드·이슈가 주목받는지 배경 분석, 2~3단락은 최신 보도된 핵심 팩트·사례·수치·시장 반응을 심층 분석, 마지막 단락은 독자를 위한 실전 활용 가이드 및 전망 제시. 요약표는 핵심 비교표, 용어 사전 4개, FAQ 5문항.',
+    4: '유형 4(최신 트렌드·신상품·라이프스타일 콘텐츠 2): 선택된 유형의 틀에 억지로 끼워 맞추지 말고, 입력된 키워드의 최신 뉴스와 실제 출시·진행 팩트를 검색하여 1단락은 화제 배경과 소비자 니즈, 2~3단락은 실제 브랜드·제품·메뉴·혜택의 구체적 특징과 최신 근황, 마지막 단락은 구매·이용 팁을 자연스럽게 구성하세요. 요약표는 핵심 비교표, 용어 사전 4개, FAQ는 5문항.',
+    5: '유형 5(영업 기업 맞춤 기획 콘텐츠): 1단락은 독자 질문 도입 1문단 뒤 Q1~Q4 시장 메가 트렌드·소비자 페인포인트 문답, 2단락은 Q5~Q6 선택 기준 문답, 3단락은 Q7에서 영업 타깃 기업의 핵심 솔루션·경쟁력을 집중 소개. 요약표는 대상 기업 핵심 기능·기대효과 요약표, 용어 사전 4개, FAQ는 7문항.'
   };
 
   const faqCount = (typeId === 1 || typeId === 5) ? 7 : 5;
@@ -512,19 +599,19 @@ ${newsContext || '매칭된 언론 보도 기사가 0건입니다! 가상(AI 생
   "mkCategory": "산업 Q&A | 제품·기술 | 성공사례 | 기업뉴스 | 브랜드스토리(기업관) 중 택 1",
   "mkCategoryReason": "이 기사에 해당 MK Pick 카테고리를 추천한 이유 1문장 (~합니다 체)",
   "titleCandidates": [
-    {"id": "tc-1", "title": "\\"큰따옴표 인용구\\"…핵심 키워드 포함 설명형 제목", "totalScore": 96},
-    {"id": "tc-2", "title": "\\"큰따옴표 인용구\\"…설명형 제목 2", "totalScore": 93},
-    {"id": "tc-3", "title": "\\"큰따옴표 인용구\\"…설명형 제목 3", "totalScore": 90},
-    {"id": "tc-4", "title": "\\"큰따옴표 인용구\\"…설명형 제목 4", "totalScore": 88},
-    {"id": "tc-5", "title": "\\"큰따옴표 인용구\\"…설명형 제목 5", "totalScore": 85}
+    {"id": "tc-1", "title": "“큰따옴표 인용구”…핵심 키워드 포함 설명형 제목", "totalScore": 96},
+    {"id": "tc-2", "title": "“큰따옴표 인용구”…설명형 제목 2", "totalScore": 93},
+    {"id": "tc-3", "title": "“큰따옴표 인용구”…설명형 제목 3", "totalScore": 90},
+    {"id": "tc-4", "title": "“큰따옴표 인용구”…설명형 제목 4", "totalScore": 88},
+    {"id": "tc-5", "title": "“큰따옴표 인용구”…설명형 제목 5", "totalScore": 85}
   ],
   "researchFacts": [
-    {"category": "최신 보도 핵심 팩트", "sourceTitle": "[언론사명 · YYYY-MM-DD] 가장 최근 보도된 실제 뉴스 제목 1", "sourceUrl": "웹 검색 결과에 있는 해당 기사의 실제 원문 URL (https://...)", "pubDate": "YYYY-MM-DD", "fact": "가장 최신 수치(조회수, 출시일 등)와 근황이 포함된 ~합니다 체 팩트 문장 1"},
-    {"category": "후속 반응 · 최신 근황", "sourceTitle": "[언론사명 · YYYY-MM-DD] 최신 후속 보도 제목 2", "sourceUrl": "웹 검색 결과에 있는 해당 기사의 실제 원문 URL (https://...)", "pubDate": "YYYY-MM-DD", "fact": "최신 후속 반응·인터뷰·비하인드가 포함된 ~합니다 체 팩트 문장 2"},
-    {"category": "브랜드 · 신메뉴/제품 특징", "sourceTitle": "[언론사명 · YYYY-MM-DD] 공식 출시 메뉴·제품 특징 보도 제목 3", "sourceUrl": "웹 검색 결과에 있는 해당 기사의 실제 원문 URL (https://...)", "pubDate": "YYYY-MM-DD", "fact": "구체적인 제품·세트 구성·원재료·차별점이 포함된 ~합니다 체 팩트 문장 3"},
-    {"category": "소비자 · SNS 확산 배경", "sourceTitle": "[언론사명 · YYYY-MM-DD] 2030 소비자 및 숏폼 화제성 보도 제목 4", "sourceUrl": "웹 검색 결과에 있는 해당 기사의 실제 원문 URL (https://...)", "pubDate": "YYYY-MM-DD", "fact": "SNS·유튜브 쇼츠 확산 이유와 소비자 반응이 포함된 ~합니다 체 팩트 문장 4"},
-    {"category": "유통 · 프로모션 동향", "sourceTitle": "[언론사명 · YYYY-MM-DD] 매장·판매처·광고 협업 보도 제목 5", "sourceUrl": "웹 검색 결과에 있는 해당 기사의 실제 원문 URL (https://...)", "pubDate": "YYYY-MM-DD", "fact": "판매 채널·광고 협업·프로모션 동향이 포함된 ~합니다 체 팩트 문장 5"},
-    {"category": "가격 · 구성 및 이용 팁", "sourceTitle": "[언론사명 · YYYY-MM-DD] 가격·구성·구매 가이드 보도 제목 6", "sourceUrl": "웹 검색 결과에 있는 해당 기사의 실제 원문 URL (https://...)", "pubDate": "YYYY-MM-DD", "fact": "가격·구성·이용 시 참고할 점이 포함된 ~합니다 체 팩트 문장 6"}
+    {"category": "최신 보도 핵심 팩트", "sourceTitle": "[언론사명 · YYYY-MM-DD] 가장 최근 보도된 실제 뉴스 제목 1", "sourceUrl": "웹 검색 결과에 있는 해당 기사의 실제 원문 URL (https://...)", "pubDate": "YYYY-MM-DD", "usedInSection": 1, "fact": "본문 1단락에 반영된 가장 최신 수치(조회수, 출시일 등)와 근황이 포함된 ~합니다 체 팩트 문장 1"},
+    {"category": "후속 반응 · 최신 근황", "sourceTitle": "[언론사명 · YYYY-MM-DD] 최신 후속 보도 제목 2", "sourceUrl": "웹 검색 결과에 있는 해당 기사의 실제 원문 URL (https://...)", "pubDate": "YYYY-MM-DD", "usedInSection": 1, "fact": "본문 1~2단락에 반영된 최신 후속 반응·인터뷰·비하인드가 포함된 ~합니다 체 팩트 문장 2"},
+    {"category": "브랜드 · 신메뉴/제품 특징", "sourceTitle": "[언론사명 · YYYY-MM-DD] 공식 출시 메뉴·제품 특징 보도 제목 3", "sourceUrl": "웹 검색 결과에 있는 해당 기사의 실제 원문 URL (https://...)", "pubDate": "YYYY-MM-DD", "usedInSection": 2, "fact": "본문 2단락에 반영된 구체적인 제품·세트 구성·원재료·차별점이 포함된 ~합니다 체 팩트 문장 3"},
+    {"category": "소비자 · SNS 확산 배경", "sourceTitle": "[언론사명 · YYYY-MM-DD] 2030 소비자 및 숏폼 화제성 보도 제목 4", "sourceUrl": "웹 검색 결과에 있는 해당 기사의 실제 원문 URL (https://...)", "pubDate": "YYYY-MM-DD", "usedInSection": 2, "fact": "본문 2~3단락에 반영된 SNS·유튜브 쇼츠 확산 이유와 소비자 반응이 포함된 ~합니다 체 팩트 문장 4"},
+    {"category": "유통 · 프로모션 동향", "sourceTitle": "[언론사명 · YYYY-MM-DD] 매장·판매처·광고 협업 보도 제목 5", "sourceUrl": "웹 검색 결과에 있는 해당 기사의 실제 원문 URL (https://...)", "pubDate": "YYYY-MM-DD", "usedInSection": 3, "fact": "본문 3단락에 반영된 판매 채널·광고 협업·프로모션 동향이 포함된 ~합니다 체 팩트 문장 5"},
+    {"category": "가격 · 구성 및 이용 팁", "sourceTitle": "[언론사명 · YYYY-MM-DD] 가격·구성·구매 가이드 보도 제목 6", "sourceUrl": "웹 검색 결과에 있는 해당 기사의 실제 원문 URL (https://...)", "pubDate": "YYYY-MM-DD", "usedInSection": 4, "fact": "본문 마지막 단락에 반영된 가격·구성·이용 시 참고할 점이 포함된 ~합니다 체 팩트 문장 6"}
   ],
   "subtitle": "기사 부제 2줄 (줄바꿈 \\n 사용)",
   "aiFactSummary": [
@@ -620,7 +707,8 @@ ${newsContext || '매칭된 언론 보도 기사가 0건입니다! 가상(AI 생
       fact: rf.fact,
       rawReference: srcTitle,
       sourceUrl: directUrl,
-      sourceIds: [srcId]
+      sourceIds: [srcId],
+      usedInSection: Number(rf.usedInSection) || (i < 2 ? 1 : (i < 4 ? 2 : 3))
     };
   });
 

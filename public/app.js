@@ -260,6 +260,51 @@
     return val;
   }
 
+  function repairUnescapedQuotesClient(raw = '') {
+    let out = '';
+    let inStr = false;
+    let escaped = false;
+    const len = raw.length;
+    for (let i = 0; i < len; i++) {
+      const ch = raw[i];
+      if (escaped) {
+        out += ch;
+        escaped = false;
+        continue;
+      }
+      if (ch === '\\') {
+        out += ch;
+        escaped = true;
+        continue;
+      }
+      if (ch === '"') {
+        if (!inStr) {
+          inStr = true;
+          out += ch;
+        } else {
+          let j = i + 1;
+          while (j < len && (raw[j] === ' ' || raw[j] === '\t' || raw[j] === '\r' || raw[j] === '\n')) {
+            j++;
+          }
+          const nextChar = raw[j];
+          if (nextChar === ':' || nextChar === ',' || nextChar === '}' || nextChar === ']' || j >= len) {
+            inStr = false;
+            out += ch;
+          } else {
+            out += '“';
+          }
+        }
+        continue;
+      }
+      if (inStr && (ch === '\n' || ch === '\r')) {
+        out += ch === '\n' ? '\\n' : '';
+        continue;
+      }
+      out += ch;
+    }
+    return out;
+  }
+
   function safeParseClientJson(rawText = '') {
     const cleaned = String(rawText || '')
       .replace(/```json/gi, '')
@@ -267,16 +312,21 @@
       .trim();
     const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
-      throw new Error('Perplexity(google/gemini-4-argon) 응답에서 JSON을 추출하지 못했습니다.');
+      throw new Error('Perplexity 응답에서 JSON을 추출하지 못했습니다.');
     }
     let candidate = jsonMatch[0];
     try {
       return JSON.parse(candidate);
     } catch (firstErr) {
-      const repaired = candidate
-        .replace(/,\s*([\]}])/g, '$1')
-        .replace(/[\u0000-\u0019]+/g, ' ');
-      return JSON.parse(repaired);
+      try {
+        const repairedQuotes = repairUnescapedQuotesClient(candidate).replace(/,\s*([\]}])/g, '$1');
+        return JSON.parse(repairedQuotes);
+      } catch (secondErr) {
+        const repaired = repairUnescapedQuotesClient(candidate)
+          .replace(/,\s*([\]}])/g, '$1')
+          .replace(/[\u0000-\u0019]+/g, ' ');
+        return JSON.parse(repaired);
+      }
     }
   }
 
@@ -326,69 +376,102 @@
 
   async function callPerplexityDirectFromBrowser(apiKey, systemPrompt, userPrompt, recencyFilter = 'month', callType = 'draft', maxTokensOverride = 0) {
     const maxOutTokens = maxTokensOverride || (callType === 'trend' ? 6500 : 8192);
-    const res = await fetch('https://api.perplexity.ai/v1/responses', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey.trim()}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        model: DEFAULT_PPLX_MODEL,
-        tools: [{ type: 'web_search' }],
-        instructions: systemPrompt,
-        input: userPrompt,
-        max_output_tokens: maxOutTokens
-      })
-    });
+    try {
+      const res = await fetch('https://api.perplexity.ai/v1/responses', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${apiKey.trim()}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          model: DEFAULT_PPLX_MODEL,
+          tools: [{ type: 'web_search' }],
+          instructions: systemPrompt,
+          input: userPrompt,
+          max_output_tokens: maxOutTokens
+        })
+      });
 
-    if (!res.ok) {
-      const errText = await res.text().catch(() => '');
-      throw new Error(`Perplexity API(${DEFAULT_PPLX_MODEL}) 호출 실패 (${res.status}): ${errText.slice(0, 100)}`);
-    }
+      if (!res.ok) {
+        const errText = await res.text().catch(() => '');
+        throw new Error(`Perplexity API(${DEFAULT_PPLX_MODEL}) 호출 실패 (${res.status}): ${errText.slice(0, 100)}`);
+      }
 
-    const data = await res.json();
-    recordClientPerplexityUsage(data?.usage, callType);
+      const data = await res.json();
+      recordClientPerplexityUsage(data?.usage, callType);
 
-    const rawSearchResults = [];
-    let content = '';
-    if (Array.isArray(data?.output)) {
-      for (const item of data.output) {
-        if (Array.isArray(item?.results)) {
-          rawSearchResults.push(...item.results);
-        }
-        if (Array.isArray(item?.content)) {
-          for (const block of item.content) {
-            if (typeof block?.text === 'string') {
-              content += block.text;
+      const rawSearchResults = [];
+      let content = '';
+      if (Array.isArray(data?.output)) {
+        for (const item of data.output) {
+          if (Array.isArray(item?.results)) {
+            rawSearchResults.push(...item.results);
+          }
+          if (Array.isArray(item?.content)) {
+            for (const block of item.content) {
+              if (typeof block?.text === 'string') {
+                content += block.text;
+              }
             }
           }
         }
       }
+      if (!content && typeof data?.output_text === 'string' && data.output_text.trim()) {
+        content = data.output_text;
+      } else if (!content) {
+        content = data?.choices?.[0]?.message?.content || '';
+      }
+
+      const seenUrls = new Set();
+      const searchResults = rawSearchResults
+        .filter(r => r && isRealArticleUrl(r.url))
+        .filter(r => {
+          const u = r.url.trim();
+          if (seenUrls.has(u)) return false;
+          seenUrls.add(u);
+          return true;
+        })
+        .sort((a, b) => String(b.last_updated || b.date || '').localeCompare(String(a.last_updated || a.date || '')));
+
+      const citations = [
+        ...searchResults.map(r => r.url.trim()),
+        ...(Array.isArray(data?.citations) ? data.citations.filter(isRealArticleUrl) : [])
+      ].filter((u, idx, arr) => arr.indexOf(u) === idx);
+
+      const parsed = stripCitationBracketsClient(safeParseClientJson(content));
+      return { parsed, citations, searchResults };
+    } catch (primaryErr) {
+      // 1차 모델 호출 또는 JSON 파싱 실패 시 Perplexity 실시간 뉴스·인용 특화 모델(sonar-pro)로 자동 재시도하여 템플릿 폴백 원천 차단
+      const fbRes = await fetch('https://api.perplexity.ai/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${apiKey.trim()}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          model: 'sonar-pro',
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userPrompt }
+          ],
+          max_tokens: 4096,
+          temperature: 0.2
+        })
+      });
+      if (!fbRes.ok) throw primaryErr;
+      const fbData = await fbRes.json();
+      recordClientPerplexityUsage(fbData?.usage, callType);
+      const fbContent = fbData?.choices?.[0]?.message?.content || '';
+      const fbSearchResults = Array.isArray(fbData?.search_results)
+        ? fbData.search_results.filter(r => r && isRealArticleUrl(r.url))
+        : [];
+      const fbCitations = [
+        ...fbSearchResults.map(r => r.url.trim()),
+        ...(Array.isArray(fbData?.citations) ? fbData.citations.filter(isRealArticleUrl) : [])
+      ].filter((u, idx, arr) => arr.indexOf(u) === idx);
+      const parsed = stripCitationBracketsClient(safeParseClientJson(fbContent));
+      return { parsed, citations: fbCitations, searchResults: fbSearchResults };
     }
-    if (!content && typeof data?.output_text === 'string' && data.output_text.trim()) {
-      content = data.output_text;
-    } else if (!content) {
-      content = data?.choices?.[0]?.message?.content || '';
-    }
-
-    const seenUrls = new Set();
-    const searchResults = rawSearchResults
-      .filter(r => r && isRealArticleUrl(r.url))
-      .filter(r => {
-        const u = r.url.trim();
-        if (seenUrls.has(u)) return false;
-        seenUrls.add(u);
-        return true;
-      })
-      .sort((a, b) => String(b.last_updated || b.date || '').localeCompare(String(a.last_updated || a.date || '')));
-
-    const citations = [
-      ...searchResults.map(r => r.url.trim()),
-      ...(Array.isArray(data?.citations) ? data.citations.filter(isRealArticleUrl) : [])
-    ].filter((u, idx, arr) => arr.indexOf(u) === idx);
-
-    const parsed = stripCitationBracketsClient(safeParseClientJson(content));
-    return { parsed, citations, searchResults };
   }
 
   // 왼쪽 [📰 최신 뉴스 문장만 메모장에 더 불러오기] 전용 고속 실시간 뉴스·원문 링크 수집 함수
@@ -482,11 +565,11 @@
     }
     const tInfo = CONTENT_TYPES[typeId] || CONTENT_TYPES[4];
     const typeInstructions = {
-      1: '유형 1(유료 업체 타겟팅 기획 콘텐츠): 1단락은 소비자 핵심 고민과 기존 방식 대비 변화 비교, 2~4단락은 타깃 파트너사 및 주요 기업·서비스의 핵심 혜택과 차별점을 각각 명확하게 분석, 마지막 단락은 실패 없는 선택 기준 제시. 요약표는 5열 비교표, 용어 사전 5개, FAQ는 7문항.',
-      2: '유형 2(특정 기념일·시즌 캠페인 콘텐츠): 1단락은 기념일·시즌의 의미와 사회적 배경, 2단락은 정부·지자체 지원 제도 및 바우처 안내, 3~4단락은 참여 브랜드별 캠페인·제품·프로모션을 "■ [브랜드명] 캠페인·제품명" 소항목으로 구체적으로 소개. 요약표는 5열 비교표, 용어 사전 5개, FAQ는 5문항.',
-      3: '유형 3(최신 트렌드 심층 분석 콘텐츠 1): 1단락은 독자의 공감을 깨우는 질문 리드와 트렌드가 부상한 배경, 2~4단락은 키워드에 포함된 핵심 소재·주자·사례들을 각각의 특징과 시장 파급력 중심으로 자연스럽게 분석(키워드가 명시적으로 역사·계보·변천사를 묻는 경우에만 시대순 흐름 활용, 일반 주제는 절대 억지 연도별 타임라인 금지), 마지막 단락은 향후 전망과 시사점. 요약표는 5열 상세 비교표, 용어 사전 5개, FAQ 5문항.',
-      4: '유형 4(최신 트렌드·라이프스타일·뷰티·유통 콘텐츠 2): 1단락은 계절·일상 속 소비자 고민(예: 환절기 피부 관리, 신상품 열풍 등)을 짚는 공감형 도입과 핵심 트렌드 정의, 2~4단락은 입력된 각 키워드·아이템·브랜드(예: 대왕패치, 환절기 기초템 등)별 핵심 특징·성분·인기 요인을 각각 알기 쉽게 집중 분석, 마지막 단락은 똑똑한 제품 선택법 및 실생활 활용 팁 정리. 요약표는 5열 비교표, 용어 사전 5개, FAQ는 5문항.',
-      5: '유형 5(영업 기업 맞춤 기획 콘텐츠): 1단락은 독자 질문 도입 1문단 뒤 Q1~Q4 시장 메가 트렌드·페인포인트 문답, 2단락은 Q5~Q6 선택 기준 문답, 3단락은 Q7 영업 타깃 기업 집중 소개. 요약표는 5열 요약표, 용어 사전 5개, FAQ는 7문항.'
+      1: '유형 1(파트너사·서비스 비교 기획 콘텐츠): 선택된 유형의 틀에 억지로 끼워 맞추지 말고, 검색된 최신 뉴스 팩트를 바탕으로 1단락은 소비자 핵심 고민과 최신 트렌드 배경, 2~3단락은 실제 기업·서비스의 핵심 혜택과 차별점을 실명으로 분석(절대 브랜드 A/B/C 같은 가상 알파벳 표기 금지!), 마지막 단락은 선택 체크포인트 제시. 요약표는 비교표, 용어 사전 4~5개, FAQ는 7문항.',
+      2: '유형 2(시즌·기념일·주요 일정 맞춤형 콘텐츠): 절대로 모든 주제를 "왜 하필 이날로 지정됐을까 / 정부24 바우처 / 브랜드 A~E" 같은 기계적인 틀에 억지로 끼워 맞추지 마세요! 입력된 단일 키워드(예: 수능, 빼빼로데이, 가래떡데이, 한우데이, 임산부의 날 등)의 실제 성격과 최신 뉴스 보도에 100% 맞춰, 그 주제의 핵심 이슈·일정·실제 기업 프로모션·독자 체크포인트를 가장 자연스러운 소제목과 단락으로 구성하세요. (가상 알파벳 브랜드 A/B/C 절대 금지!) 요약표는 핵심 비교표, 용어 사전 4~5개, FAQ는 5문항.',
+      3: '유형 3(최신 트렌드·이슈 심층 분석 콘텐츠 1): 선택된 유형의 틀에 억지로 끼워 맞추지 말고, 최신 뉴스 검색 결과를 바탕으로 1단락은 독자의 공감을 깨우는 질문 리드와 왜 지금 이 키워드·이슈가 부상했는지 배경 분석, 2~3단락은 최신 보도된 핵심 소재·사례·수치·시장 파급력을 자연스럽게 심층 분석(일반 주제는 절대 억지 연도별 타임라인 금지), 마지막 단락은 실전 가이드와 전망 제시. 요약표는 비교표, 용어 사전 4~5개, FAQ 5문항.',
+      4: '유형 4(최신 트렌드·라이프스타일·뷰티·유통 콘텐츠 2): 선택된 유형의 틀에 억지로 끼워 맞추지 말고, 입력된 키워드의 최신 뉴스와 실제 출시·진행 팩트를 검색하여 1단락은 소비자 관심 배경과 핵심 트렌드 정의, 2~3단락은 실제 브랜드·아이템·신메뉴의 구체적 특징·수치·인기 요인을 집중 분석, 마지막 단락은 똑똑한 선택법 및 실생활 활용 팁 정리. 요약표는 비교표, 용어 사전 4~5개, FAQ는 5문항.',
+      5: '유형 5(영업 기업 맞춤 기획 콘텐츠): 1단락은 독자 질문 도입 1문단 뒤 Q1~Q4 시장 메가 트렌드·페인포인트 문답, 2단락은 Q5~Q6 선택 기준 문답, 3단락은 Q7 영업 타깃 기업 집중 소개. 요약표는 요약표, 용어 사전 4~5개, FAQ는 7문항.'
     };
     const faqCount = (typeId === 1 || typeId === 5) ? 7 : 5;
     const fallbackCat = recommendMkPickCategory(keyword, typeId, company);
@@ -506,18 +589,17 @@
      ② 반드시 JSON의 \`factVerification.verdict\`를 \`"AI_MEME_OR_VIRTUAL"\` (또는 보도 미확인 시 \`"UNVERIFIED_VIRAL"\`), \`factVerification.isWarning\`을 \`true\`로 설정하세요.
      ③ 기사 제목(\`titleCandidates\`), \`aiFactSummary\`(3줄 요약), 본문(\`draftSections\`) 첫 단락에서 **"해당 화제 키워드는 실제 정식 출시된 제품이 아니라 SNS·숏폼에서 확산된 가상(AI 생성) 밈·콘텐츠"**라는 사실을 명확히 팩트체크해 바로잡고, 대신 **실제 존재하는 원조 브랜드(예: 더현대서울 등에서 판매되는 '한정선' 생과일 찹쌀떡 등)의 진짜 정식 메뉴와 검증된 시장 트렌드 팩트**를 중심으로 설명하세요.
    - 실제 정식 출시·공식 발표 및 언론 보도가 확인된 정상적인 주제라면 \`factVerification.verdict\`를 \`"VERIFIED_FACT"\`, \`factVerification.isWarning\`을 \`false\`로 설정하고 확인된 공식 팩트 요약을 적어주세요.
-1) 주제 맞춤형 자연스러운 구성 (억지 연도별 타임라인 절대 금지!):
-   - 입력된 키워드(${keyword})의 실제 성격(뷰티·스킨케어, 식음료, 유통, IT, 라이프스타일, 기업 분석 등)에 가장 잘 맞는 자연스러운 기사 흐름으로 3~5개 본문 단락(draftSections)을 구성하세요.
-   - 키워드가 역사/변천사/계보를 직접 묻는 주제가 아니라면, 절대로 "1990년대/2000년대/2010년대/2020년대" 같은 억지 연도별 타임라인이나 "탄생 배경과 이유 :", "활동 방식의 한계 :", "Bonus Track :" 같은 고정 라벨을 기계적으로 붙이지 마세요.
+1) 선택된 유형의 틀에 억지로 끼워 맞추기 절대 금지 & 가상 알파벳 브랜드(브랜드 A, B) 절대 금지!:
+   - 입력된 키워드(${keyword})의 실제 성격(예: 수능·입시, 식음료 신메뉴, 유통 할인전, 뷰티·스킨케어, IT, 문화 트렌드 등)과 최신 뉴스 검색 결과에 100% 맞춰 가장 자연스러운 소제목과 3~4개 본문 단락(draftSections)을 구성하세요.
+   - 예를 들어 '수능'을 입력했는데 억지로 '특정 기념일 지정 유래 / 정부24 바우처' 틀에 끼워 맞추거나, 실제 기업명 대신 '브랜드 A', '브랜드 B' 같은 가상 명칭을 쓰는 행위를 절대 금지합니다!
 2) 유튜브·SNS 구어체 제목 및 오탈자 자동 정제 원칙 (절대 준수!):
    - 입력된 키워드에 유튜버의 감탄사·수식어(예: '과즙 넘치는', '과즙미 가득한', '먹어봄', '미친 가성비', '다이소깡' 등)나 오탈자(예: '찹살떡', '찹살덕' → '찹쌀떡')가 포함되어 있더라도, 기사 제목·본문·요약표·FAQ에서는 절대 유튜버의 수식어나 오탈자를 그대로 반복하지 마세요!
-   - 반드시 언론 보도와 공식 발표로 검증된 **실제 핵심 브랜드·기업**(예: '이디야커피', '다이소', '올리브영', '더현대서울 한정선' 등)과 **정확한 공식 제품명·트렌드 배경**을 중심으로 전문적인 매일경제 기사를 작성하세요.
-3) 복수 키워드·아이템 맞춤형 전개:
-   - 사용자가 쉼표(,)로 여러 키워드(예: 존박, 맥도날드 / 대왕패치, 환절기, 기초템 등)를 입력한 경우, 1단락에서 전체 주제를 아우르는 최신 트렌드 배경·화제 이유를 짚어주고, 이어지는 단락들에서 최신 보도된 핵심 이슈, 실제 출시 메뉴·제품 특징, 후속 반응 및 활용 포인트를 하나씩 명확하고 실용적인 소제목으로 풀어내세요.
-4) 취재 팩트 메모장(researchFacts 6건) 작성 시 **실제 개별 기사 원문 URL(sourceUrl)** 필수 포함:
-   - 반드시 웹 검색(web_search) 결과에서 확인된 **가장 최근 보도된 실제 뉴스 기사 6건(최신순)**을 기반으로 작성하고, 각 항목의 \`sourceUrl\`에는 검색 결과에 나온 **해당 개별 기사의 정확한 원문 링크(https://...)**를 그대로 넣으세요. (절대로 google.com/search 같은 검색 결과 페이지 주소를 넣지 마세요!)
-5) 팬아웃 추천 질문(fanoutQuestions) 작성 시 절대 주의:
-   - 반드시 현재 키워드('${keyword}'${company ? `, '${company}'` : ''})의 실제 품목·서비스·특징에 100% 맞춘 구체적인 심화 질문 6개를 작성하세요. 주제와 무관한 엉뚱한 키워드를 절대 섞지 마세요.`;
+   - 반드시 언론 보도와 공식 발표로 검증된 **실제 핵심 브랜드·기업**과 **정확한 공식 제품명·트렌드 배경**을 중심으로 전문적인 매일경제 기사를 작성하세요.
+3) 취재 팩트 메모장(researchFacts 6건)과 본문 단락(draftSections) 간의 1:1 반영 위치(usedInSection) 명시:
+   - 웹 검색(web_search) 결과에서 확인된 **가장 최근 보도된 실제 뉴스 기사 6건(최신순)**을 기반으로 \`researchFacts\`를 작성하고, 각 팩트가 본문 몇 번째 단락(\`draftSections\`의 1~4번 중 어디)에 반영되었는지 \`"usedInSection": 1\`(숫자 1~4) 필드에 정확히 표기하세요. 또한 해당 팩트의 핵심 내용·수치가 실제로 그 단락 본문(\`draftSections[usedInSection-1].content\`) 안에 자연스럽게 포함되도록 작성하세요!
+   - 각 항목의 \`sourceUrl\`에는 검색 결과에 나온 **해당 개별 기사의 정확한 원문 링크(https://...)**를 그대로 넣으세요.
+4) 팬아웃 추천 질문(fanoutQuestions) 작성 시 절대 주의:
+   - 반드시 현재 키워드('${keyword}'${company ? `, '${company}'` : ''})의 실제 품목·서비스·특징에 100% 맞춘 구체적인 심화 질문 6개를 작성하세요.`;
 
     const usr = `[작성 요청 정보]
 - 기준 일자: ${todayStr} (가장 최근 보도된 최신 뉴스·후속 보도 최우선 반영!)
@@ -525,11 +607,11 @@
 - 타깃 기업/브랜드(선택): ${company || '관련 주요 브랜드·제품'}
 - 참고 URL: ${url || '없음'}
 - 추가 보도자료/메모: ${rawText || '없음'}
-- 선택된 콘텐츠 유형: ${tInfo.shortName} (${tInfo.desc})
-- 유형별 필수 구성 지침: ${typeInstructions[typeId] || typeInstructions[4]}
+- 선택된 콘텐츠 유형(참고 가이드): ${tInfo.shortName} (${tInfo.desc})
+- 구성 지침(틀에 억지로 끼워 맞추지 말고 키워드 맞춤형으로 작성): ${typeInstructions[typeId] || typeInstructions[4]}
 - 사전 팩트체크 시스템 진단(${preFactCheck.verdict}): ${preFactCheck.summary}
 
-아래 JSON 스키마에 맞춰 주제('${keyword}')의 실제 공식 출시·언론 보도 진위를 먼저 검증(factVerification)하고, 가장 최신 뉴스 팩트를 반영해 한국어로 작성하세요:
+아래 JSON 스키마에 맞춰 주제('${keyword}')의 실제 공식 출시·언론 보도 진위를 먼저 검증(factVerification)하고, 가장 최신 뉴스 팩트를 반영해 한국어로 작성하세요 (JSON 문자열 내부에서 인용구를 쓸 때는 반드시 유니코드 겹따옴표 “ ” 또는 작은따옴표 ' '를 사용하세요):
 {
   "factVerification": {
     "verdict": "VERIFIED_FACT(공식 출시·언론 보도 확인) | AI_MEME_OR_VIRTUAL(가상·AI 생성 밈/정식 미출시) | UNVERIFIED_VIRAL(공식 보도 미확인 주의) 중 택 1",
@@ -540,19 +622,19 @@
   "mkCategory": "산업 Q&A | 제품·기술 | 성공사례 | 기업뉴스 | 브랜드스토리(기업관) 중 택 1",
   "mkCategoryReason": "이 기사에 해당 MK Pick 카테고리를 추천한 이유 1문장 (~합니다 체)",
   "titleCandidates": [
-    {"id": "tc-1", "title": "\\"큰따옴표 인용구\\"…핵심 키워드 포함 설명형 제목", "totalScore": 96},
-    {"id": "tc-2", "title": "\\"큰따옴표 인용구\\"…설명형 제목 2", "totalScore": 93},
-    {"id": "tc-3", "title": "\\"큰따옴표 인용구\\"…설명형 제목 3", "totalScore": 90},
-    {"id": "tc-4", "title": "\\"큰따옴표 인용구\\"…설명형 제목 4", "totalScore": 88},
-    {"id": "tc-5", "title": "\\"큰따옴표 인용구\\"…설명형 제목 5", "totalScore": 85}
+    {"id": "tc-1", "title": "“큰따옴표 인용구”…핵심 키워드 포함 설명형 제목", "totalScore": 96},
+    {"id": "tc-2", "title": "“큰따옴표 인용구”…설명형 제목 2", "totalScore": 93},
+    {"id": "tc-3", "title": "“큰따옴표 인용구”…설명형 제목 3", "totalScore": 90},
+    {"id": "tc-4", "title": "“큰따옴표 인용구”…설명형 제목 4", "totalScore": 88},
+    {"id": "tc-5", "title": "“큰따옴표 인용구”…설명형 제목 5", "totalScore": 85}
   ],
   "researchFacts": [
-    {"category": "최신 보도 핵심 팩트", "sourceTitle": "[언론사명 · YYYY-MM-DD] 가장 최근 보도된 실제 뉴스 제목 1", "sourceUrl": "웹 검색 결과에 있는 해당 기사의 실제 원문 URL (https://...)", "pubDate": "YYYY-MM-DD", "fact": "가장 최신 수치(조회수, 출시일 등)와 근황이 포함된 ~합니다 체 취재 팩트 문장 1"},
-    {"category": "후속 반응 · 최신 근황", "sourceTitle": "[언론사명 · YYYY-MM-DD] 최신 후속 보도 제목 2", "sourceUrl": "웹 검색 결과에 있는 해당 기사의 실제 원문 URL (https://...)", "pubDate": "YYYY-MM-DD", "fact": "최신 후속 반응·인터뷰·비하인드가 포함된 ~합니다 체 취재 팩트 문장 2"},
-    {"category": "브랜드 · 신메뉴/제품 특징", "sourceTitle": "[언론사명 · YYYY-MM-DD] 공식 출시 메뉴·제품 특징 보도 제목 3", "sourceUrl": "웹 검색 결과에 있는 해당 기사의 실제 원문 URL (https://...)", "pubDate": "YYYY-MM-DD", "fact": "구체적인 제품·세트 구성·원재료·차별점이 포함된 ~합니다 체 취재 팩트 문장 3"},
-    {"category": "소비자 · SNS 확산 배경", "sourceTitle": "[언론사명 · YYYY-MM-DD] 2030 소비자 및 숏폼 화제성 보도 제목 4", "sourceUrl": "웹 검색 결과에 있는 해당 기사의 실제 원문 URL (https://...)", "pubDate": "YYYY-MM-DD", "fact": "SNS·유튜브 쇼츠 확산 이유와 소비자 반응이 포함된 ~합니다 체 취재 팩트 문장 4"},
-    {"category": "유통 · 프로모션 동향", "sourceTitle": "[언론사명 · YYYY-MM-DD] 매장·판매처·광고 협업 보도 제목 5", "sourceUrl": "웹 검색 결과에 있는 해당 기사의 실제 원문 URL (https://...)", "pubDate": "YYYY-MM-DD", "fact": "판매 채널·광고 협업·프로모션 동향이 포함된 ~합니다 체 취재 팩트 문장 5"},
-    {"category": "가격 · 구성 및 이용 팁", "sourceTitle": "[언론사명 · YYYY-MM-DD] 가격·구성·구매 가이드 보도 제목 6", "sourceUrl": "웹 검색 결과에 있는 해당 기사의 실제 원문 URL (https://...)", "pubDate": "YYYY-MM-DD", "fact": "가격·구성·이용 시 참고할 점이 포함된 ~합니다 체 취재 팩트 문장 6"}
+    {"category": "최신 보도 핵심 팩트", "sourceTitle": "[언론사명 · YYYY-MM-DD] 가장 최근 보도된 실제 뉴스 제목 1", "sourceUrl": "웹 검색 결과에 있는 해당 기사의 실제 원문 URL (https://...)", "pubDate": "YYYY-MM-DD", "usedInSection": 1, "fact": "본문 1단락에 반영된 가장 최신 수치(조회수, 출시일 등)와 근황이 포함된 ~합니다 체 취재 팩트 문장 1"},
+    {"category": "후속 반응 · 최신 근황", "sourceTitle": "[언론사명 · YYYY-MM-DD] 최신 후속 보도 제목 2", "sourceUrl": "웹 검색 결과에 있는 해당 기사의 실제 원문 URL (https://...)", "pubDate": "YYYY-MM-DD", "usedInSection": 1, "fact": "본문 1~2단락에 반영된 최신 후속 반응·인터뷰·비하인드가 포함된 ~합니다 체 취재 팩트 문장 2"},
+    {"category": "브랜드 · 신메뉴/제품 특징", "sourceTitle": "[언론사명 · YYYY-MM-DD] 공식 출시 메뉴·제품 특징 보도 제목 3", "sourceUrl": "웹 검색 결과에 있는 해당 기사의 실제 원문 URL (https://...)", "pubDate": "YYYY-MM-DD", "usedInSection": 2, "fact": "본문 2단락에 반영된 구체적인 제품·세트 구성·원재료·차별점이 포함된 ~합니다 체 취재 팩트 문장 3"},
+    {"category": "소비자 · SNS 확산 배경", "sourceTitle": "[언론사명 · YYYY-MM-DD] 2030 소비자 및 숏폼 화제성 보도 제목 4", "sourceUrl": "웹 검색 결과에 있는 해당 기사의 실제 원문 URL (https://...)", "pubDate": "YYYY-MM-DD", "usedInSection": 2, "fact": "본문 2~3단락에 반영된 SNS·유튜브 쇼츠 확산 이유와 소비자 반응이 포함된 ~합니다 체 취재 팩트 문장 4"},
+    {"category": "유통 · 프로모션 동향", "sourceTitle": "[언론사명 · YYYY-MM-DD] 매장·판매처·광고 협업 보도 제목 5", "sourceUrl": "웹 검색 결과에 있는 해당 기사의 실제 원문 URL (https://...)", "pubDate": "YYYY-MM-DD", "usedInSection": 3, "fact": "본문 3단락에 반영된 판매 채널·광고 협업·프로모션 동향이 포함된 ~합니다 체 취재 팩트 문장 5"},
+    {"category": "가격 · 구성 및 이용 팁", "sourceTitle": "[언론사명 · YYYY-MM-DD] 가격·구성·구매 가이드 보도 제목 6", "sourceUrl": "웹 검색 결과에 있는 해당 기사의 실제 원문 URL (https://...)", "pubDate": "YYYY-MM-DD", "usedInSection": 4, "fact": "본문 마지막 단락에 반영된 가격·구성·이용 시 참고할 점이 포함된 ~합니다 체 취재 팩트 문장 6"}
   ],
   "subtitle": "기사 부제 2줄 (줄바꿈 \\n 사용)",
   "aiFactSummary": [
@@ -585,7 +667,7 @@
     {"term": "핵심 용어 5 (영문)", "desc": "누구나 이해하기 쉬운 1~2문장 개념 해설 (~합니다 체)"}
   ],
   "faqs": [
-    {"q": "Q1. 실제 독자가 검색창에 물어볼 법한 구어체 자연어 질문", "a": "구체적인 수치·장소·조건이 담긴 2~3문장 완결형 답변 (~합니다 체)"}
+    {"q": "Q1. 실제 독자가 검색창에 물어볼 법한 구어체 자연어 질문 (${faqCount}문항 작성)", "a": "구체적인 수치·장소·조건이 담긴 2~3문장 완결형 답변 (~합니다 체)"}
   ],
   "fanoutQuestions": [
     {"category": "핵심특징·비교", "q": "'${keyword}'에 대해 독자가 추가로 가장 궁금해할 구체적인 꼬리 질문 1 (~나요?)", "a": "구체적인 팩트 기반 답변 1~2문장 (~합니다 체)"},
@@ -626,7 +708,8 @@
         fact: rf.fact,
         rawReference: srcTitle,
         sourceUrl: directUrl,
-        sourceIds: [srcId]
+        sourceIds: [srcId],
+        usedInSection: Number(rf.usedInSection) || (i < 2 ? 1 : (i < 4 ? 2 : 3))
       };
     });
 
@@ -735,6 +818,497 @@
       factChecks: extractFactSentencesFromSections(draftSections, mergedSources),
       factVerification: finalFactVerification
     };
+  }
+
+  // ============================================================================
+  // [신규 기능] 1) 취재 팩트 메모장 → 본문 단락 반영 위치 추적 및 문장 하이라이트 헬퍼
+  //             2) 본문 편집·삭제 시 하단 FAQ·요약표 실시간 자동 동기화 헬퍼
+  //             3) 우측 상단 AI 자연어 편집 프롬프트 실행 및 변경 문장 하이라이트 헬퍼
+  // ============================================================================
+  const COMMON_STOP_TOKENS = new Set([
+    '최근', '관련', '통해', '위해', '대해', '있는', '있다', '합니다', '습니다', '입니다', '밝혔습니다',
+    '전했습니다', '보도에', '따르면', '소식이', '전해지며', '소비자와', '업계의', '관심을', '모으고', '있습니다',
+    '이번', '올해', '다양한', '주요', '핵심', '경우', '등이', '함께', '특히', '가장', '많은', '높은',
+    '소비자', '브랜드', '시장', '출시', '진행', '제공', '활용', '선보이며', '가운데', '기준', '확인'
+  ]);
+
+  function extractDistinctiveTokens(text = '', ignoreText = '') {
+    const ignoreSet = new Set(
+      String(ignoreText || '')
+        .replace(/[^\w가-힣\s]/g, ' ')
+        .split(/\s+/)
+        .map(w => w.replace(/(은|는|이|가|을|를|에|의|로|으로|에서|까지|부터|도|만|과|와)$/, '').trim())
+        .filter(w => w.length >= 2)
+    );
+    const rawWords = String(text || '')
+      .replace(/[^\w가-힣%\s]/g, ' ')
+      .split(/\s+/)
+      .map(w => w.replace(/(은|는|이|가|을|를|에|의|로|으로|에서|까지|부터|도|만|과|와|한|된|할|하는)$/, '').trim())
+      .filter(w => w.length >= 2 && !COMMON_STOP_TOKENS.has(w) && !ignoreSet.has(w));
+    return [...new Set(rawWords)];
+  }
+
+  function splitIntoSentences(text = '') {
+    return String(text || '')
+      .split(/(?<=[.?!])\s+|\n+/)
+      .map(s => s.trim())
+      .filter(Boolean);
+  }
+
+  // 취재 팩트 메모장(researchItems)의 각 항목이 본문 어느 단락(또는 AI 3줄 요약)에 반영되었는지 정밀 분석
+  function getMemoReflectionLocations(memoItem, w) {
+    if (!memoItem || !w) return { isReflected: false, locations: [] };
+    const factStr = String(memoItem.fact || '').trim();
+    if (!factStr) return { isReflected: false, locations: [] };
+
+    const locations = [];
+    const addedKeys = new Set();
+    const memoTokens = extractDistinctiveTokens(factStr, w.keyword || '');
+    const memoNumbers = factStr.match(/\d+(?:,\d+)?(?:\.\d+)?\s*(?:%|원|만\s*원|억|개|종|회|명|일|월|년|배|시간|곳)?/g) || [];
+    const insertedTargets = Array.isArray(memoItem.insertedIntoSecIds) ? memoItem.insertedIntoSecIds : [];
+
+    // 1) AI 3줄 요약 반영 여부 확인
+    const aiLines = w.summaryBlocks?.aiFactSummary || [];
+    const matchedAiLines = aiLines.filter(line => {
+      if (line.includes(factStr.slice(0, 18))) return true;
+      const overlap = memoTokens.filter(tk => line.includes(tk));
+      return overlap.length >= 3;
+    });
+    if (insertedTargets.includes('ai-summary') || matchedAiLines.length > 0) {
+      locations.push({
+        targetType: 'ai-summary',
+        targetId: 'block-step-3',
+        secId: 'ai-summary',
+        label: 'AI 3줄 요약',
+        matchedSentences: matchedAiLines.length > 0 ? matchedAiLines : [factStr],
+        matchTokens: memoTokens.slice(0, 6)
+      });
+      addedKeys.add('ai-summary');
+    }
+
+    // 2) 본문 각 단락(draftSections) 내 반영 문장 탐색
+    (w.draftSections || []).forEach((sec, sIdx) => {
+      const secContent = String(sec.content || '');
+      const secTitle = String(sec.title || '');
+      const secFull = `${secTitle}\n${secContent}`;
+      const sentences = splitIntoSentences(secContent);
+      const matchedSentences = [];
+
+      sentences.forEach(sent => {
+        if (factStr.length >= 12 && (sent.includes(factStr.slice(0, 18)) || factStr.includes(sent.slice(0, 18)))) {
+          matchedSentences.push(sent);
+          return;
+        }
+        const tokenHits = memoTokens.filter(tk => sent.includes(tk));
+        const numHits = memoNumbers.filter(num => num.trim().length >= 2 && sent.includes(num.trim()));
+        if (tokenHits.length >= 2 || (tokenHits.length >= 1 && numHits.length >= 1)) {
+          matchedSentences.push(sent);
+        }
+      });
+
+      const isExplicitlyInserted = insertedTargets.includes(sec.id);
+      if (isExplicitlyInserted || matchedSentences.length > 0) {
+        const key = sec.id;
+        if (!addedKeys.has(key)) {
+          addedKeys.add(key);
+          locations.push({
+            targetType: 'section',
+            targetId: `secWrap-${sec.id}`,
+            secId: sec.id,
+            secIdx: sIdx,
+            label: `단락 0${sIdx + 1}`,
+            matchedSentences: matchedSentences.length > 0 ? matchedSentences : [sentences[sentences.length - 1] || factStr],
+            matchTokens: memoTokens.slice(0, 6)
+          });
+        }
+      }
+    });
+
+    // 3) 직접 문장 매칭이 안 되었더라도 초안 생성 시 지정된 usedInSection이 있으면 해당 단락의 가장 연관도 높은 문장을 연결
+    if (locations.length === 0 && memoItem.usedInSection) {
+      const targetIdx = Math.max(0, Math.min((w.draftSections || []).length - 1, Number(memoItem.usedInSection) - 1));
+      const sec = (w.draftSections || [])[targetIdx];
+      if (sec) {
+        const sentences = splitIntoSentences(sec.content || '');
+        let bestSent = sentences[0] || '';
+        let bestScore = -1;
+        sentences.forEach(sent => {
+          const hits = memoTokens.filter(tk => sent.includes(tk)).length;
+          if (hits > bestScore) {
+            bestScore = hits;
+            bestSent = sent;
+          }
+        });
+        locations.push({
+          targetType: 'section',
+          targetId: `secWrap-${sec.id}`,
+          secId: sec.id,
+          secIdx: targetIdx,
+          label: `단락 0${targetIdx + 1}`,
+          matchedSentences: bestSent ? [bestSent] : [],
+          matchTokens: memoTokens.slice(0, 6)
+        });
+      }
+    }
+
+    return {
+      isReflected: locations.length > 0,
+      locations
+    };
+  }
+
+  // 본문 텍스트 내 특정 문장(matchedSentences)이나 키워드(matchTokens)를 형광펜(<mark>)으로 하이라이팅하여 HTML로 반환
+  function renderHighlightedBodyHtml(rawText = '', matchedSentences = [], matchTokens = [], badgeTitle = '') {
+    const cleanSentences = (matchedSentences || []).map(s => String(s || '').trim()).filter(s => s.length >= 6);
+    const cleanTokens = (matchTokens || []).map(t => String(t || '').trim()).filter(t => t.length >= 2);
+    const paragraphs = String(rawText || '').split(/\n+/);
+
+    const renderedParas = paragraphs.map(para => {
+      const sents = para.split(/(?<=[.?!])\s+/);
+      const renderedSents = sents.map(sent => {
+        const trimmed = sent.trim();
+        if (!trimmed) return '';
+        const isFullSentenceMatch = cleanSentences.some(ms => trimmed.includes(ms.slice(0, 20)) || ms.includes(trimmed.slice(0, 20)));
+        if (isFullSentenceMatch) {
+          return `<mark style="background: linear-gradient(180deg, rgba(255,212,59,0.35) 0%, rgba(255,212,59,0.75) 100%); color: #111; font-weight: 700; padding: 2px 5px; border-radius: 4px; border-bottom: 2px solid #F08C00;">${escapeHtml(trimmed)}</mark>`;
+        }
+        // 문장 전체가 일치하지 않으면 핵심 토큰이 2개 이상 포함된 문장을 하이라이트
+        const tokenHitCount = cleanTokens.filter(tk => trimmed.includes(tk)).length;
+        if (tokenHitCount >= 2) {
+          return `<mark style="background-color: #FFF3BF; color: #111; font-weight: 700; padding: 2px 4px; border-radius: 4px; border-bottom: 2px solid #FAB005;">${escapeHtml(trimmed)}</mark>`;
+        }
+        return escapeHtml(trimmed);
+      });
+      return `<p style="margin: 0 0 8px 0; line-height: 1.72;">${renderedSents.join(' ')}</p>`;
+    });
+
+    return `
+      <div style="margin-top: 8px; padding: 12px 14px; background-color: #FFFDF4; border: 1.5px solid #FAB005; border-radius: 8px; font-size: 13.5px; color: var(--text-primary);">
+        <div class="flex-between mb-6" style="padding-bottom: 6px; border-bottom: 1px dashed #FFD43B;">
+          <strong style="font-size: 12px; font-weight: 800; color: #D9480F;">
+            🖍️ ${escapeHtml(badgeTitle || '반영된 본문 문장 하이라이트 미리보기')}
+          </strong>
+          <button type="button" class="text-action" data-clear-highlight="1" style="font-size: 11px; color: var(--text-muted);">하이라이트 닫기 ✕</button>
+        </div>
+        ${renderedParas.join('')}
+      </div>
+    `;
+  }
+
+  // 본문 단락에서 특정 내용이 삭제되거나 수정되었을 때 하단 FAQ(STEP 07)와 요약표(STEP 06)를 즉시 자동 동기화하는 함수
+  function syncFaqsAndTableOnBodyEdit(w, { deletedText = '', previousBody = '', newBody = '' } = {}) {
+    if (!w || !w.summaryBlocks) return { removedFaqCount: 0, updatedFaqCount: 0 };
+    const sb = w.summaryBlocks;
+    const allRemainingBody = [
+      w.title || '',
+      sb.subtitle || '',
+      ...(sb.aiFactSummary || []),
+      ...(w.draftSections || []).map(s => `${s.title || ''} ${s.content || ''}`)
+    ].join(' ');
+
+    // 삭제된 구간(deletedText 또는 previousBody에서 사라진 문장) 추출
+    let removedSegment = String(deletedText || '');
+    if (!removedSegment && previousBody && newBody && previousBody.length > newBody.length) {
+      const prevSents = splitIntoSentences(previousBody);
+      const nextSents = new Set(splitIntoSentences(newBody));
+      removedSegment = prevSents.filter(s => !nextSents.has(s)).join(' ');
+    }
+
+    const removedTokens = extractDistinctiveTokens(removedSegment, w.keyword || '')
+      .filter(tk => tk.length >= 2 && !allRemainingBody.includes(tk));
+
+    let removedFaqCount = 0;
+    let updatedFaqCount = 0;
+
+    if (Array.isArray(sb.faqs) && sb.faqs.length > 0 && removedTokens.length > 0) {
+      const keptFaqs = [];
+      sb.faqs.forEach(faq => {
+        const qaText = `${faq.q || ''} ${faq.a || ''}`;
+        const hitDeletedTokens = removedTokens.filter(tk => qaText.includes(tk));
+        // 삭제된 단락/문장의 고유 키워드가 FAQ 질문이나 답변에 포함되어 있으면 즉시 제거
+        if (hitDeletedTokens.length >= 1) {
+          removedFaqCount++;
+        } else {
+          keptFaqs.push(faq);
+        }
+      });
+      sb.faqs = keptFaqs;
+    }
+
+    // 요약표(summaryTable)에서도 본문에서 완전히 삭제된 고유명사 행이 있으면 자동 정리
+    if (sb.summaryTable && Array.isArray(sb.summaryTable.rows) && removedTokens.length > 0 && sb.summaryTable.rows.length > 2) {
+      sb.summaryTable.rows = sb.summaryTable.rows.filter(row => {
+        const firstCol = String(row?.[0] || '');
+        const rowText = (row || []).join(' ');
+        const hitDeleted = removedTokens.filter(tk => firstCol.includes(tk) || rowText.includes(tk));
+        return hitDeleted.length === 0;
+      });
+    }
+
+    // 남은 본문 단락(draftSections)의 핵심 내용과 연결되지 않는 고립된 FAQ가 있는지 추가 점검 및 번호 재정렬
+    if (Array.isArray(sb.faqs)) {
+      // 만약 삭제 동기화로 인해 FAQ가 줄어들었다면, 현재 남아 있는 본문 단락을 기반으로 새로운 맞춤 FAQ를 자동 보충
+      const currentSections = w.draftSections || [];
+      if (removedFaqCount > 0 && currentSections.length > 0 && sb.faqs.length < 4) {
+        for (const sec of currentSections) {
+          if (sb.faqs.length >= 5) break;
+          const sents = splitIntoSentences(sec.content || '');
+          const keySent = sents.find(s => s.length >= 25 && !s.includes('?')) || sents[0];
+          if (!keySent) continue;
+          const cleanSecTitle = String(sec.title || '').replace(/^\d+[\.\)]\s*/, '').trim();
+          const candidateQ = cleanSecTitle.endsWith('?')
+            ? cleanSecTitle
+            : `${cleanSecTitle}의 핵심 포인트는 무엇인가요?`;
+          const alreadyExists = sb.faqs.some(f => (f.q || '').includes(cleanSecTitle.slice(0, 10)));
+          if (!alreadyExists) {
+            sb.faqs.push({
+              q: candidateQ,
+              a: sents.slice(0, 2).join(' ')
+            });
+            updatedFaqCount++;
+          }
+        }
+      }
+
+      // Q1, Q2... 번호 깔끔하게 재정렬
+      sb.faqs = sb.faqs.map((f, idx) => {
+        const cleanQ = String(f.q || '').replace(/^Q\d+[\.\:]\s*/i, '').trim();
+        return {
+          q: `Q${idx + 1}. ${cleanQ}`,
+          a: String(f.a || '').trim()
+        };
+      });
+    }
+
+    if (removedFaqCount > 0 || updatedFaqCount > 0) {
+      state.lastFaqAutoSyncInfo = {
+        time: new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+        removedFaqCount,
+        updatedFaqCount,
+        removedKeywords: removedTokens.slice(0, 4)
+      };
+    }
+
+    return { removedFaqCount, updatedFaqCount, removedTokens };
+  }
+
+  // 현재 편집된 본문(draftSections)만을 기준으로 하단 FAQ와 요약표를 Perplexity AI로 100% 재동기화하는 함수
+  async function syncFaqsWithBodyViaAi(w) {
+    if (!w) return;
+    const apiKey = getClientPerplexityKey();
+    const currentBodyText = (w.draftSections || [])
+      .map((s, idx) => `[단락 0${idx + 1}: ${s.title}]\n${s.content}`)
+      .join('\n\n');
+
+    if (!apiKey) {
+      syncFaqsAndTableOnBodyEdit(w, { deletedText: '' });
+      return;
+    }
+
+    const sys = `당신은 매일경제 MK Pick 수석 에디터입니다.
+편집자가 기사 본문(draftSections)을 수정·삭제했습니다.
+반드시 아래 제공된 [현재 수정된 기사 본문]에 실제로 남아 있는 내용만을 100% 기준으로 삼아, 본문에서 삭제된 내용은 FAQ와 요약표에서 완전히 제거하고, 현재 본문에 있는 핵심 팩트·수치·체크포인트만으로 독자 자연어 FAQ 5문항과 핵심 비교 요약표(summaryTable)를 새롭게 동기화해 순수 JSON만 출력하세요.`;
+
+    const usr = `[기사 제목]: ${w.title}
+[키워드]: ${w.keyword}
+[현재 수정된 기사 본문]:
+${currentBodyText}
+
+위 현재 본문 내용과 100% 일치하도록 FAQ 5문항과 요약표를 재작성해 아래 JSON 형식으로만 출력하세요 (본문에 없는 내용은 절대 FAQ에 넣지 마세요!):
+{
+  "faqs": [
+    {"q": "Q1. 현재 본문 핵심 내용에 기반한 독자 구어체 질문 (~나요?)", "a": "현재 본문의 팩트와 수치를 반영한 2문장 답변 (~합니다 체)"}
+  ],
+  "summaryTable": {
+    "title": "[요약표] 핵심 내용 비교",
+    "headers": ["구분", "핵심 내용 및 특징", "주요 포인트 · 혜택", "활용 팁 및 체크포인트"],
+    "rows": [
+      ["항목 1", "현재 본문 기반 핵심 내용", "주요 특징", "추천 대상·팁"]
+    ]
+  }
+}`;
+
+    const { parsed } = await callPerplexityDirectFromBrowser(apiKey, sys, usr, 'month', 'draft', 2600);
+    if (Array.isArray(parsed?.faqs) && parsed.faqs.length > 0) {
+      w.summaryBlocks.faqs = parsed.faqs.map((f, i) => ({
+        q: /^Q\d+\./i.test(String(f.q || '').trim()) ? String(f.q).trim() : `Q${i + 1}. ${String(f.q || '').trim()}`,
+        a: String(f.a || '').trim()
+      }));
+    }
+    if (parsed?.summaryTable && Array.isArray(parsed.summaryTable.rows) && parsed.summaryTable.rows.length > 0) {
+      w.summaryBlocks.summaryTable = {
+        title: String(parsed.summaryTable.title || w.summaryBlocks.summaryTable?.title || '[요약표]').trim(),
+        headers: (parsed.summaryTable.headers || w.summaryBlocks.summaryTable?.headers || []).map(h => String(h).trim()),
+        rows: parsed.summaryTable.rows.map(r => Array.isArray(r) ? r.map(c => String(c).trim()) : [])
+      };
+    }
+    state.lastFaqAutoSyncInfo = {
+      time: new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+      removedFaqCount: 0,
+      updatedFaqCount: (w.summaryBlocks.faqs || []).length,
+      removedKeywords: [],
+      aiSynced: true
+    };
+  }
+
+  // 우측 상단 [✨ AI 자연어 기사 편집 프롬프트] 실행 함수 (반영된 문장 자동 추출 & 하이라이팅 + FAQ 자동 동기화)
+  async function applyAiNaturalLanguageEditToWork(w, promptText) {
+    if (!w || !promptText || !promptText.trim()) return;
+    const instruction = promptText.trim();
+
+    // 되돌리기(Undo)를 위해 현재 상태 스냅샷 저장
+    w.aiEditHistory = Array.isArray(w.aiEditHistory) ? w.aiEditHistory : [];
+    w.aiEditHistory.push(JSON.parse(JSON.stringify({
+      title: w.title,
+      subtitle: w.summaryBlocks?.subtitle,
+      aiFactSummary: w.summaryBlocks?.aiFactSummary,
+      draftSections: w.draftSections,
+      summaryTable: w.summaryBlocks?.summaryTable,
+      faqs: w.summaryBlocks?.faqs,
+      closingParagraph: w.summaryBlocks?.closingParagraph,
+      oneLineSummary: w.summaryBlocks?.oneLineSummary
+    })));
+    if (w.aiEditHistory.length > 10) w.aiEditHistory.shift();
+
+    const oldSectionsMap = {};
+    (w.draftSections || []).forEach(s => {
+      oldSectionsMap[s.id] = { title: s.title, content: s.content };
+    });
+    const oldTitle = w.title;
+    const oldAiSummary = (w.summaryBlocks?.aiFactSummary || []).join('\n');
+
+    const apiKey = getClientPerplexityKey();
+    const todayStr = new Date().toISOString().slice(0, 10);
+
+    const currentArticlePayload = {
+      title: w.title,
+      subtitle: w.summaryBlocks?.subtitle || '',
+      aiFactSummary: w.summaryBlocks?.aiFactSummary || [],
+      draftSections: (w.draftSections || []).map(s => ({ id: s.id, title: s.title, content: s.content })),
+      summaryTable: w.summaryBlocks?.summaryTable || {},
+      faqs: w.summaryBlocks?.faqs || [],
+      closingParagraph: w.summaryBlocks?.closingParagraph || '',
+      oneLineSummary: w.summaryBlocks?.oneLineSummary || ''
+    };
+
+    const sys = `당신은 매일경제 MK Pick 수석 에디터입니다.
+편집자가 작성된 초안을 보고 **자연어 편집 지시(프롬프트)**를 입력했습니다.
+필요 시 web_search로 오늘(${todayStr}) 기준 최신 뉴스 팩트를 추가 검색하여 편집자의 지시를 정확히 반영해 기사를 수정하세요.
+[필수 규칙]
+1. 편집자의 지시('${instruction}')를 충실히 반영하여 해당되는 단락(draftSections), 제목(title), 3줄 요약(aiFactSummary)을 수정하세요. 지시와 무관한 단락은 원문을 유지하세요.
+2. 모든 본문과 답변은 매일경제 경어체("~합니다/습니다")를 유지하세요.
+3. [가장 중요] 본문에서 어떤 내용이 삭제·수정·추가되었다면, **하단 FAQ(faqs)와 요약표(summaryTable)도 반드시 함께 수정**하여 본문에서 삭제된 내용이 FAQ에 남아있지 않도록 100% 동기화하세요!
+4. 수정되거나 새로 추가된 본문 문장들을 \`highlightedSentences\` 배열에 정확히 담아 반환하세요 (화면에서 형광펜 하이라이팅 표시에 사용됩니다).`;
+
+    const usr = `[편집자의 자연어 수정 지시]: "${instruction}"
+[현재 기사 데이터]:
+${JSON.stringify(currentArticlePayload, null, 2)}
+
+편집자의 지시를 반영해 수정한 전체 기사 데이터를 아래 순수 JSON 형식으로만 출력하세요:
+{
+  "editSummary": "편집자의 요청에 따라 어떤 단락과 FAQ를 어떻게 수정했는지 1문장 요약 (~했습니다 체)",
+  "editedSectionIds": ["수정된 단락의 id 배열 (예: sec-1, sec-2)"],
+  "highlightedSentences": ["이번 편집으로 새로 추가되었거나 수정된 핵심 문장 원문 그대로 (최소 1~5개 문장)"],
+  "title": "수정된 기사 제목 (변경 없으면 기존 제목 그대로)",
+  "subtitle": "수정된 부제 (줄바꿈 \\n 사용)",
+  "aiFactSummary": ["1. 요약 1", "2. 요약 2", "3. 요약 3"],
+  "draftSections": [
+    {"id": "sec-1", "title": "단락 소제목", "content": "단락 본문 (~합니다 체)"}
+  ],
+  "summaryTable": {
+    "title": "[요약표] 제목",
+    "headers": ["구분", "핵심 내용", "주요 특징", "추천 대상·활용 팁"],
+    "rows": [["항목", "내용", "특징", "팁"]]
+  },
+  "faqs": [
+    {"q": "Q1. 수정된 본문과 100% 일치하는 질문", "a": "수정된 본문과 100% 일치하는 답변 (~합니다 체)"}
+  ],
+  "closingParagraph": "마무리 총평 문단",
+  "oneLineSummary": "한 줄 요약! 문장"
+}`;
+
+    const { parsed } = await callPerplexityDirectFromBrowser(apiKey, sys, usr, 'month', 'draft', 6000);
+    const normalizeNl = s => String(s || '').replace(/\\n/g, '\n').trim();
+
+    if (parsed.title) w.title = normalizeNl(parsed.title);
+    if (parsed.subtitle) w.summaryBlocks.subtitle = normalizeNl(parsed.subtitle);
+    if (Array.isArray(parsed.aiFactSummary) && parsed.aiFactSummary.length > 0) {
+      w.summaryBlocks.aiFactSummary = parsed.aiFactSummary.map(s => normalizeNl(s));
+    }
+
+    const changedSecIds = new Set(Array.isArray(parsed.editedSectionIds) ? parsed.editedSectionIds : []);
+    const highlightedBySecId = {};
+    const globalHighlightedSentences = Array.isArray(parsed.highlightedSentences)
+      ? parsed.highlightedSentences.map(s => normalizeNl(s)).filter(Boolean)
+      : [];
+
+    if (Array.isArray(parsed.draftSections) && parsed.draftSections.length > 0) {
+      w.draftSections = parsed.draftSections.map((sec, idx) => {
+        const secId = sec.id || w.draftSections?.[idx]?.id || `sec-${idx + 1}`;
+        const existingSec = (w.draftSections || []).find(s => s.id === secId) || {};
+        const newTitle = normalizeNl(sec.title || existingSec.title || `단락 ${idx + 1}`);
+        const newContent = normalizeNl(sec.content || '');
+        const oldSec = oldSectionsMap[secId];
+
+        const oldSents = new Set(splitIntoSentences(oldSec?.content || ''));
+        const newSents = splitIntoSentences(newContent);
+        const diffSents = newSents.filter(s => !oldSents.has(s));
+        const matchedFromGlobal = globalHighlightedSentences.filter(gs => newContent.includes(gs.slice(0, 18)));
+        const combinedHighlights = [...new Set([...diffSents, ...matchedFromGlobal])];
+
+        if (!oldSec || oldSec.content !== newContent || oldSec.title !== newTitle || combinedHighlights.length > 0) {
+          changedSecIds.add(secId);
+          highlightedBySecId[secId] = combinedHighlights.length > 0 ? combinedHighlights : newSents.slice(-1);
+        }
+
+        return {
+          ...existingSec,
+          id: secId,
+          title: newTitle,
+          content: newContent,
+          imageCaption: existingSec.imageCaption || ''
+        };
+      });
+    }
+
+    if (parsed.summaryTable && Array.isArray(parsed.summaryTable.rows)) {
+      w.summaryBlocks.summaryTable = {
+        title: normalizeNl(parsed.summaryTable.title || w.summaryBlocks.summaryTable?.title || '[요약표]'),
+        headers: (parsed.summaryTable.headers || w.summaryBlocks.summaryTable?.headers || []).map(h => normalizeNl(h)),
+        rows: parsed.summaryTable.rows.map(r => Array.isArray(r) ? r.map(c => normalizeNl(c)) : [])
+      };
+    }
+
+    if (Array.isArray(parsed.faqs) && parsed.faqs.length > 0) {
+      w.summaryBlocks.faqs = parsed.faqs.map((f, i) => ({
+        q: /^Q\d+\./i.test(normalizeNl(f.q)) ? normalizeNl(f.q) : `Q${i + 1}. ${normalizeNl(f.q)}`,
+        a: normalizeNl(f.a)
+      }));
+    }
+
+    if (parsed.closingParagraph) w.summaryBlocks.closingParagraph = normalizeNl(parsed.closingParagraph);
+    if (parsed.oneLineSummary) w.summaryBlocks.oneLineSummary = normalizeNl(parsed.oneLineSummary);
+
+    // 추가로 로컬 삭제 키워드 검사를 한 번 더 수행해 삭제된 내용이 FAQ에 절대 남지 않도록 보장
+    syncFaqsAndTableOnBodyEdit(w, {
+      previousBody: Object.values(oldSectionsMap).map(s => s.content).join('\n'),
+      newBody: (w.draftSections || []).map(s => s.content).join('\n')
+    });
+
+    w.factChecks = extractFactSentencesFromSections(w.draftSections, w.sources);
+
+    state.activeHighlight = {
+      mode: 'ai-edit',
+      prompt: instruction,
+      summary: normalizeNl(parsed.editSummary || `"${instruction}" 요청을 반영해 본문과 하단 FAQ를 수정했습니다.`),
+      secIds: [...changedSecIds],
+      sentencesBySecId: highlightedBySecId,
+      titleChanged: w.title !== oldTitle,
+      aiSummaryChanged: (w.summaryBlocks?.aiFactSummary || []).join('\n') !== oldAiSummary,
+      timestamp: new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+    };
+
+    return state.activeHighlight;
   }
 
   // 기사 본문 전체의 GEO 최적화 달성 여부를 실시간 자동 진단하는 함수
@@ -2141,59 +2715,125 @@
                 <span style="font-size: 12.5px; font-weight: 800; color: var(--mk-orange); margin-right: 8px;">2026년 ${calData.month}월 핵심 테마</span>
                 <strong style="font-size: 13.5px; color: var(--text-primary);">${escapeHtml(calData.theme)}</strong>
               </div>
-              <div class="flex-row" style="gap: 6px;">
-                ${(calData.keyTags || []).map(tag => `
-                  <span style="font-size: 11.5px; color: var(--text-secondary); background-color: var(--white); border: var(--border-thin); padding: 2px 8px; border-radius: 99px;">
-                    #${escapeHtml(tag)}
-                  </span>
-                `).join('')}
+              <div class="flex-row" style="gap: 6px; flex-wrap: wrap;">
+                ${(calData.keyTags || []).map(tag => {
+                  const tagType = detectBestContentType(tag, '', '', 3);
+                  return `
+                    <button
+                      type="button"
+                      data-use-cal-kw="${escapeHtml(tag)}"
+                      data-use-cal-type="${tagType}"
+                      style="font-size: 11.5px; font-weight: 700; color: var(--text-secondary); background-color: var(--white); border: var(--border-thin); padding: 3px 9px; border-radius: 99px; cursor: pointer; font-family: inherit;"
+                      title="'${escapeHtml(tag)}' 단일 키워드로 즉시 맞춤 기사 초안 생성"
+                    >
+                      #${escapeHtml(tag)} →
+                    </button>
+                  `;
+                }).join('')}
               </div>
             </div>
 
-            ${calData.curation ? `
-              <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 14px;">
-                <div style="padding: 9px 12px; border: var(--border-thin); border-radius: var(--radius-general); background-color: var(--white);">
-                  <div style="font-size: 11px; font-weight: 800; color: var(--mk-orange); margin-bottom: 2px;">🍽️ EAT · 식음료/외식</div>
-                  <div style="font-size: 12px; color: var(--text-primary); font-weight: 600;">${escapeHtml(calData.curation.eat)}</div>
+            ${calData.curation ? (() => {
+              const cEat = calData.curation.EAT || calData.curation.eat || '';
+              const cBuy = calData.curation.BUY || calData.curation.buy || '';
+              const cDo = calData.curation.DO || calData.curation.do || '';
+              const cPlay = calData.curation.PLAY || calData.curation.play || '';
+              const renderCurationChips = (rawStr, defaultT = 4) => {
+                const items = String(rawStr || '').split(/\s*·\s*/).map(s => s.trim()).filter(Boolean);
+                if (items.length === 0) return '<span class="text-muted">-</span>';
+                return items.map(it => {
+                  const tId = detectBestContentType(it, '', '', defaultT);
+                  return `
+                    <button
+                      type="button"
+                      data-use-cal-kw="${escapeHtml(it)}"
+                      data-use-cal-type="${tId}"
+                      style="display: inline-flex; align-items: center; gap: 3px; font-size: 11.5px; font-weight: 600; color: var(--text-primary); background-color: var(--bg-subtle); border: 1px solid #E5E7EB; padding: 3px 7px; border-radius: 5px; cursor: pointer; font-family: inherit; text-align: left; margin: 2px 3px 2px 0;"
+                      title="클릭 시 '${escapeHtml(it)}' 단일 주제로 최신 뉴스 기반 초안을 작성합니다"
+                    >
+                      <span>${escapeHtml(it)}</span>
+                      <span style="color: var(--mk-orange); font-weight: 800; font-size: 10.5px;">→</span>
+                    </button>
+                  `;
+                }).join('');
+              };
+              return `
+                <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 14px;">
+                  <div style="padding: 9px 12px; border: var(--border-thin); border-radius: var(--radius-general); background-color: var(--white);">
+                    <div style="font-size: 11px; font-weight: 800; color: var(--mk-orange); margin-bottom: 4px;">🍽️ EAT · 식음료/외식 (개별 클릭)</div>
+                    <div style="line-height: 1.4;">${renderCurationChips(cEat, 4)}</div>
+                  </div>
+                  <div style="padding: 9px 12px; border: var(--border-thin); border-radius: var(--radius-general); background-color: var(--white);">
+                    <div style="font-size: 11px; font-weight: 800; color: var(--mk-orange); margin-bottom: 4px;">🛍️ BUY · 가전/패션/쇼핑 (개별 클릭)</div>
+                    <div style="line-height: 1.4;">${renderCurationChips(cBuy, 4)}</div>
+                  </div>
+                  <div style="padding: 9px 12px; border: var(--border-thin); border-radius: var(--radius-general); background-color: var(--white);">
+                    <div style="font-size: 11px; font-weight: 800; color: var(--mk-orange); margin-bottom: 4px;">📚 DO · 교육/생활서비스 (개별 클릭)</div>
+                    <div style="line-height: 1.4;">${renderCurationChips(cDo, 3)}</div>
+                  </div>
+                  <div style="padding: 9px 12px; border: var(--border-thin); border-radius: var(--radius-general); background-color: var(--white);">
+                    <div style="font-size: 11px; font-weight: 800; color: var(--mk-orange); margin-bottom: 4px;">🎬 PLAY · 여가/레저/콘텐츠 (개별 클릭)</div>
+                    <div style="line-height: 1.4;">${renderCurationChips(cPlay, 3)}</div>
+                  </div>
                 </div>
-                <div style="padding: 9px 12px; border: var(--border-thin); border-radius: var(--radius-general); background-color: var(--white);">
-                  <div style="font-size: 11px; font-weight: 800; color: var(--mk-orange); margin-bottom: 2px;">🛍️ BUY · 가전/패션/쇼핑</div>
-                  <div style="font-size: 12px; color: var(--text-primary); font-weight: 600;">${escapeHtml(calData.curation.buy)}</div>
-                </div>
-                <div style="padding: 9px 12px; border: var(--border-thin); border-radius: var(--radius-general); background-color: var(--white);">
-                  <div style="font-size: 11px; font-weight: 800; color: var(--mk-orange); margin-bottom: 2px;">📚 DO · 교육/생활서비스</div>
-                  <div style="font-size: 12px; color: var(--text-primary); font-weight: 600;">${escapeHtml(calData.curation.do)}</div>
-                </div>
-                <div style="padding: 9px 12px; border: var(--border-thin); border-radius: var(--radius-general); background-color: var(--white);">
-                  <div style="font-size: 11px; font-weight: 800; color: var(--mk-orange); margin-bottom: 2px;">🎬 PLAY · 여가/레저/콘텐츠</div>
-                  <div style="font-size: 12px; color: var(--text-primary); font-weight: 600;">${escapeHtml(calData.curation.play)}</div>
-                </div>
-              </div>
-            ` : ''}
+              `;
+            })() : ''}
 
             <div class="trend-clean-grid">
               ${(calData.events || []).map(ev => {
-                const isThisCalGenerating = state.isSearchingNews && state.generatingKeyword === ev.keyword;
+                // 여러 날/이벤트가 섞이지 않도록 개별 단일 이벤트 버튼 목록 생성
+                const subEventList = Array.isArray(ev.subEvents) && ev.subEvents.length > 0
+                  ? ev.subEvents
+                  : (String(ev.name || '').includes('·')
+                      ? String(ev.name).split(/\s*·\s*/).map(part => {
+                          const cleanPart = part.trim();
+                          const autoT = detectBestContentType(cleanPart, '', '', ev.typeId || 3);
+                          return {
+                            label: cleanPart,
+                            keyword: `${calData.month}월 ${cleanPart} 최신 트렌드 및 주요 프로모션`,
+                            typeId: autoT
+                          };
+                        })
+                      : [{ label: ev.name, keyword: ev.keyword, typeId: detectBestContentType(ev.keyword, '', ev.desc || '', ev.typeId || 3) }]);
+
+                const primarySub = subEventList[0];
+                const isThisCalGenerating = state.isSearchingNews && subEventList.some(se => se.keyword === state.generatingKeyword);
                 const calGenStyle = isThisCalGenerating
                   ? 'border-color: var(--mk-orange); background-color: var(--mk-orange-light); box-shadow: 0 0 0 2px rgba(243, 112, 33, 0.16);'
                   : '';
                 return `
-                  <div class="trend-clean-row" style="${calGenStyle}" data-use-cal-kw="${escapeHtml(ev.keyword)}" data-use-cal-type="${ev.typeId}">
+                  <div class="trend-clean-row" style="${calGenStyle}; align-items: flex-start; cursor: default;">
                     <div style="min-width: 0; flex: 1;">
-                      <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-bottom: 3px;">
+                      <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-bottom: 4px;">
                         <span style="font-size: 12px; font-weight: 800; color: var(--mk-orange);">${escapeHtml(ev.date)}</span>
                         <strong style="font-size: 14px; color: var(--text-primary);">${escapeHtml(ev.name)}</strong>
                         <span style="font-size: 11px; font-weight: 700; color: var(--mk-orange); background-color: ${isThisCalGenerating ? '#FFFFFF' : 'var(--mk-orange-light)'}; padding: 1px 6px; border-radius: 4px;">
-                          유형 0${ev.typeId} · ${escapeHtml(ev.category)}
+                          단일 이슈 선택 가능 (${subEventList.length}건)
                         </span>
                       </div>
-                      <div style="font-size: 12.5px; color: var(--text-secondary);">
+                      <div style="font-size: 12.5px; color: var(--text-secondary); margin-bottom: 8px;">
                         ${escapeHtml(ev.desc)}
                       </div>
+                      <div style="display: flex; flex-wrap: wrap; gap: 6px;">
+                        ${subEventList.map(se => {
+                          const isSubGen = state.isSearchingNews && state.generatingKeyword === se.keyword;
+                          return `
+                            <button
+                              type="button"
+                              data-use-cal-kw="${escapeHtml(se.keyword)}"
+                              data-use-cal-type="${se.typeId || ev.typeId}"
+                              style="display: inline-flex; align-items: center; gap: 5px; padding: 5px 10px; border-radius: 6px; border: 1px solid ${isSubGen ? 'var(--mk-orange)' : 'var(--mk-orange-border)'}; background-color: ${isSubGen ? 'var(--mk-orange)' : '#FFF8F3'}; color: ${isSubGen ? '#FFFFFF' : 'var(--text-primary)'}; font-size: 12px; font-weight: 800; cursor: pointer; font-family: inherit;"
+                              title="'${escapeHtml(se.keyword)}' 단일 주제로 최신 기사들을 검색해 초안을 작성합니다"
+                            >
+                              <span>${escapeHtml(se.label)}</span>
+                              <span style="color: ${isSubGen ? '#FFFFFF' : 'var(--mk-orange)'}; font-weight: 800;">
+                                ${isSubGen ? escapeHtml(formatDraftRemainingInfo(state.draftElapsedSec || 0).shortBtnText) : '초안 생성 →'}
+                              </span>
+                            </button>
+                          `;
+                        }).join('')}
+                      </div>
                     </div>
-                    <span ${isThisCalGenerating ? 'data-active-generating-badge="1"' : ''} style="font-size: 12px; font-weight: 800; color: var(--mk-orange); white-space: nowrap; flex-shrink: 0; ${isThisCalGenerating ? 'background-color: #FFFFFF; padding: 3px 9px; border-radius: 99px; border: 1px solid var(--mk-orange);' : ''}">
-                      ${isThisCalGenerating ? escapeHtml(formatDraftRemainingInfo(state.draftElapsedSec || 0).shortBtnText) : '초안 생성 →'}
-                    </span>
                   </div>
                 `;
               }).join('')}
@@ -2724,8 +3364,10 @@
                       const linkedSource = (w.sources || []).find(s => (item.sourceIds || []).includes(s.id));
                       const directMemoUrl = item.sourceUrl || linkedSource?.url || '';
                       const refTitle = (linkedSource?.title || item.rawReference || '').replace(/^\[Perplexity 실시간 검증 출처 #\d+\]\s*/i, '').trim();
+                      const reflectionInfo = getMemoReflectionLocations(item, w);
+                      const isActiveMemoHighlight = state.activeHighlight?.mode === 'memo' && state.activeHighlight?.memoId === item.id;
                       return `
-                        <div class="clean-list-row">
+                        <div class="clean-list-row" style="${isActiveMemoHighlight ? 'background-color: #FFF9DB; border: 1.5px solid #FAB005; border-radius: 8px; padding: 10px;' : ''}">
                           ${refTitle && !refTitle.startsWith('http') ? `
                             <div style="font-size: 11px; font-weight: 700; color: var(--text-muted); margin-bottom: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(refTitle)}">
                               📰 ${escapeHtml(refTitle)}
@@ -2734,6 +3376,28 @@
                           <div style="font-size: 12.5px; color: var(--text-primary); line-height: 1.55; margin-bottom: 6px;">
                             ${escapeHtml(item.fact)}
                           </div>
+
+                          <!-- 취재 팩트 메모가 본문 어디에 반영되었는지 즉시 확인·점프·하이라이트하는 배지 영역 -->
+                          <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 5px; margin-bottom: 7px; padding: 5px 8px; background-color: ${reflectionInfo.isReflected ? '#EBFBEE' : 'var(--bg-subtle)'}; border: 1px solid ${reflectionInfo.isReflected ? '#B2F2BB' : '#E5E7EB'}; border-radius: 6px;">
+                            <span style="font-size: 11px; font-weight: 800; color: ${reflectionInfo.isReflected ? '#1B7F3B' : 'var(--text-muted)'};">
+                              ${reflectionInfo.isReflected ? '📍 본문 반영 위치:' : '⚪ 본문 미반영:'}
+                            </span>
+                            ${reflectionInfo.isReflected ? reflectionInfo.locations.map((loc, lIdx) => `
+                              <button
+                                type="button"
+                                data-locate-memo-id="${escapeHtml(item.id)}"
+                                data-locate-memo-loc="${lIdx}"
+                                style="display: inline-flex; align-items: center; gap: 3px; padding: 2px 8px; border-radius: 99px; border: 1px solid #2B8A3E; background-color: #FFFFFF; color: #1B7F3B; font-size: 11px; font-weight: 800; cursor: pointer; font-family: inherit;"
+                                title="클릭하면 오른쪽 본문의 해당 단락으로 이동하여 이 팩트가 반영된 문장을 형광펜으로 하이라이트합니다"
+                              >
+                                <span>✓ ${escapeHtml(loc.label)} 반영됨</span>
+                                <span style="color: #D9480F;">(하이라이트 보기 ↘)</span>
+                              </button>
+                            `).join('') : `
+                              <span style="font-size: 11px; color: var(--text-secondary);">아래 [본문 반영 →]을 눌러 원하는 단락에 넣으세요</span>
+                            `}
+                          </div>
+
                           <div class="flex-between" style="flex-wrap: wrap; gap: 6px;">
                             <div class="flex-row" style="gap: 6px;">
                               <span style="font-size: 11px; font-weight: 700; color: var(--mk-orange); background-color: var(--mk-orange-light); padding: 1px 6px; border-radius: 4px;">
@@ -2880,8 +3544,81 @@
           </div>
         </aside>
 
-        <!-- [오른쪽 영역] 구조별 편집 모드 vs 실제 MK Pick 기사 미리보기 모드 -->
+        <!-- [오른쪽 영역] 우측 상단 AI 자연어 편집 프롬프트 + 구조별 편집 모드 vs 실제 기사 미리보기 모드 -->
         <div>
+          <!-- ✨ 우측 상단 AI 자연어 기사 편집 프롬프트 바 (반영 문장 자동 하이라이팅 & 하단 FAQ 동시 수정) -->
+          <div class="card" style="padding: 14px 16px; margin-bottom: 14px; border: 1.5px solid var(--mk-orange-border); background: linear-gradient(180deg, #FFFDFB 0%, #FFF8F3 100%);" id="aiNaturalEditBox">
+            <div class="flex-between mb-8" style="flex-wrap: wrap; gap: 8px;">
+              <div class="flex-row" style="gap: 8px; flex-wrap: wrap;">
+                <span style="display: inline-flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 800; color: #FFFFFF; background-color: var(--mk-orange); padding: 3px 10px; border-radius: 99px;">
+                  ✨ AI 자연어 편집 프롬프트
+                </span>
+                <strong style="font-size: 13px; color: var(--text-primary);">
+                  생성된 글을 보고 원하는 수정 방향을 자유롭게 입력하면 본문·요약표·하단 FAQ를 동시에 편집하고 수정된 문장을 하이라이팅합니다.
+                </strong>
+              </div>
+              <div class="flex-row" style="gap: 6px;">
+                ${Array.isArray(w.aiEditHistory) && w.aiEditHistory.length > 0 ? `
+                  <button type="button" class="btn btn-sm" id="undoAiPromptEditBtn" style="padding: 4px 10px; font-size: 11.5px; font-weight: 700;">
+                    ↩ 이전 상태로 되돌리기 (${w.aiEditHistory.length})
+                  </button>
+                ` : ''}
+                ${state.activeHighlight ? `
+                  <button type="button" class="btn btn-sm" data-clear-highlight="1" style="padding: 4px 10px; font-size: 11.5px; color: var(--text-secondary);">
+                    🖍️ 하이라이트 끄기 ✕
+                  </button>
+                ` : ''}
+              </div>
+            </div>
+
+            <div class="flex-row mb-8" style="gap: 8px;">
+              <input
+                type="text"
+                class="input"
+                id="aiNaturalPromptInput"
+                value="${escapeHtml(state.aiPromptDraft || '')}"
+                placeholder="예: 2단락에 최신 수치와 구체적 사례를 더 보강해줘 / 특정 브랜드 내용을 빼고 소비자 체크포인트 위주로 간결하게 고쳐줘"
+                style="flex: 1; padding: 9px 12px; font-size: 13px; font-weight: 600; background-color: #FFFFFF; border: 1px solid var(--mk-orange-border);"
+                ${state.isApplyingAiEdit ? 'disabled' : ''}
+              />
+              <button
+                type="button"
+                class="btn btn-primary"
+                id="applyAiNaturalPromptBtn"
+                style="padding: 9px 18px; font-size: 13px; font-weight: 800; white-space: nowrap;"
+                ${state.isApplyingAiEdit ? 'disabled' : ''}
+              >
+                ${state.isApplyingAiEdit ? '⏳ AI가 본문·FAQ 편집 중...' : '✨ AI 편집 적용 →'}
+              </button>
+            </div>
+
+            <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 6px;">
+              <span style="font-size: 11.5px; font-weight: 700; color: var(--text-muted);">빠른 편집 지시:</span>
+              <button type="button" class="text-action-orange" data-quick-ai-prompt="가장 최신 뉴스의 구체적인 수치(날짜, 가격, 할인율, 조회수 등)와 실제 브랜드 사례를 본문 각 단락에 더 풍부하게 보강해줘" style="font-size: 11.5px; background: #FFFFFF; border: 1px solid #FFD8A8; padding: 2px 8px; border-radius: 99px;">
+                + 최신 팩트·구체적 수치 보강
+              </button>
+              <button type="button" class="text-action-orange" data-quick-ai-prompt="불필요한 수식어와 반복 표현을 줄이고 핵심 팩트 중심으로 문장을 더 간결하고 읽기 쉽게 다듬어줘" style="font-size: 11.5px; background: #FFFFFF; border: 1px solid #FFD8A8; padding: 2px 8px; border-radius: 99px;">
+                ✂️ 문장 간결하게 다듬기
+              </button>
+              <button type="button" class="text-action-orange" data-quick-ai-prompt="독자와 소비자가 실제로 챙길 수 있는 실질적인 혜택, 신청/이용 방법, 주의사항 체크포인트를 더 구체적으로 강조해줘" style="font-size: 11.5px; background: #FFFFFF; border: 1px solid #FFD8A8; padding: 2px 8px; border-radius: 99px;">
+                🎯 소비자 실전 혜택·체크포인트 강조
+              </button>
+              <button type="button" class="text-action-orange" data-quick-ai-prompt="기사 제목과 첫 단락 도입부 질문을 독자의 클릭을 부르는 더 흥미롭고 임팩트 있는 표현으로 수정해줘" style="font-size: 11.5px; background: #FFFFFF; border: 1px solid #FFD8A8; padding: 2px 8px; border-radius: 99px;">
+                🔥 도입부·제목 더 매력적으로 수정
+              </button>
+            </div>
+
+            ${state.activeHighlight ? `
+              <div style="margin-top: 10px; padding: 8px 12px; background-color: #FFF9DB; border: 1px solid #FAB005; border-radius: 6px; display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap;">
+                <span style="font-size: 12px; font-weight: 800; color: #D9480F;">
+                  🖍️ ${state.activeHighlight.mode === 'memo' ? '취재 팩트 메모 본문 반영 위치 하이라이트 표시 중:' : 'AI 프롬프트 편집 반영 하이라이트 표시 중:'}
+                  <span style="color: #111; font-weight: 700;">${escapeHtml(state.activeHighlight.summary || '')}</span>
+                </span>
+                <button type="button" class="text-action" data-clear-highlight="1" style="font-size: 11.5px; font-weight: 700; color: #D9480F;">하이라이트 닫기 ✕</button>
+              </div>
+            ` : ''}
+          </div>
+
           ${isPreview ? `
             <!-- ============================================================== -->
             <!-- 👁️ 실제 MK Pick 기사 미리보기 모드 (독자에게 보이는 최종 화면) -->
@@ -2920,19 +3657,27 @@
 
               <hr class="doc-divider" />
 
-              ${(w.draftSections || []).map(sec => `
-                <div style="margin-bottom: 28px;">
+              ${(w.draftSections || []).map((sec, sIdx) => {
+                const isSecHighlighted = state.activeHighlight?.secIds?.includes(sec.id);
+                const hlSentences = state.activeHighlight?.sentencesBySecId?.[sec.id] || [];
+                const hlTokens = state.activeHighlight?.tokensBySecId?.[sec.id] || [];
+                return `
+                <div style="margin-bottom: 28px; ${isSecHighlighted ? 'padding: 12px; background-color: #FFFDF4; border: 1.5px solid #FAB005; border-radius: 8px;' : ''}">
                   <h2 style="font-size: 19px; font-weight: 800; color: var(--text-primary); margin-bottom: 10px;">
                     ${escapeHtml(sec.title)}
                   </h2>
-                  <div style="font-size: 15.5px; line-height: 1.85; color: var(--text-primary); white-space: pre-line;">${escapeHtml(sec.content)}</div>
+                  ${isSecHighlighted
+                    ? renderHighlightedBodyHtml(sec.content, hlSentences, hlTokens, state.activeHighlight?.mode === 'memo' ? `단락 0${sIdx + 1} · 취재 팩트 메모 반영 문장` : `단락 0${sIdx + 1} · AI 편집 반영 문장`)
+                    : `<div style="font-size: 15.5px; line-height: 1.85; color: var(--text-primary); white-space: pre-line;">${escapeHtml(sec.content)}</div>`
+                  }
                   ${sec.imageCaption ? `
                     <div style="margin-top: 8px; font-size: 12.5px; color: var(--text-muted); font-weight: 600;">
                       ${escapeHtml(sec.imageCaption)}
                     </div>
                   ` : ''}
                 </div>
-              `).join('')}
+              `;
+              }).join('')}
 
               ${(w.factChecks || []).length > 0 ? `
                 <div style="margin-bottom: 24px; padding: 14px 16px; background-color: var(--bg-subtle); border: var(--border-thin); border-radius: var(--radius-general);">
@@ -3179,14 +3924,22 @@
                   ${(w.draftSections || []).map((sec, sIdx) => {
                     const roleLabel = getSectionRoleLabel(sec, sIdx, (w.draftSections || []).length);
                     const secCharLen = (sec.content || '').length;
+                    const isSecHighlighted = state.activeHighlight?.secIds?.includes(sec.id);
+                    const hlSentences = state.activeHighlight?.sentencesBySecId?.[sec.id] || [];
+                    const hlTokens = state.activeHighlight?.tokensBySecId?.[sec.id] || [];
                     return `
-                      <div style="padding: 14px 16px; border: var(--border-thin); border-radius: var(--radius-general); background-color: var(--bg-subtle); margin-bottom: 14px;" id="secWrap-${sec.id}">
+                      <div style="padding: 14px 16px; border: ${isSecHighlighted ? '2px solid #F08C00' : 'var(--border-thin)'}; border-radius: var(--radius-general); background-color: ${isSecHighlighted ? '#FFF9DB' : 'var(--bg-subtle)'}; margin-bottom: 14px; transition: all 0.2s;" id="secWrap-${sec.id}">
                         <div class="flex-between mb-8" style="flex-wrap: wrap; gap: 6px;">
-                          <div class="flex-row" style="gap: 6px;">
+                          <div class="flex-row" style="gap: 6px; flex-wrap: wrap;">
                             <span style="font-size: 11.5px; font-weight: 800; color: var(--mk-orange); background-color: var(--white); border: 0.5px solid var(--mk-orange-border); padding: 2px 8px; border-radius: 4px;">
                               단락 0${sIdx + 1} · ${escapeHtml(roleLabel)}
                             </span>
                             <span class="text-muted" id="secCharCount-${sec.id}">${secCharLen.toLocaleString()}자</span>
+                            ${isSecHighlighted ? `
+                              <span style="font-size: 11px; font-weight: 800; color: #D9480F; background-color: #FFFFFF; border: 1px solid #FAB005; padding: 1px 7px; border-radius: 99px;">
+                                🖍️ ${state.activeHighlight?.mode === 'memo' ? '취재 팩트 메모 반영 단락' : 'AI 편집 반영 단락'}
+                              </span>
+                            ` : ''}
                           </div>
                           <div class="flex-row" style="gap: 8px;">
                             <button type="button" class="text-action-orange" data-polish-sec="${sec.id}" title="평어체(~한다/이다) 문장을 매경 Pick 표준 경어체(~합니다)로 자동 교정합니다">
@@ -3195,7 +3948,7 @@
                             ${sIdx > 0 ? `<button type="button" class="text-action" data-move-sec-up="${sIdx}" title="이 단락을 위로 이동">↑ 위로</button>` : ''}
                             ${sIdx < (w.draftSections || []).length - 1 ? `<button type="button" class="text-action" data-move-sec-down="${sIdx}" title="이 단락을 아래로 이동">↓ 아래로</button>` : ''}
                             ${(w.draftSections || []).length > 1 ? `
-                              <button type="button" class="text-action" data-del-doc-sec="${sec.id}" style="color: var(--text-muted);">삭제</button>
+                              <button type="button" class="text-action" data-del-doc-sec="${sec.id}" style="color: var(--text-muted);" title="이 단락을 삭제하면 관련 하단 FAQ도 자동으로 함께 정리됩니다">삭제</button>
                             ` : ''}
                           </div>
                         </div>
@@ -3206,8 +3959,16 @@
                         </div>
 
                         <div class="mb-8">
-                          <label class="text-muted" style="display: block; margin-bottom: 3px; font-weight: 700;">본문 내용 ('~합니다' 체)</label>
+                          <label class="text-muted" style="display: block; margin-bottom: 3px; font-weight: 700;">본문 내용 ('~합니다' 체 · 내용 수정/삭제 시 하단 FAQ 자동 반영)</label>
                           <textarea class="doc-editable-textarea doc-body-textarea" id="secBody-${sec.id}" data-doc-sec-body="${sec.id}" rows="5" placeholder="본문 내용을 '~합니다' 체로 입력하세요">${escapeHtml(sec.content)}</textarea>
+                          ${isSecHighlighted ? renderHighlightedBodyHtml(
+                            sec.content,
+                            hlSentences,
+                            hlTokens,
+                            state.activeHighlight?.mode === 'memo'
+                              ? `취재 팩트 메모가 이 단락(단락 0${sIdx + 1})에 반영된 문장 하이라이트`
+                              : `AI 프롬프트 편집으로 수정·추가된 문장 하이라이트`
+                          ) : ''}
                         </div>
 
                         <div>
@@ -3299,11 +4060,23 @@
               <!-- STEP 07: 자주 묻는 질문 (FAQ) & 팬아웃(Query Fan-out) 추천 질문 -->
               <section class="editor-block-section" id="block-step-7">
                 <div class="editor-step-header">
-                  <div class="flex-row" style="gap: 8px;">
+                  <div class="flex-row" style="gap: 8px; flex-wrap: wrap;">
                     <span class="editor-step-badge">STEP 07 · 독자 자연어 FAQ (${(sb.faqs || []).length}문항)</span>
-                    <span class="text-muted">독자가 검색창·AI에 실제로 질문하는 구어체 질의(Q)와 팩트 답변(A)입니다 (5문항 이상 권장).</span>
+                    <span style="font-size: 11.5px; font-weight: 800; color: #1B7F3B; background-color: #EBFBEE; border: 1px solid #B2F2BB; padding: 2px 8px; border-radius: 99px;">
+                      🔄 본문 수정·삭제 시 자동 연동됨
+                    </span>
                   </div>
-                  <div class="flex-row" style="gap: 10px;">
+                  <div class="flex-row" style="gap: 10px; flex-wrap: wrap;">
+                    <button
+                      type="button"
+                      class="btn btn-sm btn-outline-orange"
+                      id="syncFaqsWithBodyAiBtn"
+                      style="padding: 3px 10px; font-size: 11.5px; font-weight: 800;"
+                      ${state.isSyncingFaqsAi ? 'disabled' : ''}
+                      title="현재 위 본문(STEP 05)에서 수정·삭제된 내용을 기준으로 하단 FAQ와 요약표를 100% 일치하도록 즉시 재작성합니다"
+                    >
+                      ${state.isSyncingFaqsAi ? '⏳ 본문 기준 FAQ 동기화 중...' : '🔄 현재 본문 기준으로 FAQ·요약표 AI 재동기화'}
+                    </button>
                     ${(sb.fanoutQuestions && sb.fanoutQuestions.length > 0) ? `
                       <button type="button" class="text-action-orange" id="docToggleFanoutBtn">
                         ${state.fanoutOpen ? `💡 팬아웃 추천 질문(${sb.fanoutQuestions.length}개) 접기 ▲` : `💡 팬아웃 추천 질문(${sb.fanoutQuestions.length}개) 열기 ▼`}
@@ -3313,6 +4086,15 @@
                     <button type="button" class="text-action" data-copy-part="faq">📋 FAQ만 복사</button>
                   </div>
                 </div>
+
+                ${state.lastFaqAutoSyncInfo ? `
+                  <div style="margin-bottom: 12px; padding: 8px 12px; background-color: #EBFBEE; border: 1px solid #8CE99A; border-radius: 6px; font-size: 12px; color: #1B7F3B; font-weight: 700; display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+                    <span>
+                      ✓ [${escapeHtml(state.lastFaqAutoSyncInfo.time)}] 본문 편집·삭제 내용이 하단 FAQ에 자동 반영되었습니다!
+                      ${state.lastFaqAutoSyncInfo.removedFaqCount > 0 ? `(본문에서 삭제된 내용 관련 FAQ ${state.lastFaqAutoSyncInfo.removedFaqCount}문항 자동 제거 완료)` : '(현재 본문 내용 기준으로 FAQ 동기화 완료)'}
+                    </span>
+                  </div>
+                ` : ''}
 
                 ${state.fanoutOpen && sb.fanoutQuestions && sb.fanoutQuestions.length > 0 ? `
                   <div style="background-color: var(--mk-orange-light); border: 0.5px solid var(--mk-orange-border); border-radius: var(--radius-general); padding: 12px 14px; margin-bottom: 16px;">
@@ -3760,6 +4542,116 @@
       render(true);
     });
 
+    // 취재 팩트 메모장의 [✓ 단락 0X 반영됨 (하이라이트 보기 ↘)] 클릭 시 해당 본문 단락으로 이동 & 반영 문장 형광펜 하이라이트!
+    root.querySelectorAll('[data-locate-memo-id]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const memoId = btn.getAttribute('data-locate-memo-id');
+        const locIdx = Number(btn.getAttribute('data-locate-memo-loc')) || 0;
+        const memo = (w.researchItems || []).find(r => r.id === memoId);
+        if (!memo) return;
+        const reflection = getMemoReflectionLocations(memo, w);
+        const loc = reflection.locations[locIdx] || reflection.locations[0];
+        if (!loc) return;
+
+        if (state.editorViewMode === 'preview') {
+          state.editorViewMode = 'edit';
+        }
+        state.activeHighlight = {
+          mode: 'memo',
+          memoId: memo.id,
+          summary: `[${loc.label}]에 반영된 취재 팩트 문장입니다: "${memo.fact.slice(0, 48)}..."`,
+          secIds: [loc.secId],
+          sentencesBySecId: { [loc.secId]: loc.matchedSentences || [memo.fact] },
+          tokensBySecId: { [loc.secId]: loc.matchTokens || [] }
+        };
+        render(true);
+        setTimeout(() => {
+          flashElement(loc.targetId);
+        }, 60);
+        showToast(`📍 오른쪽 본문 [${loc.label}]에서 해당 취재 팩트가 반영된 문장을 하이라이트했습니다!`);
+      });
+    });
+
+    // 우측 상단 AI 자연어 편집 프롬프트 실행 및 되돌리기·하이라이트 제어
+    const aiPromptInputEl = document.getElementById('aiNaturalPromptInput');
+    aiPromptInputEl?.addEventListener('input', e => {
+      state.aiPromptDraft = e.target.value;
+    });
+
+    async function triggerAiNaturalPromptEdit(customPrompt = '') {
+      const promptVal = (customPrompt || document.getElementById('aiNaturalPromptInput')?.value || state.aiPromptDraft || '').trim();
+      if (!promptVal) {
+        showToast('AI에게 요청할 기사 편집 내용을 자연어로 입력해 주세요!');
+        document.getElementById('aiNaturalPromptInput')?.focus();
+        return;
+      }
+      state.aiPromptDraft = promptVal;
+      state.isApplyingAiEdit = true;
+      render(true);
+      try {
+        const hl = await applyAiNaturalLanguageEditToWork(w, promptVal);
+        state.isApplyingAiEdit = false;
+        state.aiPromptDraft = '';
+        await loadConfig();
+        saveCurrentWork(true);
+        render(true);
+        const firstSecId = hl?.secIds?.[0];
+        if (firstSecId) {
+          setTimeout(() => flashElement(`secWrap-${firstSecId}`), 60);
+        }
+        showToast(`✨ AI 편집 완료! 수정·추가된 본문 문장을 하이라이팅하고 하단 FAQ도 자동 동기화했습니다.`);
+      } catch (err) {
+        state.isApplyingAiEdit = false;
+        showToast(`AI 편집 중 오류가 발생했습니다: ${err.message}`);
+        render(true);
+      }
+    }
+
+    document.getElementById('applyAiNaturalPromptBtn')?.addEventListener('click', () => triggerAiNaturalPromptEdit());
+    aiPromptInputEl?.addEventListener('keydown', e => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        triggerAiNaturalPromptEdit();
+      }
+    });
+
+    root.querySelectorAll('[data-quick-ai-prompt]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const presetPrompt = btn.getAttribute('data-quick-ai-prompt') || '';
+        if (!presetPrompt) return;
+        state.aiPromptDraft = presetPrompt;
+        triggerAiNaturalPromptEdit(presetPrompt);
+      });
+    });
+
+    document.getElementById('undoAiPromptEditBtn')?.addEventListener('click', () => {
+      if (!Array.isArray(w.aiEditHistory) || w.aiEditHistory.length === 0) return;
+      const prev = w.aiEditHistory.pop();
+      if (!prev) return;
+      w.title = prev.title;
+      w.draftSections = prev.draftSections;
+      if (w.summaryBlocks) {
+        w.summaryBlocks.subtitle = prev.subtitle;
+        w.summaryBlocks.aiFactSummary = prev.aiFactSummary;
+        w.summaryBlocks.summaryTable = prev.summaryTable;
+        w.summaryBlocks.faqs = prev.faqs;
+        w.summaryBlocks.closingParagraph = prev.closingParagraph;
+        w.summaryBlocks.oneLineSummary = prev.oneLineSummary;
+      }
+      w.factChecks = extractFactSentencesFromSections(w.draftSections, w.sources);
+      state.activeHighlight = null;
+      saveCurrentWork(true);
+      render(true);
+      showToast('↩ 이전 편집 상태로 기사를 되돌렸습니다.');
+    });
+
+    root.querySelectorAll('[data-clear-highlight]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        state.activeHighlight = null;
+        render(true);
+      });
+    });
+
     // 취재 메모 [본문 반영 ->] 클릭 시 선택한 단락(또는 AI 요약)에 매경 문체 팩트 삽입 + 해당 단락 하이라이트!
     root.querySelectorAll('[data-insert-memo]').forEach(btn => {
       btn.addEventListener('click', () => {
@@ -3773,10 +4665,23 @@
           state.editorViewMode = 'edit';
         }
 
+        memo.insertedIntoSecIds = Array.isArray(memo.insertedIntoSecIds) ? memo.insertedIntoSecIds : [];
+        if (!memo.insertedIntoSecIds.includes(targetVal)) {
+          memo.insertedIntoSecIds.push(targetVal);
+        }
+
         if (targetVal === 'ai-summary') {
           const nextNum = (sb.aiFactSummary || []).length + 1;
           sb.aiFactSummary = sb.aiFactSummary || [];
           sb.aiFactSummary.push(`${nextNum}. ${memo.fact}`);
+          state.activeHighlight = {
+            mode: 'memo',
+            memoId: memo.id,
+            summary: `[AI 3줄 요약]에 방금 반영된 취재 팩트 문장입니다.`,
+            secIds: ['ai-summary'],
+            sentencesBySecId: { 'ai-summary': [memo.fact] },
+            tokensBySecId: {}
+          };
           saveCurrentWork(false);
           render(true);
           flashElement('docAiSummary');
@@ -3786,10 +4691,18 @@
           if (targetSec) {
             targetSec.content = (targetSec.content ? targetSec.content.trim() + '\n\n' : '') + memo.fact;
             w.factChecks = extractFactSentencesFromSections(w.draftSections, w.sources);
+            state.activeHighlight = {
+              mode: 'memo',
+              memoId: memo.id,
+              summary: `[${targetSec.title.slice(0, 24)}...] 단락에 반영된 취재 팩트 문장입니다.`,
+              secIds: [targetSec.id],
+              sentencesBySecId: { [targetSec.id]: [memo.fact] },
+              tokensBySecId: {}
+            };
             saveCurrentWork(false);
             render(true);
-            flashElement(`secBody-${targetSec.id}`);
-            showToast(`✓ 재가공된 팩트 문장이 오른쪽 [${targetSec.title.slice(0, 16)}...] 단락에 반영되었습니다!`);
+            flashElement(`secWrap-${targetSec.id}`);
+            showToast(`✓ 재가공된 팩트 문장이 오른쪽 [${targetSec.title.slice(0, 16)}...] 단락에 반영 및 하이라이트되었습니다!`);
           }
         }
       });
@@ -3893,13 +4806,27 @@
       saveCurrentWork(true);
     });
 
-    // 본문 섹션 제목·내용·단락 캡션 인라인 수정
+    // 본문 섹션 제목·내용·단락 캡션 인라인 수정 (본문 내용 삭제·수정 시 하단 FAQ 자동 동기화 연동!)
     root.querySelectorAll('[data-doc-sec-title]').forEach(inp => {
+      inp.addEventListener('focus', () => {
+        inp._prevTitleVal = inp.value;
+      });
       inp.addEventListener('input', () => {
         const sec = w.draftSections.find(s => s.id === inp.getAttribute('data-doc-sec-title'));
         if (sec) {
           sec.title = inp.value;
           saveCurrentWork(true);
+        }
+      });
+      inp.addEventListener('change', () => {
+        const prevT = inp._prevTitleVal || '';
+        if (prevT && prevT !== inp.value) {
+          const syncRes = syncFaqsAndTableOnBodyEdit(w, { previousBody: prevT, newBody: inp.value });
+          if (syncRes.removedFaqCount > 0 || syncRes.updatedFaqCount > 0) {
+            saveCurrentWork(false);
+            render(true);
+            showToast(`🔄 본문 소제목 수정에 맞춰 하단 FAQ도 자동 업데이트되었습니다.`);
+          }
         }
       });
     });
@@ -3915,6 +4842,9 @@
     });
 
     root.querySelectorAll('[data-doc-sec-body]').forEach(ta => {
+      ta.addEventListener('focus', () => {
+        ta._prevBodyVal = ta.value;
+      });
       ta.addEventListener('input', () => {
         autoResizeTextarea(ta);
         const secId = ta.getAttribute('data-doc-sec-body');
@@ -3927,8 +4857,16 @@
         }
       });
       ta.addEventListener('change', () => {
+        const prevBody = ta._prevBodyVal || '';
+        const newBody = ta.value || '';
+        ta._prevBodyVal = newBody;
         w.factChecks = extractFactSentencesFromSections(w.draftSections, w.sources);
+        const syncRes = syncFaqsAndTableOnBodyEdit(w, { previousBody: prevBody, newBody });
         saveCurrentWork(true);
+        if (syncRes.removedFaqCount > 0 || syncRes.updatedFaqCount > 0) {
+          render(true);
+          showToast(`🔄 본문에서 삭제·편집된 내용을 감지해 하단 FAQ(${syncRes.removedFaqCount}건 제거)를 자동으로 동기화했습니다!`);
+        }
       });
     });
 
@@ -3975,7 +4913,7 @@
       });
     });
 
-    // 본문 단락 추가 / 삭제
+    // 본문 단락 추가 / 삭제 (단락 삭제 시 해당 단락 내용과 관련된 하단 FAQ·요약표도 즉시 자동 삭제·동기화!)
     document.getElementById('addDocSectionBtn')?.addEventListener('click', () => {
       const newSecId = 'sec-' + Date.now();
       w.draftSections.push({
@@ -3993,10 +4931,38 @@
     root.querySelectorAll('[data-del-doc-sec]').forEach(btn => {
       btn.addEventListener('click', () => {
         const id = btn.getAttribute('data-del-doc-sec');
+        const targetSec = (w.draftSections || []).find(s => s.id === id);
+        const deletedText = targetSec ? `${targetSec.title || ''} ${targetSec.content || ''}` : '';
         w.draftSections = w.draftSections.filter(s => s.id !== id);
+        w.factChecks = extractFactSentencesFromSections(w.draftSections, w.sources);
+        const syncRes = syncFaqsAndTableOnBodyEdit(w, { deletedText });
         saveCurrentWork(false);
         render(true);
+        if (syncRes.removedFaqCount > 0) {
+          showToast(`🗑️ 단락 삭제 완료! 삭제된 단락과 관련된 하단 FAQ ${syncRes.removedFaqCount}문항도 자동으로 함께 정리되었습니다.`);
+        } else {
+          showToast('🗑️ 선택한 본문 단락을 삭제하고 하단 FAQ와 동기화했습니다.');
+        }
       });
+    });
+
+    // STEP 07: [🔄 현재 본문 기준으로 FAQ·요약표 AI 재동기화] 버튼 클릭
+    document.getElementById('syncFaqsWithBodyAiBtn')?.addEventListener('click', async () => {
+      state.isSyncingFaqsAi = true;
+      render(true);
+      try {
+        await syncFaqsWithBodyViaAi(w);
+        state.isSyncingFaqsAi = false;
+        await loadConfig();
+        saveCurrentWork(true);
+        render(true);
+        flashElement('block-step-7');
+        showToast('🔄 현재 편집된 본문 내용을 100% 반영하여 하단 FAQ와 요약표를 새롭게 동기화했습니다!');
+      } catch (err) {
+        state.isSyncingFaqsAi = false;
+        showToast(`FAQ 동기화 중 오류가 발생했습니다: ${err.message}`);
+        render(true);
+      }
     });
 
     // 요약표 인라인 편집
