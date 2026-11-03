@@ -210,8 +210,8 @@ const TREND_CACHE_TTL_MS = 30 * 60 * 1000; // 30분 캐시
 let cachedTrendRadar = null;
 let cachedTrendTimestamp = 0;
 
-const DEFAULT_PPLX_MODEL = 'anthropic/claude-sonnet-4-5';
-const FALLBACK_PPLX_MODEL = 'google/gemini-4-argon';
+const DEFAULT_PPLX_MODEL = 'google/gemini-4-argon';
+const FALLBACK_PPLX_MODEL = 'sonar-pro';
 
 const apiUsageStats = {
   model: DEFAULT_PPLX_MODEL,
@@ -410,26 +410,126 @@ function matchBestSearchResultServer(rf, searchResults = [], usedUrls = new Set(
   return searchResults[0] || null;
 }
 
-// 하이브리드 파이프라인: Perplexity 실시간 웹 검색(web_search) 수집 + Claude Sonnet 4.5 (anthropic/claude-sonnet-4-5) 집필 자동 연동 (+ Gemini-4-Argon / Sonar-Pro 다중 안전 폴백)
-async function callPerplexityJson(apiKey, systemPrompt, userPrompt, recencyFilter = 'month', callType = 'draft') {
-  const maxOutTokens = callType === 'trend' ? 6500 : 8192;
-  const modelsToTry = [DEFAULT_PPLX_MODEL, FALLBACK_PPLX_MODEL];
+// 2단계 고속 하이브리드 파이프라인:
+// [1단계 · 약 3.5초] Perplexity sonar-pro가 메인 키워드 + 서브 키워드 + 자연어 기획 방향에 맞춰 최신 한국 뉴스 팩트와 원문 URL을 초고속 검색
+// [2단계 · 약 15~22초] 선택된 집필 AI 모델(기본: Gemini 4 Argon / GPT-5 / Claude Sonnet 4.5 등)이 web_search 루프 지연 없이 기사를 즉시 집필
+async function callPerplexityJson(apiKey, systemPrompt, userPrompt, recencyFilter = 'month', callType = 'draft', preferredModel = '') {
+  const cleanKey = (apiKey || '').trim();
+  const chosenWriterModel = (preferredModel || DEFAULT_PPLX_MODEL).trim();
+
+  // 트렌드 레이더 등 단순 호출이거나 sonar-pro가 직접 선택된 경우
+  if (callType === 'trend' || chosenWriterModel === 'sonar-pro') {
+    const res = await fetch('https://api.perplexity.ai/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${cleanKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: 'sonar-pro',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt }
+        ],
+        max_tokens: callType === 'trend' ? 6500 : 8000,
+        temperature: 0.25
+      })
+    });
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '');
+      throw new Error(`Perplexity sonar-pro 호출 실패 (${res.status}): ${errText.slice(0, 120)}`);
+    }
+    const data = await res.json();
+    recordPerplexityUsage(data?.usage, callType);
+    const content = data?.choices?.[0]?.message?.content || '';
+    const searchResults = Array.isArray(data?.search_results)
+      ? data.search_results.filter(r => r && isRealArticleUrl(r.url))
+      : [];
+    const citations = [
+      ...searchResults.map(r => r.url.trim()),
+      ...(Array.isArray(data?.citations) ? data.citations.filter(isRealArticleUrl) : [])
+    ].filter((u, idx, arr) => arr.indexOf(u) === idx);
+    const parsed = stripCitationBrackets(safeParseJsonFromText(content));
+    return { parsed, citations, searchResults, activeModel: 'sonar-pro' };
+  }
+
+  // [Stage 1] Perplexity sonar-pro 초고속 실시간 팩트·출처 수집 (약 3~4초)
+  let stage1BriefText = '';
+  let stage1SearchResults = [];
+  let stage1Citations = [];
+  try {
+    const searchQueryBlock = userPrompt.slice(0, 1100);
+    const stage1Res = await fetch('https://api.perplexity.ai/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${cleanKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: 'sonar-pro',
+        messages: [
+          {
+            role: 'system',
+            content: '당신은 매일경제 실시간 팩트체크·취재 리서처입니다. 요청된 메인 키워드, 서브 키워드, 편집자 기획 방향과 관련된 가장 최신 한국 언론 보도 팩트, 브랜드별 실제 출시 메뉴·제품명·가격·특징, 유래·배경, 소비자 반응을 6가지 핵심 팩트 브리핑으로 간결하고 정확하게 정리하세요.'
+          },
+          {
+            role: 'user',
+            content: `${searchQueryBlock}\n\n위 주제(메인 키워드 + 서브 키워드 + 원하는 글의 방향)를 모두 아우르는 최신 한국 뉴스 핵심 팩트 6가지를 구체적인 수치·브랜드명·제품명과 함께 요약해 주세요.`
+          }
+        ],
+        max_tokens: 1600,
+        temperature: 0.1
+      })
+    });
+    if (stage1Res.ok) {
+      const s1Data = await stage1Res.json();
+      recordPerplexityUsage(s1Data?.usage, callType);
+      stage1BriefText = s1Data?.choices?.[0]?.message?.content || '';
+      const rawSr = Array.isArray(s1Data?.search_results) ? s1Data.search_results : [];
+      const seen = new Set();
+      stage1SearchResults = rawSr
+        .filter(r => r && isRealArticleUrl(r.url))
+        .filter(r => {
+          const u = r.url.trim();
+          if (seen.has(u)) return false;
+          seen.add(u);
+          return true;
+        });
+      stage1Citations = [
+        ...stage1SearchResults.map(r => r.url.trim()),
+        ...(Array.isArray(s1Data?.citations) ? s1Data.citations.filter(isRealArticleUrl) : [])
+      ].filter((u, idx, arr) => arr.indexOf(u) === idx);
+    }
+  } catch (s1Err) {
+    // Stage 1 실패 시에도 Stage 2 진행
+  }
+
+  const enrichedUserPrompt = stage1BriefText
+    ? `[Perplexity Sonar-Pro가 방금 실시간 검색으로 수집한 최신 검증 팩트 및 실제 보도 출처 브리핑]\n${stage1BriefText}\n\n[검증된 실제 언론 기사 출처 목록]\n${stage1SearchResults.slice(0, 8).map((r, i) => `${i + 1}. ${r.title || '보도 기사'} (${r.date || '최신'}) - ${r.url}`).join('\n')}\n\n========================================\n${userPrompt}`
+    : userPrompt;
+
+  // [Stage 2] 선택된 집필 AI 모델이 web_search 루프 지연 없이 즉시 고품질 매거진 기사 JSON 집필
+  const modelsToTry = [chosenWriterModel];
+  if (chosenWriterModel !== DEFAULT_PPLX_MODEL) modelsToTry.push(DEFAULT_PPLX_MODEL);
   let lastError = null;
 
   for (const modelName of modelsToTry) {
     try {
+      const isGpt5 = modelName.startsWith('openai/gpt-5');
       const payload = {
         model: modelName,
-        tools: [{ type: 'web_search' }],
         instructions: systemPrompt,
-        input: userPrompt,
-        max_output_tokens: maxOutTokens
+        input: enrichedUserPrompt,
+        max_output_tokens: isGpt5 ? 12000 : 8192
       };
+      if (!stage1BriefText) {
+        payload.tools = [{ type: 'web_search' }];
+      }
 
       const res = await fetch('https://api.perplexity.ai/v1/responses', {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${apiKey.trim()}`,
+          'Authorization': `Bearer ${cleanKey}`,
           'Content-Type': 'application/json'
         },
         body: JSON.stringify(payload)
@@ -443,7 +543,7 @@ async function callPerplexityJson(apiKey, systemPrompt, userPrompt, recencyFilte
       const data = await res.json();
       recordPerplexityUsage(data?.usage, callType);
 
-      const rawSearchResults = [];
+      const rawSearchResults = [...stage1SearchResults];
       let content = '';
       if (Array.isArray(data?.output)) {
         for (const item of data.output) {
@@ -478,10 +578,12 @@ async function callPerplexityJson(apiKey, systemPrompt, userPrompt, recencyFilte
 
       const citations = [
         ...searchResults.map(r => r.url.trim()),
+        ...stage1Citations,
         ...(Array.isArray(data?.citations) ? data.citations.filter(isRealArticleUrl) : [])
       ].filter((u, idx, arr) => arr.indexOf(u) === idx);
 
       const parsed = stripCitationBrackets(safeParseJsonFromText(content));
+      apiUsageStats.model = modelName;
       return { parsed, citations, searchResults, activeModel: modelName };
     } catch (err) {
       lastError = err;
@@ -493,17 +595,17 @@ async function callPerplexityJson(apiKey, systemPrompt, userPrompt, recencyFilte
     const fallbackRes = await fetch('https://api.perplexity.ai/chat/completions', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${apiKey.trim()}`,
+        'Authorization': `Bearer ${cleanKey}`,
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
         model: 'sonar-pro',
         messages: [
           { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt }
+          { role: 'user', content: enrichedUserPrompt }
         ],
         max_tokens: 8000,
-        temperature: 0.2
+        temperature: 0.25
       })
     });
     if (!fallbackRes.ok) {
@@ -512,11 +614,13 @@ async function callPerplexityJson(apiKey, systemPrompt, userPrompt, recencyFilte
     const fbData = await fallbackRes.json();
     recordPerplexityUsage(fbData?.usage, callType);
     const fbContent = fbData?.choices?.[0]?.message?.content || '';
-    const fbSearchResults = Array.isArray(fbData?.search_results)
-      ? fbData.search_results.filter(r => r && isRealArticleUrl(r.url))
-      : [];
+    const fbSearchResults = [
+      ...stage1SearchResults,
+      ...(Array.isArray(fbData?.search_results) ? fbData.search_results.filter(r => r && isRealArticleUrl(r.url)) : [])
+    ];
     const fbCitations = [
       ...fbSearchResults.map(r => r.url.trim()),
+      ...stage1Citations,
       ...(Array.isArray(fbData?.citations) ? fbData.citations.filter(isRealArticleUrl) : [])
     ].filter((u, idx, arr) => arr.indexOf(u) === idx);
     const parsed = stripCitationBrackets(safeParseJsonFromText(fbContent));
@@ -556,7 +660,7 @@ ${rawLiveContext}
 }
 
 // Perplexity API를 활용해 선택한 콘텐츠 유형(1~5번)과 입력 키워드·주제·서브키워드·기획방향에 딱 맞춘 맞춤형 기사 초안 생성
-async function buildPerplexityEnhancedScenario({ apiKey, keyword: rawKeyword, company: rawCompany, subKeywords = '', direction = '', url, rawText, typeId, newsItems, baseScenario }) {
+async function buildPerplexityEnhancedScenario({ apiKey, keyword: rawKeyword, company: rawCompany, subKeywords = '', direction = '', url, rawText, typeId, newsItems, baseScenario, writerModel = '' }) {
   const keyword = cleanTrendTopicKeyword(rawKeyword);
   const company = extractBrandFromTopic(keyword, rawCompany);
   // 버츄얼 아이돌 계보 키워드('아담, 키즈나아이, 이세계아이돌, 플레이브, 나이비스' 등)인 경우에만 버츄얼 아이돌 계보 원고 시나리오 적용
@@ -585,7 +689,7 @@ async function buildPerplexityEnhancedScenario({ apiKey, keyword: rawKeyword, co
 
   const typeInstructions = {
     1: '유형 1(파트너사·서비스 비교 기획 콘텐츠): 선택된 유형의 틀에 억지로 끼워 맞추지 말고, 검색된 최신 뉴스 팩트를 바탕으로 1단락은 소비자 핵심 고민과 최신 트렌드 배경, 2~3단락은 실제 기업·서비스의 핵심 혜택과 차별점을 실명으로 분석(절대 브랜드 A/B/C 같은 가상 알파벳 표기 금지!), 마지막 단락은 선택 체크포인트 제시. 요약표는 비교표, 용어 사전 4개, FAQ는 7문항.',
-    2: '유형 2(시즌·기념일·주요 일정 맞춤형 콘텐츠): 절대로 모든 주제를 "왜 하필 이날로 지정됐을까 / 정부24 바우처 / 브랜드 A~E" 같은 기계적인 틀에 억지로 끼워 맞추지 마세요! 입력된 키워드(예: 수능, 빼빼로데이, 김장철, 임산부의 날 등)의 실제 성격과 최신 뉴스 보도에 100% 맞춰, 그 주제의 핵심 이슈·일정·실제 기업 프로모션·독자 체크포인트를 가장 자연스러운 소제목과 단락으로 구성하세요. (가상 알파벳 브랜드 A/B/C 절대 금지!) 요약표는 핵심 비교표, 용어 사전 4개, FAQ는 5문항.',
+    2: '유형 2(시즌·기념일·주요 일정 맞춤형 콘텐츠): 절대로 모든 주제를 "왜 하필 이날로 지정됐을까 / 정부24 바우처 / 브랜드 A~E" 같은 기계적인 틀에 억지로 끼워 맞추지 마세요! 입력된 키워드(예: 수능, 빼빼로데이, 가래떡데이, 김장철 등)와 서브 키워드·원하는 글의 방향에 100% 맞춰, 가장 자연스러운 MK Pick 매거진형 소제목과 단락으로 구성하세요. (가상 알파벳 브랜드 A/B/C 절대 금지!) 요약표는 핵심 비교표, 용어 사전 4개, FAQ는 5문항.',
     3: isHistoryTopic
       ? '유형 3(시대별 계보·트렌드 변천사 심층 분석): 사용자가 계보·변천사 주제를 입력했으므로 초창기 원조부터 전환기, 현재 대표 주자들까지 흐름에 따라 각 주자를 단락별로 조명하고 비교 요약표와 FAQ 5문항으로 정리.'
       : '유형 3(최신 트렌드·이슈 심층 분석 콘텐츠 1): 선택된 유형의 틀에 억지로 끼워 맞추지 말고, 최신 뉴스 검색 결과를 바탕으로 1단락은 왜 지금 이 키워드·이슈가 주목받는지 배경 분석, 2~3단락은 최신 보도된 핵심 팩트·사례·수치·시장 반응을 심층 분석, 마지막 단락은 독자를 위한 실전 활용 가이드 및 전망 제시. 요약표는 핵심 비교표, 용어 사전 4개, FAQ 5문항.',
@@ -599,6 +703,7 @@ async function buildPerplexityEnhancedScenario({ apiKey, keyword: rawKeyword, co
   const preFactCheck = inspectTopicFactVerification(keyword, company, pressNewsItems.length);
 
   const sys = `당신은 매일경제 MK Pick(GEO·AEO 최적화 매거진형 심층 기사) 수석 에디터이자 팩트체크 데스크입니다.
+제공된 최신 검증 팩트 브리핑과 실시간 뉴스 기사들을 바탕으로 메인 키워드('${keyword}')뿐만 아니라 **서브 키워드(${subKwList.join(', ') || '연관 키워드'}) 및 편집자의 자연어 기획 방향('${cleanDirection || '최신 트렌드'}')에 등장하는 핵심 소재들(예: 가래떡데이, 떡 디저트 유행 등)까지 함께** 기사 본문과 취재 팩트 메모장(researchFacts)에 100% 반영하세요!
 타 언론사 기사의 문장을 절대 그대로 베끼지 말고, 수치·브랜드명·신메뉴명·성분·규격·가격 등 핵심 팩트만 추출하여 모든 본문과 답변을 매일경제 고유의 정중하고 생동감 있는 "~합니다/습니다" 체로 작성하세요.
 
 [핵심 작성 원칙 — 반드시 준수!]
@@ -609,24 +714,34 @@ async function buildPerplexityEnhancedScenario({ apiKey, keyword: rawKeyword, co
      ② 반드시 JSON의 \`factVerification.verdict\`를 \`"AI_MEME_OR_VIRTUAL"\` (또는 보도 미확인 시 \`"UNVERIFIED_VIRAL"\`), \`factVerification.isWarning\`을 \`true\`로 설정하세요.
      ③ 기사 제목(\`titleCandidates\`), \`aiFactSummary\`(3줄 요약), 본문(\`draftSections\`) 첫 단락에서 **"해당 화제 키워드는 실제 정식 출시된 제품이 아니라 SNS·숏폼에서 확산된 가상(AI 생성) 밈·콘텐츠"**라는 사실을 명확히 팩트체크해 바로잡고, 대신 **실제 존재하는 원조 브랜드(예: 더현대서울 등에서 판매되는 '한정선' 생과일 찹쌀떡 등)의 진짜 정식 메뉴와 검증된 시장 트렌드 팩트**를 중심으로 설명하세요.
    - 실제 정식 출시·공식 발표 및 언론 보도가 확인된 정상적인 주제라면 \`factVerification.verdict\`를 \`"VERIFIED_FACT"\`, \`factVerification.isWarning\`을 \`false\`로 설정하고 확인된 공식 팩트 요약을 적어주세요.
-1. [편집자 기획 의도·방향 및 서브 키워드 최우선 반영]:
-   - 편집자가 입력한 **'원하는 글의 방향·맥락'(${cleanDirection || '최신 트렌드 및 실제 출시 팩트 심층 분석'})**과 **'서브 키워드'(${subKwList.length > 0 ? subKwList.join(', ') : '핵심 연관 포인트'})**가 있다면, 반드시 기사 제목·소제목·본문 단락·비교표·FAQ 전체가 그 기획 의도와 서브 키워드를 중심으로 전개되도록 맞춤 작성하세요!
-2. [복합·다중 브랜드 키워드('${keyword}') 정밀 분석 및 실제 신메뉴·제품 소개 원칙]:
+1. [편집자 자연어 기획 의도('원하는 글의 방향·맥락') 및 '서브 키워드' 1순위 절대 반영 — 고정 템플릿보다 항상 우선!]:
+   - 편집자가 자연어로 입력한 **'원하는 글의 방향·맥락'(${cleanDirection ? `"${cleanDirection}"` : '최신 트렌드 및 실제 출시 팩트 심층 분석'})**과 **'서브 키워드'(${subKwList.length > 0 ? subKwList.join(', ') : '핵심 연관 포인트'})**가 있다면, 어떤 콘텐츠 유형(01~05)이 선택되어 있더라도 **편집자의 자연어 기획 의도가 글 전체 구조의 최우선 설계도**가 됩니다!
+   - 예를 들어 메인 키워드가 '빼빼로데이', 서브 키워드가 '가래떡데이', 원하는 방향이 '빼빼로데이만 알고 있었던 사람들에게 가래떡데이도 알려줌, 요즘 떡 디저트가 유행이니 가래떡데이와 엮어서 쓰고 싶음'이라면, 기사 제목·소제목·본문 1~4단락·비교 요약표·용어사전·FAQ 전체를 그 자연어 스토리에 100% 맞춰 유기적으로 작성하세요!
+   - **절대로 편집자가 입력한 메모 원문 문장("${cleanDirection}")을 본문 안에 그대로 복사해 붙여넣지 마세요!** 반드시 완성된 매거진 기사 문장으로 자연스럽게 녹여 쓰세요.
+2. [MK Pick 실제 레퍼런스 기사처럼 매력적이고 자연스러운 소제목(\`draftSections[].title\`) 작성 원칙 — 필수!]:
+   - "왜 지금 '빼빼로데이'에 대한 관심과 업계의 움직임이 활발해지고 있을까요?" 같은 딱딱하고 천편일률적인 교과서형 질문 소제목을 절대 쓰지 마세요!
+   - 실제 매일경제 MK Pick 인기 기사처럼 **독자의 호기심을 자극하는 위트 있고 감각적인 매거진형 소제목**(명사형 종결, 핵심 키워드 대비, 혹은 짧고 강렬한 포인트형 소제목)으로 작성하세요!
+     · 좋은 소제목 예시(빼빼로데이+가래떡데이+떡 디저트):
+       - 단락 1: \`"11월 11일, 초콜릿 과자만 떠올렸다면? 진짜 주인공은 따로 있습니다"\` 또는 \`"막대 과자 뒤에 숨겨진 11월 11일의 또 다른 이름, '가래떡데이'"\`
+       - 단락 2: \`"농업인의 날에서 시작된 '가래떡데이', 왜 다시 주목받을까요?"\`
+       - 단락 3: \`"'할매니얼' 넘어 대세 디저트로…MZ세대 사로잡은 이색 떡 디저트 열풍"\`
+       - 단락 4: \`"올해 11월 11일, 센스 있게 마음을 전하는 가래떡·떡 디저트 선물 가이드"\`
+3. [복합·다중 브랜드 키워드('${keyword}') 정밀 분석 및 실제 신메뉴·제품 소개 원칙]:
    - '이디야, 맘스터치, 메가커피 푸드 스낵 신메뉴 강화'처럼 **여러 브랜드(${brandList.join(', ') || '주요 브랜드'}) + 핵심 주제('${coreTopicText}')**가 결합된 문장형 키워드가 입력된 경우, 절대로 문장 뒷부분('푸드 스낵 신메뉴 강화' 등)을 또 하나의 브랜드나 제품 이름인 것처럼 쪼개서 표에 넣지 마세요!
    - 반드시 웹 검색을 통해 등장하는 **각 브랜드(${brandList.join(', ') || '해당 브랜드들'})가 실제로 출시한 대표 신메뉴·신상품의 정확한 이름, 가격·구성, 특징**을 각각 구체적으로 찾아 본문 단락과 비교 요약표(summaryTable)에 1:1로 소개하세요.
-3. [메인 화면 노출용 헤드라인 글자수 제한 (최대 ${MAX_HEADLINE_CHARS}자 이내 필수!)]:
+4. [메인 화면 노출용 헤드라인 글자수 제한 (최대 ${MAX_HEADLINE_CHARS}자 이내 필수!)]:
    - MK Pick 메인 화면 카드에 노출될 때 제목이 2줄을 넘어 잘리지 않도록, 모든 \`titleCandidates\`의 \`title\`은 **공백 포함 28~38자 이내(절대 최대 ${MAX_HEADLINE_CHARS}자 이하!)**로 간결하고 임팩트 있게 작성하세요!
    - 제목에 다 담지 못한 부연 설명은 \`subtitle\`(한줄 소제목)에 담아주세요.
-4. [FAQ 본문 문맥 순서(단락 1 → 단락 2 → 단락 3 → 단락 4) 완벽 정렬]:
+5. [FAQ 본문 문맥 순서(단락 1 → 단락 2 → 단락 3 → 단락 4) 완벽 정렬]:
    - \`faqs\` 배열의 질문(Q1~Q${faqCount})은 반드시 **본문(\`draftSections\`) 1단락부터 마지막 단락까지의 문맥 흐름 순서 그대로** 배치하고, 각 FAQ 항목마다 본문 몇 번째 단락(1~4)과 연결되는지 \`"relatedSection": 1\` ~ \`4\` 숫자를 명시하세요!
-5. JSON 문자열 내부에 큰따옴표를 쓸 때는 반드시 유니코드 겹따옴표(“…”)나 작은따옴표('…')만 사용하여 JSON 파싱 오류가 절대 발생하지 않도록 하세요.`;
+6. JSON 문자열 내부에 큰따옴표를 쓸 때는 반드시 유니코드 겹따옴표(“…”)나 작은따옴표('…')만 사용하여 JSON 파싱 오류가 절대 발생하지 않도록 하세요.`;
 
   const usr = `[작성 요청 정보]
 - 메인 키워드/주제: ${keyword}
 - 식별된 핵심 브랜드(${brandList.length}개): ${brandList.join(', ') || company || '관련 주요 브랜드·제품'}
 - 핵심 세부 주제: ${coreTopicText}
-- 서브 키워드(선택): ${subKwList.length > 0 ? subKwList.join(', ') : '없음 (주제에 맞는 핵심 세부 키워드 자동 반영)'}
-- 편집자가 원하는 글의 방향·맥락(기획 의도): ${cleanDirection || '최신 언론 보도와 실제 출시된 제품·신메뉴·프로모션 팩트를 중심으로 독자에게 유익한 정보 제공'}
+- 서브 키워드(반드시 본문·소제목·요약표에 핵심 축으로 반영!): ${subKwList.length > 0 ? subKwList.join(', ') : '없음 (주제에 맞는 핵심 세부 키워드 자동 반영)'}
+- 편집자가 원하는 글의 방향·맥락(최우선 설계도!): ${cleanDirection || '최신 언론 보도와 실제 출시된 제품·신메뉴·프로모션 팩트를 중심으로 독자에게 유익한 정보 제공'}
 - 참고 URL: ${url || '없음'}
 - 추가 보도자료/메모: ${rawText || '없음'}
 - 선택된 콘텐츠 유형: ${tInfo.shortName} (${tInfo.desc})
@@ -636,7 +751,7 @@ async function buildPerplexityEnhancedScenario({ apiKey, keyword: rawKeyword, co
 ${newsContext || '매칭된 언론 보도 기사가 적으므로 웹 검색을 통해 각 브랜드·주제의 가장 최신 실제 공식 보도 팩트를 찾아 작성하세요.'}
 
 아래 JSON 스키마에 맞춰 주제('${keyword}')의 실제 출시·언론 보도 진위를 먼저 검증(factVerification)한 뒤, 편집자의 기획 방향(${cleanDirection || '최신 팩트 중심'})과 서브 키워드(${subKwList.join(', ') || '핵심 포인트'})를 충실히 반영한 완성도 높은 기사(본문 4개 단락, 맞춤형 비교표, 용어 사전 4개, 본문 문맥 순서대로 정렬된 FAQ ${faqCount}개, 마무리 요약)를 작성하세요.
-⚠️ 특히 모든 \`titleCandidates\`의 \`title\`은 메인 화면에서 잘리지 않도록 **반드시 공백 포함 ${MAX_HEADLINE_CHARS}자 이내(권장 30~38자)**로 작성하세요!
+⚠️ 특히 모든 \`titleCandidates\`의 \`title\`은 메인 화면에서 잘리지 않도록 **반드시 공백 포함 ${MAX_HEADLINE_CHARS}자 이내(권장 30~38자)**로 작성하고, 각 단락의 \`title\`(소제목)은 딱딱한 기계적 질문이 아닌 **MK Pick 매거진 스타일의 감각적이고 자연스러운 소제목**으로 작성하세요!
 {
   "factVerification": {
     "verdict": "VERIFIED_FACT(공식 출시·언론 보도 확인) | AI_MEME_OR_VIRTUAL(가상·AI 생성 밈/정식 미출시) | UNVERIFIED_VIRAL(공식 보도 미확인 주의) 중 택 1",
@@ -654,12 +769,12 @@ ${newsContext || '매칭된 언론 보도 기사가 적으므로 웹 검색을 �
     {"id": "tc-5", "title": "“공백 포함 38자 이내 헤드라인”…설명형 제목 5", "totalScore": 85}
   ],
   "researchFacts": [
-    {"category": "최신 보도 핵심 팩트", "sourceTitle": "[언론사명 · YYYY-MM-DD] 가장 최근 보도된 실제 뉴스 제목 1", "sourceUrl": "웹 검색 결과에 있는 해당 기사의 실제 원문 URL (https://...)", "pubDate": "YYYY-MM-DD", "usedInSection": 1, "fact": "본문 1단락에 반영된 가장 최신 수치와 배경이 포함된 ~합니다 체 팩트 문장 1"},
-    {"category": "후속 반응 · 최신 근황", "sourceTitle": "[언론사명 · YYYY-MM-DD] 최신 후속 보도 제목 2", "sourceUrl": "웹 검색 결과에 있는 해당 기사의 실제 원문 URL (https://...)", "pubDate": "YYYY-MM-DD", "usedInSection": 1, "fact": "본문 1~2단락에 반영된 최신 후속 반응·인터뷰·비하인드가 포함된 ~합니다 체 팩트 문장 2"},
-    {"category": "브랜드 · 신메뉴/제품 특징 1", "sourceTitle": "[언론사명 · YYYY-MM-DD] 공식 출시 메뉴·제품 특징 보도 제목 3", "sourceUrl": "웹 검색 결과에 있는 해당 기사의 실제 원문 URL (https://...)", "pubDate": "YYYY-MM-DD", "usedInSection": 2, "fact": "본문 2단락에 반영된 구체적인 실제 신메뉴·제품명·가격·특징이 포함된 ~합니다 체 팩트 문장 3"},
-    {"category": "브랜드 · 신메뉴/제품 특징 2", "sourceTitle": "[언론사명 · YYYY-MM-DD] 브랜드별 신메뉴·차별화 포인트 보도 제목 4", "sourceUrl": "웹 검색 결과에 있는 해당 기사의 실제 원문 URL (https://...)", "pubDate": "YYYY-MM-DD", "usedInSection": 2, "fact": "본문 2~3단락에 반영된 브랜드별 실제 주력 제품·차별점·소비자 반응이 포함된 ~합니다 체 팩트 문장 4"},
-    {"category": "유통 · 프로모션 동향", "sourceTitle": "[언론사명 · YYYY-MM-DD] 매장·판매처·프로모션 보도 제목 5", "sourceUrl": "웹 검색 결과에 있는 해당 기사의 실제 원문 URL (https://...)", "pubDate": "YYYY-MM-DD", "usedInSection": 3, "fact": "본문 3단락에 반영된 판매 채널·세트 혜택·프로모션 동향이 포함된 ~합니다 체 팩트 문장 5"},
-    {"category": "가격 · 구성 및 이용 팁", "sourceTitle": "[언론사명 · YYYY-MM-DD] 가격·구성·구매 가이드 보도 제목 6", "sourceUrl": "웹 검색 결과에 있는 해당 기사의 실제 원문 URL (https://...)", "pubDate": "YYYY-MM-DD", "usedInSection": 4, "fact": "본문 4단락에 반영된 가격·구성·이용 시 참고할 점이 포함된 ~합니다 체 팩트 문장 6"}
+    {"category": "핵심 배경 · 최신 팩트", "sourceTitle": "[언론사명 · YYYY-MM-DD] 가장 최근 보도된 실제 뉴스 제목 1", "sourceUrl": "웹 검색 결과에 있는 해당 기사의 실제 원문 URL (https://...)", "pubDate": "YYYY-MM-DD", "usedInSection": 1, "fact": "본문 1단락에 반영된 가장 최신 수치와 배경이 포함된 ~합니다 체 팩트 문장 1"},
+    {"category": "서브 키워드 · 핵심 팩트", "sourceTitle": "[언론사명 · YYYY-MM-DD] 서브 키워드·기획 방향 관련 보도 제목 2", "sourceUrl": "웹 검색 결과에 있는 해당 기사의 실제 원문 URL (https://...)", "pubDate": "YYYY-MM-DD", "usedInSection": 1, "fact": "본문 1~2단락에 반영된 서브 키워드 및 유래·배경 팩트 문장 2"},
+    {"category": "주요 트렌드 · 심층 팩트 1", "sourceTitle": "[언론사명 · YYYY-MM-DD] 주요 트렌드·제품·이슈 보도 제목 3", "sourceUrl": "웹 검색 결과에 있는 해당 기사의 실제 원문 URL (https://...)", "pubDate": "YYYY-MM-DD", "usedInSection": 2, "fact": "본문 2단락에 반영된 구체적인 실제 사례·제품명·가격·특징이 포함된 ~합니다 체 팩트 문장 3"},
+    {"category": "주요 트렌드 · 심층 팩트 2", "sourceTitle": "[언론사명 · YYYY-MM-DD] 세부 트렌드·차별화 포인트 보도 제목 4", "sourceUrl": "웹 검색 결과에 있는 해당 기사의 실제 원문 URL (https://...)", "pubDate": "YYYY-MM-DD", "usedInSection": 3, "fact": "본문 2~3단락에 반영된 실제 인기 품목·소비자 반응이 포함된 ~합니다 체 팩트 문장 4"},
+    {"category": "유통 · 업계 동향", "sourceTitle": "[언론사명 · YYYY-MM-DD] 매장·판매처·캠페인 보도 제목 5", "sourceUrl": "웹 검색 결과에 있는 해당 기사의 실제 원문 URL (https://...)", "pubDate": "YYYY-MM-DD", "usedInSection": 3, "fact": "본문 3단락에 반영된 유통·베이커리·카페·업계 동향이 포함된 ~합니다 체 팩트 문장 5"},
+    {"category": "소비자 추천 · 활용 팁", "sourceTitle": "[언론사명 · YYYY-MM-DD] 추천 조합·구매 가이드 보도 제목 6", "sourceUrl": "웹 검색 결과에 있는 해당 기사의 실제 원문 URL (https://...)", "pubDate": "YYYY-MM-DD", "usedInSection": 4, "fact": "본문 4단락에 반영된 실전 선택 팁·활용법이 포함된 ~합니다 체 팩트 문장 6"}
   ],
   "subtitle": "메인 헤드라인 바로 아래에 들어갈 핵심 한줄 소제목 (또는 2줄 부제, 줄바꿈 \\n 사용)",
   "aiFactSummary": [
@@ -670,37 +785,37 @@ ${newsContext || '매칭된 언론 보도 기사가 적으므로 웹 검색을 �
   "draftSections": [
     {
       "id": "sec-1",
-      "title": "1단락 소제목: 독자의 공감을 이끄는 도입 질문 및 트렌드 배경 (~할까요?)",
-      "content": "독자의 일상·소비 고민에 공감하는 질문형 첫 문장 + 해당 주제가 부상한 배경과 핵심 트렌드 분석 2~3문단 (~합니다 체)",
+      "title": "MK Pick 매거진 스타일의 감각적인 1단락 소제목 (도입·배경·화두 제시)",
+      "content": "독자의 시선을 사로잡는 매력적인 첫 문장 + 메인 키워드와 서브 키워드를 자연스럽게 연결하는 배경 스토리 2~3문단 (~합니다 체)",
       "imageCaption": ""
     },
     {
       "id": "sec-2",
-      "title": "2단락 소제목: 주요 브랜드·첫 번째 핵심 라인업(실제 신메뉴·제품명) 심층 분석",
-      "content": "실제 출시된 구체적인 메뉴·제품명, 가격, 원재료·사양, 차별화 포인트를 상세히 설명하는 본문 2~3문단 (~합니다 체)",
+      "title": "MK Pick 매거진 스타일의 감각적인 2단락 소제목 (핵심 스토리·유래·첫 번째 축 심층 조명)",
+      "content": "편집자의 기획 방향과 서브 키워드의 핵심 배경·유래·구체적 팩트를 생동감 있게 풀어낸 본문 2~3문단 (~합니다 체)",
       "imageCaption": ""
     },
     {
       "id": "sec-3",
-      "title": "3단락 소제목: 경쟁 브랜드·연관 라인업 비교 및 시너지 포인트",
-      "content": "함께 비교되는 브랜드별 실제 신메뉴·제품 특징과 프로모션 혜택을 구체적 팩트로 설명하는 본문 2~3문단 (~합니다 체)",
+      "title": "MK Pick 매거진 스타일의 감각적인 3단락 소제목 (최신 트렌드·인기 디저트/제품/브랜드 열풍 분석)",
+      "content": "요즘 유행하는 실제 트렌드(예: 떡 디저트 열풍, 주요 브랜드 대표 메뉴·제품·가격·특징 등)를 구체적인 팩트로 소개하는 본문 2~3문단 (~합니다 체)",
       "imageCaption": ""
     },
     {
       "id": "sec-4",
-      "title": "4단락 소제목: 소비자를 위한 똑똑한 선택 기준과 실전 구매·활용 팁",
-      "content": "상황·취향별 추천 메뉴·제품 조합, 시간대·할인 혜택, 온·오프라인 이용 팁을 정리한 본문 2문단 (~합니다 체)",
+      "title": "MK Pick 매거진 스타일의 감각적인 4단락 소제목 (독자를 위한 센스 있는 선택·선물·활용 가이드)",
+      "content": "독자가 바로 활용할 수 있는 추천 아이템·조합·구매 및 선물 팁을 정리한 본문 2문단 (~합니다 체)",
       "imageCaption": ""
     }
   ],
   "summaryTable": {
-    "title": "[요약표] 브랜드·제품별 핵심 신메뉴·특징 및 선택 가이드",
-    "headers": ["구분 · 브랜드", "대표 신메뉴 · 주력 제품", "핵심 특징 및 가격·사양", "추천 조합 및 이용 팁"],
+    "title": "[요약표] 핵심 포인트 한눈에 비교 및 실전 선택 가이드",
+    "headers": ["구분", "핵심 개념 · 대표 아이템", "주요 특징 및 인기 배경", "추천 대상 · 활용 팁"],
     "rows": [
-      ["브랜드/항목 1", "실제 출시 메뉴·제품명", "구체적 특징·가격·사양", "추천 대상·이용 팁"],
-      ["브랜드/항목 2", "실제 출시 메뉴·제품명", "구체적 특징·가격·사양", "추천 대상·이용 팁"],
-      ["브랜드/항목 3", "실제 출시 메뉴·제품명", "구체적 특징·가격·사양", "추천 대상·이용 팁"],
-      ["이용 체크포인트", "세트·타임할인·앱 주문", "가성비 및 편의성 극대화 포인트", "방문·배달 전 확인사항"]
+      ["비교 항목 1", "구체적 명칭·내용", "핵심 특징·트렌드 포인트", "추천 포인트·팁"],
+      ["비교 항목 2", "구체적 명칭·내용", "핵심 특징·트렌드 포인트", "추천 포인트·팁"],
+      ["비교 항목 3", "구체적 명칭·내용", "핵심 특징·트렌드 포인트", "추천 포인트·팁"],
+      ["실전 활용 팁", "선물·구매·이용 체크포인트", "가성비 및 만족도 높이는 법", "사전 확인사항"]
     ]
   },
   "glossaryTitle": "주제를 더 깊이 이해하는 핵심 용어 사전",
@@ -712,24 +827,24 @@ ${newsContext || '매칭된 언론 보도 기사가 적으므로 웹 검색을 �
   ],
   "faqs": [
     {"relatedSection": 1, "q": "Q1. [1단락 도입·배경 문맥] 독자가 검색창에 물어볼 자연어 질문 (~나요?)", "a": "1단락 내용에 기반한 구체적인 2~3문장 완결형 답변 (~합니다 체)"},
-    {"relatedSection": 2, "q": "Q2. [2단락 주요 브랜드·신메뉴 문맥] 자연어 질문 (~나요?)", "a": "2단락 내용에 기반한 구체적인 2~3문장 완결형 답변 (~합니다 체)"},
-    {"relatedSection": 2, "q": "Q3. [2~3단락 세부 메뉴·제품 특징 문맥] 자연어 질문 (~나요?)", "a": "2~3단락 내용에 기반한 구체적인 2~3문장 완결형 답변 (~합니다 체)"},
-    {"relatedSection": 3, "q": "Q4. [3단락 브랜드 비교·혜택 문맥] 자연어 질문 (~나요?)", "a": "3단락 내용에 기반한 구체적인 2~3문장 완결형 답변 (~합니다 체)"},
-    {"relatedSection": 4, "q": "Q5. [4단락 구매·이용 팁 문맥] 자연어 질문 (~나요?)", "a": "4단락 내용에 기반한 구체적인 2~3문장 완결형 답변 (~합니다 체)"}
+    {"relatedSection": 2, "q": "Q2. [2단락 핵심 스토리·유래 문맥] 자연어 질문 (~나요?)", "a": "2단락 내용에 기반한 구체적인 2~3문장 완결형 답변 (~합니다 체)"},
+    {"relatedSection": 2, "q": "Q3. [2~3단락 세부 특징·트렌드 문맥] 자연어 질문 (~나요?)", "a": "2~3단락 내용에 기반한 구체적인 2~3문장 완결형 답변 (~합니다 체)"},
+    {"relatedSection": 3, "q": "Q4. [3단락 인기 아이템·비교 문맥] 자연어 질문 (~나요?)", "a": "3단락 내용에 기반한 구체적인 2~3문장 완결형 답변 (~합니다 체)"},
+    {"relatedSection": 4, "q": "Q5. [4단락 구매·활용 팁 문맥] 자연어 질문 (~나요?)", "a": "4단락 내용에 기반한 구체적인 2~3문장 완결형 답변 (~합니다 체)"}
   ],
   "fanoutQuestions": [
-    {"category": "핵심특징·비교", "q": "'${keyword}'에 대해 독자가 추가로 가장 궁금해할 구체적인 꼬리 질문 1 (~나요?)", "a": "구체적인 팩트 기반 답변 1~2문장 (~합니다 체)"},
-    {"category": "가격·구성", "q": "'${keyword}' 가격·용량·구성에 관한 구체적인 꼬리 질문 2 (~나요?)", "a": "구체적인 팩트 기반 답변 1~2문장 (~합니다 체)"},
-    {"category": "이용·구매처", "q": "'${keyword}' 구매 채널·매장·배달·온라인 이용에 관한 꼬리 질문 3 (~나요?)", "a": "구체적인 팩트 기반 답변 1~2문장 (~합니다 체)"},
-    {"category": "추천조합·활용팁", "q": "'${keyword}'을 더 맛있게/효과적으로 즐기는 조합이나 활용 팁 질문 4 (~나요?)", "a": "구체적인 팩트 기반 답변 1~2문장 (~합니다 체)"},
-    {"category": "성분·스펙·보관", "q": "'${keyword}' 원재료·성분·칼로리·보관법 등에 관한 꼬리 질문 5 (~나요?)", "a": "구체적인 팩트 기반 답변 1~2문장 (~합니다 체)"},
-    {"category": "이벤트·프로모션", "q": "'${keyword}' 출시 기념 혜택·할인·한정 여부에 관한 꼬리 질문 6 (~나요?)", "a": "구체적인 팩트 기반 답변 1~2문장 (~합니다 체)"}
+    {"category": "유래·배경", "q": "'${keyword}' 및 관련 주제에 대해 독자가 추가로 가장 궁금해할 구체적인 꼬리 질문 1 (~나요?)", "a": "구체적인 팩트 기반 답변 1~2문장 (~합니다 체)"},
+    {"category": "인기트렌드·메뉴", "q": "최신 인기 아이템·메뉴·특징에 관한 구체적인 꼬리 질문 2 (~나요?)", "a": "구체적인 팩트 기반 답변 1~2문장 (~합니다 체)"},
+    {"category": "가격·구매처", "q": "구매 채널·매장·온라인 주문에 관한 꼬리 질문 3 (~나요?)", "a": "구체적인 팩트 기반 답변 1~2문장 (~합니다 체)"},
+    {"category": "추천조합·활용팁", "q": "더 맛있게/센스 있게 즐기는 조합이나 선물 팁 질문 4 (~나요?)", "a": "구체적인 팩트 기반 답변 1~2문장 (~합니다 체)"},
+    {"category": "보관·섭취팁", "q": "원재료·보관법·조리팁 등에 관한 꼬리 질문 5 (~나요?)", "a": "구체적인 팩트 기반 답변 1~2문장 (~합니다 체)"},
+    {"category": "이벤트·프로모션", "q": "시즌 기념 행사·혜택·캠페인에 관한 꼬리 질문 6 (~나요?)", "a": "구체적인 팩트 기반 답변 1~2문장 (~합니다 체)"}
   ],
   "closingParagraph": "기사 전체의 핵심 내용을 자연스럽게 갈무리하며 독자에게 실질적인 조언을 건네는 마무리 문단 2문장 (~합니다 체)",
   "oneLineSummary": "한 줄 요약! 기사 전체 핵심 메시지를 명쾌하게 정리한 한 문장 (~입니다 체)"
 }`;
 
-  const { parsed, citations, searchResults } = await callPerplexityJson(apiKey, sys, usr);
+  const { parsed, citations, searchResults } = await callPerplexityJson(apiKey, sys, usr, 'month', 'draft', writerModel);
   const todayStr = new Date().toISOString().slice(0, 10);
 
   // 출처 병합 및 1:1 실제 원문 기사 링크 연결
@@ -1489,7 +1604,8 @@ const requestHandler = async (req, res) => {
               rawText,
               typeId,
               newsItems,
-              baseScenario
+              baseScenario,
+              writerModel: (body.writerModel || '').trim()
             });
           } catch (pplxErr) {
             console.error('Perplexity draft error, using fallback:', pplxErr.message);
@@ -1600,7 +1716,8 @@ const requestHandler = async (req, res) => {
               rawText,
               typeId,
               newsItems,
-              baseScenario
+              baseScenario,
+              writerModel: (body.writerModel || '').trim()
             });
           } catch (pplxErr) {
             console.error('Perplexity refresh error:', pplxErr.message);

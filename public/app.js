@@ -56,7 +56,8 @@
       direction: '',
       url: '',
       rawText: '',
-      typeId: 4
+      typeId: 4,
+      typeMode: 'auto' // 'auto' (AI 자동 맞춤 추천) | 'manual' (편집자 직접 고정)
     },
     showRawPasteInput: false,
     fanoutOpen: true,
@@ -188,12 +189,83 @@
     return k.slice(0, 5) + '••••' + k.slice(-4);
   }
 
-  const DEFAULT_PPLX_MODEL = 'anthropic/claude-sonnet-4-5';
-  const FALLBACK_PPLX_MODEL = 'google/gemini-4-argon';
+  const WRITER_MODEL_STORAGE_KEY = 'mk_pick_writer_model_v1';
+  const DEFAULT_PPLX_MODEL = 'google/gemini-4-argon';
+  const FALLBACK_PPLX_MODEL = 'sonar-pro';
+
+  const WRITER_MODEL_OPTIONS = [
+    {
+      id: 'google/gemini-4-argon',
+      label: '✨ Gemini 4 Argon (기본 추천 · 매거진 문체)',
+      shortLabel: 'Gemini 4 Argon'
+    },
+    {
+      id: 'openai/gpt-5-mini',
+      label: '⚡ OpenAI GPT-5 Mini (빠른 논리 · 복합 지시)',
+      shortLabel: 'GPT-5 Mini'
+    },
+    {
+      id: 'openai/gpt-5',
+      label: '🧠 OpenAI GPT-5 (심층 논리 · 정밀 구조)',
+      shortLabel: 'GPT-5'
+    },
+    {
+      id: 'anthropic/claude-sonnet-4-5',
+      label: '🖋️ Claude Sonnet 4.5 (풍부한 한국어 어휘)',
+      shortLabel: 'Claude Sonnet 4.5'
+    },
+    {
+      id: 'sonar-pro',
+      label: '🌐 Perplexity Sonar-Pro (초고속 실시간 직결)',
+      shortLabel: 'Perplexity Sonar-Pro'
+    }
+  ];
+
+  function getSelectedWriterModel() {
+    try {
+      const saved = (localStorage.getItem(WRITER_MODEL_STORAGE_KEY) || '').trim();
+      if (saved && WRITER_MODEL_OPTIONS.some(m => m.id === saved)) {
+        return saved;
+      }
+    } catch (e) {}
+    return DEFAULT_PPLX_MODEL;
+  }
+
+  function setSelectedWriterModel(modelId) {
+    const valid = WRITER_MODEL_OPTIONS.find(m => m.id === modelId);
+    const chosen = valid ? valid.id : DEFAULT_PPLX_MODEL;
+    try {
+      localStorage.setItem(WRITER_MODEL_STORAGE_KEY, chosen);
+    } catch (e) {}
+    return chosen;
+  }
+
+  function getWriterModelShortLabel(modelId) {
+    const target = modelId || getSelectedWriterModel();
+    const found = WRITER_MODEL_OPTIONS.find(m => m.id === target);
+    return found ? found.shortLabel : 'Gemini 4 Argon';
+  }
+
+  function renderWriterModelSelectHtml(extraStyle = '') {
+    const currentModel = getSelectedWriterModel();
+    return `
+      <select
+        class="select"
+        data-writer-model-select="1"
+        title="1단계 Perplexity(sonar-pro)가 실시간 최신 뉴스를 수집한 뒤, 2단계에서 기사를 집필할 AI 모델을 선택합니다"
+        style="width: auto; padding: 5px 10px; font-size: 12px; font-weight: 800; color: var(--text-primary); background-color: #FFFDF9; border: 1px solid var(--mk-orange-border); border-radius: 6px; cursor: pointer; ${extraStyle}"
+      >
+        ${WRITER_MODEL_OPTIONS.map(opt => `
+          <option value="${escapeHtml(opt.id)}" ${opt.id === currentModel ? 'selected' : ''}>✍️ 집필 AI: ${escapeHtml(opt.label)}</option>
+        `).join('')}
+      </select>
+    `;
+  }
 
   function getClientUsageStats() {
+    const activeModel = getSelectedWriterModel();
     const defaultStats = {
-      model: DEFAULT_PPLX_MODEL,
+      model: activeModel,
       totalCalls: 4,
       trendCalls: 4,
       draftCalls: 0,
@@ -212,14 +284,14 @@
       if (!parsed || Number(parsed.totalCalls || 0) < defaultStats.totalCalls) {
         return defaultStats;
       }
-      return { ...defaultStats, ...parsed, model: DEFAULT_PPLX_MODEL };
+      return { ...defaultStats, ...parsed, model: activeModel };
     } catch (e) {
       return defaultStats;
     }
   }
 
   function saveClientUsageStats(stats) {
-    stats.model = DEFAULT_PPLX_MODEL;
+    stats.model = getSelectedWriterModel();
     try {
       localStorage.setItem(CLIENT_USAGE_KEY, JSON.stringify(stats));
     } catch (e) {
@@ -232,7 +304,7 @@
     const stats = getClientUsageStats();
     const pTokens = Number(usage.input_tokens || usage.prompt_tokens) || 950;
     const cTokens = Number(usage.output_tokens || usage.completion_tokens) || 1450;
-    stats.model = DEFAULT_PPLX_MODEL;
+    stats.model = getSelectedWriterModel();
     stats.totalCalls += 1;
     if (callType === 'trend') stats.trendCalls += 1;
     else stats.draftCalls += 1;
@@ -396,27 +468,204 @@
     return searchResults[0] || null;
   }
 
-  async function callPerplexityDirectFromBrowser(apiKey, systemPrompt, userPrompt, recencyFilter = 'month', callType = 'draft', maxTokensOverride = 0) {
-    const maxOutTokens = maxTokensOverride || (callType === 'trend' ? 6500 : 8192);
-    const modelsToTry = [DEFAULT_PPLX_MODEL, FALLBACK_PPLX_MODEL];
-    let lastError = null;
+  // 개별 AI 단계 호출 시 무한 대기(Hang)를 원천 차단하는 스마트 타임아웃 헬퍼
+  async function fetchWithTimeout(url, options = {}, timeoutMs = 28000, stepLabel = 'AI 호출') {
+    const controller = new AbortController();
+    const timerId = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const res = await fetch(url, { ...options, signal: controller.signal });
+      clearTimeout(timerId);
+      return res;
+    } catch (err) {
+      clearTimeout(timerId);
+      if (err && (err.name === 'AbortError' || String(err.message || '').includes('aborted'))) {
+        throw new Error(`${stepLabel} 응답 시간 초과 (${Math.round(timeoutMs / 1000)}초 Timeout)`);
+      }
+      throw err;
+    }
+  }
 
-    for (const modelName of modelsToTry) {
+  // AI 호출 실패 또는 백업 전환 시 에디터가 원인을 한눈에 알 수 있도록 한국어로 진단하는 헬퍼
+  function diagnoseAiErrorReason(rawErrMessage = '', hasApiKey = true) {
+    const msg = String(rawErrMessage || '').trim();
+    if (!hasApiKey) {
+      return {
+        code: 'NO_API_KEY',
+        title: '🔑 Perplexity API 키가 설정되지 않았습니다',
+        cause: 'API 키가 비어 있어 실시간 AI 검색·집필 대신 오프라인 기본 템플릿이 사용되었습니다.',
+        solution: '우측 상단 [API 연동 설정] 버튼을 눌러 API 키를 저장한 뒤 아래 [다시 생성] 버튼을 눌러주세요.'
+      };
+    }
+    if (/Timeout|시간 초과|AbortError|504|524/i.test(msg)) {
+      return {
+        code: 'TIMEOUT',
+        title: '⏱️ AI 모델 서버 응답 시간 초과 (Timeout)',
+        cause: `선택한 AI 모델 서버에 일시적으로 요청이 몰려 제한 시간 내에 응답이 완료되지 않았습니다. (${msg})`,
+        solution: '아래 [⚡ Gemini 4 Argon으로 즉시 다시 생성] 또는 [🌐 초고속 Sonar-Pro로 다시 생성] 버튼을 누르면 10~18초 내로 정상 집필됩니다.'
+      };
+    }
+    if (/401|403|Unauthorized|invalid.*key/i.test(msg)) {
+      return {
+        code: 'AUTH_ERROR',
+        title: '🔑 API 키 인증 실패 또는 만료 (401/403)',
+        cause: `입력된 API 키가 유효하지 않거나 만료되었습니다. (${msg})`,
+        solution: '우측 상단 [API 연동 설정]에서 유효한 Perplexity API 키(pplx-...)인지 확인해 주세요.'
+      };
+    }
+    if (/429|rate limit|quota|credit/i.test(msg)) {
+      return {
+        code: 'RATE_LIMIT',
+        title: '⏳ API 호출 한도 또는 분당 요청 제한 (429 Rate Limit)',
+        cause: `짧은 시간에 요청이 연속 발생했거나 API 크레딧 한도에 도달했습니다. (${msg})`,
+        solution: '약 10~15초 정도 기다린 뒤 아래 [⚡ 즉시 다시 생성] 버튼을 눌러주세요.'
+      };
+    }
+    if (/JSON|parse|Unexpected token/i.test(msg)) {
+      return {
+        code: 'JSON_PARSE_ERROR',
+        title: '📄 AI 응답 문장 끊김 (JSON 형식 오류)',
+        cause: `AI가 너무 긴 본문을 작성하다가 마지막 괄호가 잘려 응답 해석에 실패했습니다. (${msg})`,
+        solution: '아래 [⚡ 즉시 다시 생성] 버튼을 누르면 깔끔한 전체 원고로 다시 작성됩니다.'
+      };
+    }
+    if (/Failed to fetch|NetworkError|network/i.test(msg)) {
+      return {
+        code: 'NETWORK_ERROR',
+        title: '🌐 일시적 네트워크 연결 끊김',
+        cause: `브라우저와 AI 서버 간 인터넷 연결이 일시적으로 흔들렸습니다. (${msg})`,
+        solution: '네트워크 연결 확인 후 아래 [⚡ 즉시 다시 생성] 버튼을 눌러주세요.'
+      };
+    }
+    return {
+      code: 'GENERAL_AI_ERROR',
+      title: '⚠️ 일시적 AI 서버 응답 지연',
+      cause: msg ? `AI 호출 중 일시적 오류가 발생했습니다: ${msg}` : 'AI 서버 응답 지연으로 임시 기본 골격이 표시되었습니다.',
+      solution: '아래 [⚡ 즉시 다시 생성] 버튼을 누르면 실시간 뉴스 팩트 기반 AI 원고로 바로 교체됩니다.'
+    };
+  }
+
+  async function callPerplexityDirectFromBrowser(apiKey, systemPrompt, userPrompt, recencyFilter = 'month', callType = 'draft', maxTokensOverride = 0, preferredModel = '') {
+    const selectedModel = preferredModel || getSelectedWriterModel() || DEFAULT_PPLX_MODEL;
+    const isSonarDirect = selectedModel === 'sonar-pro' || callType === 'trend' || maxTokensOverride === 2500;
+
+    // 1) 트렌드 수집 / 최신 뉴스 메모 추가 / Sonar-Pro 직접 선택 시: 초고속 sonar-pro 단일 호출
+    if (isSonarDirect) {
+      const res = await fetchWithTimeout('https://api.perplexity.ai/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${apiKey.trim()}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          model: 'sonar-pro',
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userPrompt }
+          ],
+          max_tokens: maxTokensOverride || (callType === 'trend' ? 6500 : 8000),
+          temperature: 0.2
+        })
+      }, 25000, 'Perplexity Sonar-Pro');
+      if (!res.ok) {
+        const errText = await res.text().catch(() => '');
+        throw new Error(`Perplexity(sonar-pro) 호출 실패 (${res.status}): ${errText.slice(0, 100)}`);
+      }
+      const data = await res.json();
+      recordClientPerplexityUsage(data?.usage, callType);
+      const content = data?.choices?.[0]?.message?.content || '';
+      const searchResults = Array.isArray(data?.search_results)
+        ? data.search_results.filter(r => r && isRealArticleUrl(r.url))
+        : [];
+      const citations = [
+        ...searchResults.map(r => r.url.trim()),
+        ...(Array.isArray(data?.citations) ? data.citations.filter(isRealArticleUrl) : [])
+      ].filter((u, idx, arr) => arr.indexOf(u) === idx);
+      const parsed = stripCitationBracketsClient(safeParseClientJson(content));
+      return { parsed, citations, searchResults, activeModel: 'sonar-pro', fallbackFromModel: '', fallbackReason: '' };
+    }
+
+    // 2) [2단계 하이브리드 파이프라인]
+    //    - Stage 1 (약 3~4초, 최대 10초 제한): Perplexity(sonar-pro)가 메인 키워드·서브 키워드·기획 방향에 맞는 실시간 최신 뉴스 팩트 6건과 실제 원문 URL을 고속 수집
+    //    - Stage 2 (약 15~22초, 모델당 최대 28초 스마트 타임아웃): 선택된 집필 AI가 중복 웹 검색 대기 없이 오직 MK Pick 매거진 원고 집필에만 집중!
+    let stage1FactsText = '';
+    let stage1SearchResults = [];
+    let stage1Citations = [];
+
+    if (maxTokensOverride !== 6000) {
       try {
-        const res = await fetch('https://api.perplexity.ai/v1/responses', {
+        const s1Res = await fetchWithTimeout('https://api.perplexity.ai/chat/completions', {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${apiKey.trim()}`,
             'Content-Type': 'application/json'
           },
           body: JSON.stringify({
-            model: modelName,
-            tools: [{ type: 'web_search' }],
-            instructions: systemPrompt,
-            input: userPrompt,
-            max_output_tokens: maxOutTokens
+            model: 'sonar-pro',
+            messages: [
+              {
+                role: 'system',
+                content: '당신은 매일경제 실시간 뉴스 취재 데스크입니다. 요청된 메인 키워드, 서브 키워드, 편집자 기획 방향에 관련된 가장 최신 한국 언론 보도 팩트 6가지(날짜·언론사·구체적 수치·브랜드·신제품·트렌드 배경 포함)를 각 1~2문장(~합니다 체)으로 간결하고 정확하게 요약하세요.'
+              },
+              {
+                role: 'user',
+                content: userPrompt.slice(0, 900)
+              }
+            ],
+            max_tokens: 950,
+            temperature: 0.1
           })
-        });
+        }, 11000, '1단계 실시간 뉴스 검색(Sonar-Pro)');
+        if (s1Res.ok) {
+          const s1Data = await s1Res.json();
+          recordClientPerplexityUsage(s1Data?.usage, 'trend');
+          stage1FactsText = s1Data?.choices?.[0]?.message?.content || '';
+          stage1SearchResults = Array.isArray(s1Data?.search_results)
+            ? s1Data.search_results.filter(r => r && isRealArticleUrl(r.url))
+            : [];
+          stage1Citations = [
+            ...stage1SearchResults.map(r => r.url.trim()),
+            ...(Array.isArray(s1Data?.citations) ? s1Data.citations.filter(isRealArticleUrl) : [])
+          ].filter((u, idx, arr) => arr.indexOf(u) === idx);
+        }
+      } catch (s1Err) {
+        console.warn('Stage 1 sonar-pro search warning:', s1Err.message);
+      }
+    }
+
+    const enrichedUserPrompt = stage1FactsText
+      ? `${userPrompt}\n\n========================================\n[1단계 Perplexity(sonar-pro)가 방금 수집한 실시간 최신 한국 뉴스 팩트 — 반드시 아래 팩트와 실제 URL을 본문 및 researchFacts에 반영하세요!]\n${stage1FactsText}\n\n[실제 보도 원문 출처 URL 목록]\n${stage1SearchResults.slice(0, 6).map((sr, i) => `${i + 1}. [${sr.date || '최신'}] ${sr.title || ''} | URL: ${sr.url}`).join('\n')}\n========================================`
+      : userPrompt;
+
+    const modelsToTry = selectedModel === 'google/gemini-4-argon'
+      ? ['google/gemini-4-argon']
+      : [selectedModel, 'google/gemini-4-argon'];
+    let lastError = null;
+    let firstFailedModel = '';
+    let firstFailedReason = '';
+
+    for (const modelName of modelsToTry) {
+      try {
+        const isGpt5 = modelName.startsWith('openai/gpt-5');
+        const maxOutTokens = maxTokensOverride || (isGpt5 ? 12000 : 7000);
+        const bodyPayload = {
+          model: modelName,
+          instructions: systemPrompt,
+          input: enrichedUserPrompt,
+          max_output_tokens: maxOutTokens
+        };
+        // Stage 1이 실패했을 때만 Stage 2에서 web_search 도구 활성화 (중복 검색 루프 타임아웃 원천 방지!)
+        if (!stage1FactsText && maxTokensOverride !== 6000) {
+          bodyPayload.tools = [{ type: 'web_search' }];
+        }
+
+        const res = await fetchWithTimeout('https://api.perplexity.ai/v1/responses', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${apiKey.trim()}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(bodyPayload)
+        }, 28000, `2단계 집필 모델(${getWriterModelShortLabel(modelName)})`);
 
         if (!res.ok) {
           const errText = await res.text().catch(() => '');
@@ -426,7 +675,7 @@
         const data = await res.json();
         recordClientPerplexityUsage(data?.usage, callType);
 
-        const rawSearchResults = [];
+        const rawSearchResults = [...stage1SearchResults];
         let content = '';
         if (Array.isArray(data?.output)) {
           for (const item of data.output) {
@@ -460,20 +709,32 @@
           .sort((a, b) => String(b.last_updated || b.date || '').localeCompare(String(a.last_updated || a.date || '')));
 
         const citations = [
+          ...stage1Citations,
           ...searchResults.map(r => r.url.trim()),
           ...(Array.isArray(data?.citations) ? data.citations.filter(isRealArticleUrl) : [])
         ].filter((u, idx, arr) => arr.indexOf(u) === idx);
 
         const parsed = stripCitationBracketsClient(safeParseClientJson(content));
-        return { parsed, citations, searchResults, activeModel: modelName };
+        return {
+          parsed,
+          citations,
+          searchResults,
+          activeModel: modelName,
+          fallbackFromModel: modelName !== selectedModel ? selectedModel : '',
+          fallbackReason: modelName !== selectedModel ? firstFailedReason : ''
+        };
       } catch (err) {
+        if (!firstFailedModel) {
+          firstFailedModel = modelName;
+          firstFailedReason = err.message || '응답 지연';
+        }
         lastError = err;
       }
     }
 
     try {
       // 최종 안전 폴백: Perplexity 실시간 뉴스·인용 특화 모델(sonar-pro)로 자동 재시도하여 템플릿 폴백 원천 차단
-      const fbRes = await fetch('https://api.perplexity.ai/chat/completions', {
+      const fbRes = await fetchWithTimeout('https://api.perplexity.ai/chat/completions', {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${apiKey.trim()}`,
@@ -483,25 +744,34 @@
           model: 'sonar-pro',
           messages: [
             { role: 'system', content: systemPrompt },
-            { role: 'user', content: userPrompt }
+            { role: 'user', content: enrichedUserPrompt }
           ],
-          max_tokens: 8000,
+          max_tokens: 7500,
           temperature: 0.2
         })
-      });
+      }, 24000, '백업 Sonar-Pro 집필');
       if (!fbRes.ok) throw lastError || new Error('Perplexity sonar-pro fallback failed');
       const fbData = await fbRes.json();
       recordClientPerplexityUsage(fbData?.usage, callType);
       const fbContent = fbData?.choices?.[0]?.message?.content || '';
-      const fbSearchResults = Array.isArray(fbData?.search_results)
-        ? fbData.search_results.filter(r => r && isRealArticleUrl(r.url))
-        : [];
+      const fbSearchResults = [
+        ...stage1SearchResults,
+        ...(Array.isArray(fbData?.search_results) ? fbData.search_results.filter(r => r && isRealArticleUrl(r.url)) : [])
+      ];
       const fbCitations = [
+        ...stage1Citations,
         ...fbSearchResults.map(r => r.url.trim()),
         ...(Array.isArray(fbData?.citations) ? fbData.citations.filter(isRealArticleUrl) : [])
       ].filter((u, idx, arr) => arr.indexOf(u) === idx);
       const parsed = stripCitationBracketsClient(safeParseClientJson(fbContent));
-      return { parsed, citations: fbCitations, searchResults: fbSearchResults, activeModel: 'sonar-pro' };
+      return {
+        parsed,
+        citations: fbCitations,
+        searchResults: fbSearchResults,
+        activeModel: 'sonar-pro',
+        fallbackFromModel: selectedModel,
+        fallbackReason: firstFailedReason || (lastError ? lastError.message : '선택 모델 응답 지연')
+      };
     } catch (fbErr) {
       throw lastError || fbErr;
     }
@@ -621,90 +891,94 @@
 
     const todayStr = new Date().toISOString().slice(0, 10);
     const sys = `당신은 매일경제 MK Pick(GEO·AEO 최적화 매거진형 심층 기사) 수석 에디터이자 실시간 뉴스 팩트체크 데스크입니다.
-반드시 web_search 도구를 실행하여 오늘(${todayStr}) 기준으로 '${keyword}' 관련 **가장 최신 보도된 한국 뉴스 기사들(오늘·최근 24시간~7일 이내 최신순)**을 검색하고, 과거 초기 보도에 머물지 말고 **가장 최근의 후속 보도·최신 조회수/판매량 수치·실제 출시 메뉴/광고 근황**까지 기사 본문과 취재 팩트 메모장(researchFacts)에 100% 반영하세요!
+오늘(${todayStr}) 기준으로 메인 키워드('${keyword}')뿐만 아니라 **서브 키워드(${subKwList.join(', ') || '연관 키워드'}) 및 편집자의 자연어 기획 방향('${cleanDirection || '최신 트렌드'}')에 등장하는 핵심 소재들(예: 가래떡데이, 떡 디저트 유행 등)까지 함께** 최신 한국 뉴스 팩트를 기사 본문과 취재 팩트 메모장(researchFacts)에 100% 반영하세요!
 타 언론사 기사의 문장을 절대 그대로 베끼지 말고, 수치·브랜드명·신메뉴명·성분·출시일 등 핵심 팩트만 추출하여 모든 본문과 답변을 매일경제 고유의 정중하고 생동감 있는 "~합니다/습니다" 체로 작성하세요.
 [절대 준수 작성 원칙]
 0) [가장 중요 · 0순위 원칙] 실제 공식 출시·언론 보도 여부 팩트체크 및 가상(AI 생성) 밈·루머 엄격 판별 (절대 준수!):
-   - 기사를 작성하기 전에 입력된 키워드('${keyword}')가 **실제 기업·브랜드가 정식 출시·발표하고 언론에 보도된 실제 제품·트렌드**인지, 아니면 **유튜브 쇼츠·틱톡·릴스 등 SNS에서 인공지능(AI) 합성이나 상상력으로 만들어진 '가상(AI 생성) 밈·합성 콘텐츠·루머'**(예: 실제 정식 출시된 적 없는 '한정선 마이쮸 콜라보 찹쌀떡' 등)인지 실시간 웹 검색을 통해 반드시 먼저 검증하세요!
+   - 기사를 작성하기 전에 입력된 키워드('${keyword}')가 **실제 기업·브랜드가 정식 출시·발표하고 언론에 보도된 실제 제품·트렌드**인지, 아니면 **유튜브 쇼츠·틱톡·릴스 등 SNS에서 인공지능(AI) 합성이나 상상력으로 만들어진 '가상(AI 생성) 밈·합성 콘텐츠·루머'**(예: 실제 정식 출시된 적 없는 '한정선 마이쮸 콜라보 찹쌀떡' 등)인지 반드시 먼저 검증하세요!
    - 만약 공식 출시 사실이나 언론 보도 근거가 없는 **가상(AI 생성) 밈·합성 콘텐츠이거나 미출시 루머**라면:
-     ① **절대로 실제 출시된 신제품이거나 정식 콜라보인 것처럼 거짓으로 꾸며 쓰지 마세요!** (실무진과 독자가 실제 출시 제품으로 오인하면 심각한 보도 사고가 됩니다.)
-     ② 반드시 JSON의 \`factVerification.verdict\`를 \`"AI_MEME_OR_VIRTUAL"\` (또는 보도 미확인 시 \`"UNVERIFIED_VIRAL"\`), \`factVerification.isWarning\`을 \`true\`로 설정하세요.
-     ③ 기사 제목(\`titleCandidates\`), \`aiFactSummary\`(3줄 요약), 본문(\`draftSections\`) 첫 단락에서 **"해당 화제 키워드는 실제 정식 출시된 제품이 아니라 SNS·숏폼에서 확산된 가상(AI 생성) 밈·콘텐츠"**라는 사실을 명확히 팩트체크해 바로잡고, 대신 **실제 존재하는 원조 브랜드(예: 더현대서울 등에서 판매되는 '한정선' 생과일 찹쌀떡 등)의 진짜 정식 메뉴와 검증된 시장 트렌드 팩트**를 중심으로 설명하세요.
+     ① **절대로 실제 출시된 신제품이거나 정식 콜라보인 것처럼 거짓으로 꾸며 쓰지 마세요!**
+     ② 반드시 JSON의 \`factVerification.verdict\`를 \`"AI_MEME_OR_VIRTUAL"\`, \`factVerification.isWarning\`을 \`true\`로 설정하세요.
+     ③ 기사 제목(\`titleCandidates\`), \`aiFactSummary\`(3줄 요약), 본문(\`draftSections\`) 첫 단락에서 **"해당 화제 키워드는 실제 정식 출시된 제품이 아니라 SNS·숏폼에서 확산된 가상(AI 생성) 밈·콘텐츠"**라는 사실을 명확히 팩트체크해 바로잡고, 대신 **실제 존재하는 원조 브랜드의 진짜 정식 메뉴와 검증된 시장 트렌드 팩트**를 중심으로 설명하세요.
    - 실제 정식 출시·공식 발표 및 언론 보도가 확인된 정상적인 주제라면 \`factVerification.verdict\`를 \`"VERIFIED_FACT"\`, \`factVerification.isWarning\`을 \`false\`로 설정하고 확인된 공식 팩트 요약을 적어주세요.
-1) [편집자 기획 의도·방향 및 서브 키워드 최우선 반영]:
-   - 편집자가 입력한 **'원하는 글의 방향·맥락'(${cleanDirection || '최신 언론 보도 및 실제 출시 제품·신메뉴 심층 소개'})**과 **'서브 키워드'(${subKwList.length > 0 ? subKwList.join(', ') : '핵심 연관 포인트'})**가 있다면, 반드시 기사 제목·소제목·본문 단락·비교표·FAQ 전체가 그 기획 의도와 서브 키워드를 중심으로 전개되도록 맞춤 작성하세요!
-2) [복합·다중 브랜드 키워드('${keyword}') 정밀 분석 및 실제 신메뉴·제품 소개 원칙]:
+1) [편집자 자연어 기획 의도('원하는 글의 방향·맥락') 및 '서브 키워드' 1순위 절대 반영 — 고정 템플릿보다 항상 우선!]:
+   - 편집자가 자연어로 입력한 **'원하는 글의 방향·맥락'(${cleanDirection ? `"${cleanDirection}"` : '최신 언론 보도 및 실제 출시 제품·신메뉴 심층 소개'})**과 **'서브 키워드'(${subKwList.length > 0 ? subKwList.join(', ') : '핵심 연관 포인트'})**가 있다면, 어떤 콘텐츠 유형(01~05)이 선택되어 있더라도 **편집자의 자연어 기획 의도가 글 전체 구조의 최우선 설계도**가 됩니다!
+   - 예를 들어 메인 키워드가 '빼빼로데이', 서브 키워드가 '가래떡데이', 원하는 방향이 '빼빼로데이만 알고 있었던 사람들에게 가래떡데이도 알려줌, 요즘 떡 디저트가 유행이니 가래떡데이와 엮어서 쓰고 싶음'이라면, 기사 제목·소제목·본문 1~4단락(예: 1단락 막대과자 뒤에 숨겨진 11월 11일의 진짜 이름 가래떡데이 환기 → 2단락 농업인의 날 유래와 우리 쌀 캠페인 → 3단락 MZ세대를 사로잡은 K-떡 디저트 열풍과 이색 조합 → 4단락 11월 11일을 더 특별하게 즐기는 방법 & 구매 팁)·비교 요약표·용어사전·FAQ 전체를 그 자연어 스토리에 100% 맞춰 유기적으로 작성하세요!
+2) [MK Pick 레퍼런스 스타일의 자연스럽고 매력적인 단락 소제목(draftSections.title) 작성 원칙]:
+   - 절대로 모든 단락 소제목을 "왜 지금 ~할까요?", "~무엇인가요?" 같은 기계적이고 딱딱한 교과서 질문형으로만 도배하지 마세요!
+   - 매일경제 MK Pick 레퍼런스 기사처럼 독자의 호기심을 자극하고 단락의 핵심 메시지를 감각적으로 보여주는 **자연스러운 매거진형 소제목**(예: "막대 과자 뒤에 숨겨진 11월 11일의 진짜 이름", "전통 간식의 화려한 변신, MZ세대 사로잡은 떡 디저트", "가성비부터 프리미엄까지…취향 따라 고르는 이색 라인업")으로 생동감 있게 작성하세요.
+   - 각 본문 단락(\`content\`)은 읽기 편하도록 핵심 팩트와 스토리를 담아 **2문단(약 280~380자, ~합니다 체)**으로 밀도 있게 작성하세요.
+3) [복합·다중 브랜드 키워드('${keyword}') 정밀 분석 및 실제 신메뉴·제품 소개 원칙]:
    - '이디야, 맘스터치, 메가커피 푸드 스낵 신메뉴 강화'처럼 **여러 브랜드(${brandList.join(', ') || '주요 브랜드'}) + 핵심 주제('${coreTopicText}')**가 결합된 문장형 키워드가 입력된 경우, 절대로 문장 뒷부분('푸드 스낵 신메뉴 강화' 등)을 또 하나의 브랜드나 제품 이름인 것처럼 쪼개서 표에 넣지 마세요!
-   - 반드시 웹 검색을 통해 등장하는 **각 브랜드(${brandList.join(', ') || '해당 브랜드들'})가 실제로 출시한 대표 신메뉴·신상품의 정확한 이름, 가격·구성, 특징**을 각각 구체적으로 찾아 본문 단락과 비교 요약표(summaryTable)에 1:1로 소개하세요.
-3) [메인 화면 노출용 헤드라인 글자수 제한 (최대 ${maxHeadlineLimit}자 이내 필수!)]:
-   - MK Pick 메인 화면 카드에 노출될 때 제목이 2줄을 넘어 잘리지 않도록, 모든 \`titleCandidates\`의 \`title\`은 **공백 포함 28~38자 이내(절대 최대 ${maxHeadlineLimit}자 이하!)**로 간결하고 임팩트 있게 작성하세요!
-   - 제목에 다 담지 못한 부연 설명은 \`subtitle\`(한줄 소제목)에 담아주세요.
-4) [FAQ 본문 문맥 순서(단락 1 → 단락 2 → 단락 3 → 단락 4) 완벽 정렬]:
+   - 등장하는 **각 브랜드(${brandList.join(', ') || '해당 브랜드들'})가 실제로 출시한 대표 신메뉴·신상품의 정확한 이름, 가격·구성, 특징**을 각각 구체적으로 찾아 본문 단락과 비교 요약표(summaryTable)에 1:1로 소개하세요.
+4) [메인 화면 노출용 헤드라인 글자수 제한 (최대 ${maxHeadlineLimit}자 이내 필수!)]:
+   - MK Pick 메인 화면 카드에 노출될 때 제목이 2줄을 넘어 잘리지 않도록, 모든 \`titleCandidates\`의 \`title\`은 **공백 포함 26~38자 이내(절대 최대 ${maxHeadlineLimit}자 이하!)**로 간결하고 임팩트 있게 작성하세요!
+5) [FAQ 본문 문맥 순서(단락 1 → 단락 2 → 단락 3 → 단락 4) 완벽 정렬]:
    - \`faqs\` 배열의 질문(Q1~Q${faqCount})은 반드시 **본문(\`draftSections\`) 1단락부터 마지막 단락까지의 문맥 흐름 순서 그대로** 배치하고, 각 FAQ 항목마다 본문 몇 번째 단락(1~4)과 연결되는지 \`"relatedSection": 1\` ~ \`4\` 숫자를 명시하세요!
-5) 취재 팩트 메모장(researchFacts 6건)과 본문 단락(draftSections) 간의 1:1 반영 위치(usedInSection) 명시:
-   - 웹 검색(web_search) 결과에서 확인된 **가장 최근 보도된 실제 뉴스 기사 6건(최신순)**을 기반으로 \`researchFacts\`를 작성하고, 각 팩트가 본문 몇 번째 단락(\`draftSections\`의 1~4번 중 어디)에 반영되었는지 \`"usedInSection": 1\`(숫자 1~4) 필드에 정확히 표기하세요.
+6) 취재 팩트 메모장(researchFacts 6건)과 본문 단락(draftSections) 간의 1:1 반영 위치(usedInSection) 명시:
+   - 제공된 최신 뉴스 팩트 및 검색 결과를 바탕으로 \`researchFacts\` 6건을 작성하고, 각 팩트가 본문 몇 번째 단락(\`draftSections\`의 1~4번 중 어디)에 반영되었는지 \`"usedInSection": 1\`(숫자 1~4) 필드에 정확히 표기하세요.
    - 각 항목의 \`sourceUrl\`에는 검색 결과에 나온 **해당 개별 기사의 정확한 원문 링크(https://...)**를 그대로 넣으세요.
-6) JSON 문자열 내부에 큰따옴표를 쓸 때는 반드시 유니코드 겹따옴표(“…”)나 작은따옴표('…')만 사용하여 JSON 파싱 오류가 절대 발생하지 않도록 하세요.`;
+7) JSON 문자열 내부에 큰따옴표를 쓸 때는 반드시 유니코드 겹따옴표(“…”)나 작은따옴표('…')만 사용하여 JSON 파싱 오류가 절대 발생하지 않도록 하세요.`;
 
     const usr = `[작성 요청 정보]
 - 기준 일자: ${todayStr} (가장 최근 보도된 최신 뉴스·후속 보도 최우선 반영!)
 - 메인 키워드/주제: ${keyword}
 - 식별된 핵심 브랜드(${brandList.length}개): ${brandList.join(', ') || company || '관련 주요 브랜드·제품'}
 - 핵심 세부 주제: ${coreTopicText}
-- 서브 키워드(선택): ${subKwList.length > 0 ? subKwList.join(', ') : '없음 (주제에 맞는 핵심 세부 키워드 자동 반영)'}
-- 편집자가 원하는 글의 방향·맥락(기획 의도): ${cleanDirection || '최신 언론 보도와 실제 출시된 제품·신메뉴·프로모션 팩트를 중심으로 독자에게 유익한 정보 제공'}
+- 서브 키워드(필수 연계): ${subKwList.length > 0 ? subKwList.join(', ') : '없음 (주제에 맞는 핵심 세부 키워드 자동 반영)'}
+- 편집자가 원하는 글의 방향·맥락(최우선 설계 지침!): ${cleanDirection || '최신 언론 보도와 실제 출시된 제품·신메뉴·트렌드 팩트를 중심으로 독자에게 유익한 정보 제공'}
 - 참고 URL: ${url || '없음'}
 - 추가 보도자료/메모: ${rawText || '없음'}
-- 선택된 콘텐츠 유형(참고 가이드): ${tInfo.shortName} (${tInfo.desc})
-- 구성 지침(틀에 억지로 끼워 맞추지 말고 키워드 맞춤형으로 작성): ${typeInstructions[typeId] || typeInstructions[4]}
+- 선택된 콘텐츠 관점(유형 가이드): ${state.homeInput?.typeMode === 'manual' ? `[편집자 직접 선택] ${tInfo.shortName} (${tInfo.desc})` : `[AI 자동 맞춤 모드 - 추천 관점: ${tInfo.shortName}] 고정된 템플릿 틀에 끼워 넣지 말고, 편집자의 기획 방향과 키워드('${keyword}')의 실제 성격에 가장 잘 맞는 자연스러운 4단락 매거진 구조로 설계하세요.`}
+- 구성 지침(절대 기계적 틀에 억지로 끼워 맞추지 말고 편집자 기획 의도·최신 뉴스 맞춤형으로 작성): ${typeInstructions[typeId] || typeInstructions[4]}
 - 사전 팩트체크 시스템 진단(${preFactCheck.verdict}): ${preFactCheck.summary}
 
-아래 JSON 스키마에 맞춰 주제('${keyword}')의 실제 공식 출시·언론 보도 진위를 먼저 검증(factVerification)하고, 편집자의 기획 방향(${cleanDirection || '최신 팩트 중심'})과 서브 키워드(${subKwList.join(', ') || '핵심 포인트'})를 충실히 반영해 한국어로 작성하세요.
-⚠️ 특히 모든 \`titleCandidates\`의 \`title\`은 메인 화면에서 잘리지 않도록 **반드시 공백 포함 ${maxHeadlineLimit}자 이내(권장 30~38자)**로 작성하고, \`faqs\`는 본문 1단락→4단락 문맥 순서대로 작성하세요:
+아래 JSON 스키마에 맞춰 편집자의 기획 방향(${cleanDirection || '최신 팩트 중심'})과 서브 키워드(${subKwList.join(', ') || '핵심 포인트'})가 제목·소제목·본문 1~4단락·요약표·FAQ 전체에 자연스럽게 녹아든 한국어 기사를 작성하세요.
+⚠️ 모든 \`titleCandidates\`의 \`title\`은 **반드시 공백 포함 ${maxHeadlineLimit}자 이내(권장 28~38자)**로 작성하고, \`draftSections\`의 \`title\`(소제목)은 MK Pick 레퍼런스처럼 자연스럽고 매력적인 매거진형 소제목으로 작성하세요:
 {
   "factVerification": {
-    "verdict": "VERIFIED_FACT(공식 출시·언론 보도 확인) | AI_MEME_OR_VIRTUAL(가상·AI 생성 밈/정식 미출시) | UNVERIFIED_VIRAL(공식 보도 미확인 주의) 중 택 1",
+    "verdict": "VERIFIED_FACT | AI_MEME_OR_VIRTUAL | UNVERIFIED_VIRAL 중 택 1",
     "isWarning": false,
     "badgeLabel": "✓ 공식 보도·실제 출시 팩트 확인됨 또는 🚨 [팩트체크 경보] 가상(AI 생성) 밈 · 공식 미출시 주의",
-    "summary": "해당 키워드가 실제 정식 출시·보도된 팩트인지, 아니면 SNS 상의 가상(AI 생성) 밈/미확인 바이럴인지 실무진이 즉시 알 수 있도록 1~2문장으로 명확히 판별한 팩트체크 리포트 (~합니다 체)"
+    "summary": "해당 키워드의 공식 보도·출시 팩트 확인 요약 1~2문장 (~합니다 체)"
   },
   "mkCategory": "산업 Q&A | 제품·기술 | 성공사례 | 기업뉴스 | 브랜드스토리(기업관) 중 택 1",
-  "mkCategoryReason": "이 기사에 해당 MK Pick 카테고리를 추천한 이유 1문장 (~합니다 체)",
+  "mkCategoryReason": "추천 이유 1문장 (~합니다 체)",
   "titleCandidates": [
-    {"id": "tc-1", "title": "“공백 포함 38자 이내 헤드라인”…핵심 키워드 요약", "totalScore": 96},
-    {"id": "tc-2", "title": "“공백 포함 38자 이내 헤드라인”…설명형 제목 2", "totalScore": 93},
-    {"id": "tc-3", "title": "“공백 포함 38자 이내 헤드라인”…설명형 제목 3", "totalScore": 90},
-    {"id": "tc-4", "title": "“공백 포함 38자 이내 헤드라인”…설명형 제목 4", "totalScore": 88},
-    {"id": "tc-5", "title": "“공백 포함 38자 이내 헤드라인”…설명형 제목 5", "totalScore": 85}
+    {"id": "tc-1", "title": "공백 포함 38자 이내 매력적인 MK Pick 헤드라인 1", "totalScore": 96},
+    {"id": "tc-2", "title": "공백 포함 38자 이내 헤드라인 2", "totalScore": 93},
+    {"id": "tc-3", "title": "공백 포함 38자 이내 헤드라인 3", "totalScore": 90},
+    {"id": "tc-4", "title": "공백 포함 38자 이내 헤드라인 4", "totalScore": 88},
+    {"id": "tc-5", "title": "공백 포함 38자 이내 헤드라인 5", "totalScore": 85}
   ],
   "researchFacts": [
-    {"category": "최신 보도 핵심 팩트", "sourceTitle": "[언론사명 · YYYY-MM-DD] 가장 최근 보도된 실제 뉴스 제목 1", "sourceUrl": "웹 검색 결과에 있는 해당 기사의 실제 원문 URL (https://...)", "pubDate": "YYYY-MM-DD", "usedInSection": 1, "fact": "본문 1단락에 반영된 가장 최신 수치와 근황이 포함된 ~합니다 체 취재 팩트 문장 1"},
-    {"category": "후속 반응 · 최신 근황", "sourceTitle": "[언론사명 · YYYY-MM-DD] 최신 후속 보도 제목 2", "sourceUrl": "웹 검색 결과에 있는 해당 기사의 실제 원문 URL (https://...)", "pubDate": "YYYY-MM-DD", "usedInSection": 1, "fact": "본문 1~2단락에 반영된 최신 후속 반응·인터뷰·비하인드가 포함된 ~합니다 체 취재 팩트 문장 2"},
-    {"category": "브랜드 · 신메뉴/제품 특징 1", "sourceTitle": "[언론사명 · YYYY-MM-DD] 공식 출시 메뉴·제품 특징 보도 제목 3", "sourceUrl": "웹 검색 결과에 있는 해당 기사의 실제 원문 URL (https://...)", "pubDate": "YYYY-MM-DD", "usedInSection": 2, "fact": "본문 2단락에 반영된 구체적인 실제 신메뉴·제품명·가격·차별점이 포함된 ~합니다 체 취재 팩트 문장 3"},
-    {"category": "브랜드 · 신메뉴/제품 특징 2", "sourceTitle": "[언론사명 · YYYY-MM-DD] 브랜드별 신메뉴·차별화 포인트 보도 제목 4", "sourceUrl": "웹 검색 결과에 있는 해당 기사의 실제 원문 URL (https://...)", "pubDate": "YYYY-MM-DD", "usedInSection": 2, "fact": "본문 2~3단락에 반영된 브랜드별 실제 주력 제품·차별점·소비자 반응이 포함된 ~합니다 체 취재 팩트 문장 4"},
-    {"category": "유통 · 프로모션 동향", "sourceTitle": "[언론사명 · YYYY-MM-DD] 매장·판매처·프로모션 보도 제목 5", "sourceUrl": "웹 검색 결과에 있는 해당 기사의 실제 원문 URL (https://...)", "pubDate": "YYYY-MM-DD", "usedInSection": 3, "fact": "본문 3단락에 반영된 판매 채널·세트 혜택·프로모션 동향이 포함된 ~합니다 체 취재 팩트 문장 5"},
-    {"category": "가격 · 구성 및 이용 팁", "sourceTitle": "[언론사명 · YYYY-MM-DD] 가격·구성·구매 가이드 보도 제목 6", "sourceUrl": "웹 검색 결과에 있는 해당 기사의 실제 원문 URL (https://...)", "pubDate": "YYYY-MM-DD", "usedInSection": 4, "fact": "본문 4단락에 반영된 가격·구성·이용 시 참고할 점이 포함된 ~합니다 체 취재 팩트 문장 6"}
+    {"category": "최신 보도 핵심 팩트", "sourceTitle": "[언론사명 · YYYY-MM-DD] 실제 뉴스 제목 1", "sourceUrl": "실제 원문 URL (https://...)", "pubDate": "YYYY-MM-DD", "usedInSection": 1, "fact": "본문 1단락에 반영된 최신 수치·배경 ~합니다 체 문장 1"},
+    {"category": "배경 · 유래 · 근황", "sourceTitle": "[언론사명 · YYYY-MM-DD] 실제 뉴스 제목 2", "sourceUrl": "실제 원문 URL (https://...)", "pubDate": "YYYY-MM-DD", "usedInSection": 1, "fact": "본문 1~2단락에 반영된 핵심 배경·근황 ~합니다 체 문장 2"},
+    {"category": "핵심 트렌드 · 특징 1", "sourceTitle": "[언론사명 · YYYY-MM-DD] 실제 뉴스 제목 3", "sourceUrl": "실제 원문 URL (https://...)", "pubDate": "YYYY-MM-DD", "usedInSection": 2, "fact": "본문 2단락에 반영된 구체적 사례·제품·트렌드 ~합니다 체 문장 3"},
+    {"category": "핵심 트렌드 · 특징 2", "sourceTitle": "[언론사명 · YYYY-MM-DD] 실제 뉴스 제목 4", "sourceUrl": "실제 원문 URL (https://...)", "pubDate": "YYYY-MM-DD", "usedInSection": 3, "fact": "본문 2~3단락에 반영된 서브 키워드·인기 요인 ~합니다 체 문장 4"},
+    {"category": "유통 · 업계 동향", "sourceTitle": "[언론사명 · YYYY-MM-DD] 실제 뉴스 제목 5", "sourceUrl": "실제 원문 URL (https://...)", "pubDate": "YYYY-MM-DD", "usedInSection": 3, "fact": "본문 3단락에 반영된 업계·소비자 반응 ~합니다 체 문장 5"},
+    {"category": "실전 활용 · 구매 팁", "sourceTitle": "[언론사명 · YYYY-MM-DD] 실제 뉴스 제목 6", "sourceUrl": "실제 원문 URL (https://...)", "pubDate": "YYYY-MM-DD", "usedInSection": 4, "fact": "본문 4단락에 반영된 실전 팁·체크포인트 ~합니다 체 문장 6"}
   ],
-  "subtitle": "메인 헤드라인 바로 아래에 들어갈 핵심 한줄 소제목 (줄바꿈 \\n 사용 가능)",
+  "subtitle": "메인 헤드라인 바로 아래에 들어갈 핵심 한줄 소제목",
   "aiFactSummary": [
     "1. 핵심 팩트 요약 첫 번째 문장 (~합니다 체)",
     "2. 핵심 팩트 요약 두 번째 문장 (~합니다 체)",
     "3. 핵심 팩트 요약 세 번째 문장 (~합니다 체)"
   ],
   "draftSections": [
-    {"id": "sec-1", "title": "1단락 소제목: 독자의 관심을 끄는 도입·배경 질문형 소제목 (~할까요?)", "content": "독자 공감 리드 + 해당 주제/트렌드가 주목받는 이유와 배경 2~3문단 (~합니다 체)", "imageCaption": "< 출처 : 관련 브랜드·공식 자료 >"},
-    {"id": "sec-2", "title": "2단락 소제목: 주요 브랜드·첫 번째 핵심 라인업(실제 신메뉴·제품명) 심층 분석", "content": "실제 출시된 구체적인 메뉴·제품명, 가격, 원재료·사양, 인기 요인 및 사례 상세 서술 (~합니다 체)", "imageCaption": "< 출처 : 관련 기업 >"},
-    {"id": "sec-3", "title": "3단락 소제목: 경쟁 브랜드·연관 라인업 비교 및 시너지 포인트", "content": "함께 비교되는 브랜드별 실제 신메뉴·제품 특징과 프로모션 혜택 상세 서술 (~합니다 체)", "imageCaption": "< 출처 : 공식 채널 >"},
-    {"id": "sec-4", "title": "4단락 소제목: 선택 가이드 및 실생활 활용·구매 팁", "content": "소비자·독자가 알아두면 좋은 선택 기준, 시간대·할인 혜택 및 활용 팁 정리 (~합니다 체)", "imageCaption": "< 출처 : 공식 채널 >"}
+    {"id": "sec-1", "title": "1단락 자연스러운 매거진 소제목 (독자의 고정관념을 깨거나 관심을 끄는 도입 화두)", "content": "독자 공감 리드 + 메인 키워드와 서브 키워드·기획 의도를 자연스럽게 연결하는 2문단 본문 (~합니다 체)", "imageCaption": "< 출처 : 관련 공식 자료 >"},
+    {"id": "sec-2", "title": "2단락 자연스러운 매거진 소제목 (핵심 배경·유래 또는 첫 번째 주요 포인트 심층 조명)", "content": "구체적인 유래·배경·수치·대표 사례를 생동감 있게 풀어낸 2문단 본문 (~합니다 체)", "imageCaption": "< 출처 : 관련 기관·기업 >"},
+    {"id": "sec-3", "title": "3단락 자연스러운 매거진 소제목 (서브 키워드·최신 유행 트렌드·이색 라인업 집중 분석)", "content": "편집자가 요청한 방향과 최신 유행 아이템·브랜드·소비자 반응을 구체적으로 소개하는 2문단 본문 (~합니다 체)", "imageCaption": "< 출처 : 공식 채널 >"},
+    {"id": "sec-4", "title": "4단락 자연스러운 매거진 소제목 (독자를 위한 특별한 활용법·추천 조합·실전 체크포인트)", "content": "독자가 일상에서 바로 활용할 수 있는 팁, 추천 조합, 구매·선택 가이드를 정리한 2문단 본문 (~합니다 체)", "imageCaption": "< 출처 : 공식 채널 >"}
   ],
   "summaryTable": {
-    "title": "[요약표] 브랜드·제품별 핵심 신메뉴·특징 및 선택 가이드",
-    "headers": ["구분 · 브랜드", "대표 신메뉴 · 주력 구성", "핵심 특징 및 가격·사양", "기대 효과 · 강점", "추천 조합 및 이용 팁"],
+    "title": "[요약표] 핵심 비교 및 한눈에 보는 체크포인트",
+    "headers": ["구분 · 핵심 항목", "주요 내용 및 대표 사례", "핵심 특징 · 매력 포인트", "추천 대상 및 실전 활용 팁"],
     "rows": [
-      ["브랜드/항목 1", "실제 출시 메뉴·제품명", "주요 특징·가격·사양", "핵심 강점·효과", "추천 대상 및 활용법"],
-      ["브랜드/항목 2", "실제 출시 메뉴·제품명", "주요 특징·가격·사양", "핵심 강점·효과", "추천 대상 및 활용법"],
-      ["브랜드/항목 3", "실제 출시 메뉴·제품명", "주요 특징·가격·사양", "핵심 강점·효과", "추천 대상 및 활용법"],
-      ["이용 체크포인트", "세트·타임할인·앱 주문", "가성비·편의성 포인트", "할인·적립 혜택", "방문·배달 전 확인사항"]
+      ["항목/키워드 1", "구체적인 내용·제품·사례", "핵심 특징 및 차별점", "추천 대상 및 즐기는 법"],
+      ["항목/키워드 2", "구체적인 내용·제품·사례", "핵심 특징 및 차별점", "추천 대상 및 즐기는 법"],
+      ["항목/키워드 3", "구체적인 내용·제품·사례", "핵심 특징 및 차별점", "추천 대상 및 즐기는 법"],
+      ["실전 체크포인트", "일정·구매처·조합 팁", "알아두면 좋은 혜택·꿀팁", "사전 확인사항"]
     ]
   },
   "glossaryTitle": "주제를 더 깊이 이해하는 용어 사전",
@@ -715,25 +989,23 @@
     {"term": "핵심 용어 4", "desc": "누구나 이해하기 쉬운 1~2문장 개념 해설 (~합니다 체)"}
   ],
   "faqs": [
-    {"relatedSection": 1, "q": "Q1. [1단락 도입·배경 문맥] 독자가 검색창에 물어볼 자연어 질문 (~나요?)", "a": "1단락 내용에 기반한 구체적인 2~3문장 완결형 답변 (~합니다 체)"},
-    {"relatedSection": 2, "q": "Q2. [2단락 주요 브랜드·신메뉴 문맥] 자연어 질문 (~나요?)", "a": "2단락 내용에 기반한 구체적인 2~3문장 완결형 답변 (~합니다 체)"},
-    {"relatedSection": 2, "q": "Q3. [2~3단락 세부 메뉴·제품 특징 문맥] 자연어 질문 (~나요?)", "a": "2~3단락 내용에 기반한 구체적인 2~3문장 완결형 답변 (~합니다 체)"},
-    {"relatedSection": 3, "q": "Q4. [3단락 브랜드 비교·혜택 문맥] 자연어 질문 (~나요?)", "a": "3단락 내용에 기반한 구체적인 2~3문장 완결형 답변 (~합니다 체)"},
-    {"relatedSection": 4, "q": "Q5. [4단락 구매·이용 팁 문맥] 자연어 질문 (~나요?)", "a": "4단락 내용에 기반한 구체적인 2~3문장 완결형 답변 (~합니다 체)"}
+    {"relatedSection": 1, "q": "Q1. [1단락 문맥] 독자가 가장 궁금해할 자연어 질문 (~나요?)", "a": "1단락 내용에 기반한 구체적인 2문장 완결형 답변 (~합니다 체)"},
+    {"relatedSection": 2, "q": "Q2. [2단락 문맥] 자연어 질문 (~나요?)", "a": "2단락 내용에 기반한 구체적인 2문장 완결형 답변 (~합니다 체)"},
+    {"relatedSection": 2, "q": "Q3. [2~3단락 문맥] 자연어 질문 (~나요?)", "a": "2~3단락 내용에 기반한 구체적인 2문장 완결형 답변 (~합니다 체)"},
+    {"relatedSection": 3, "q": "Q4. [3단락 문맥] 자연어 질문 (~나요?)", "a": "3단락 내용에 기반한 구체적인 2문장 완결형 답변 (~합니다 체)"},
+    {"relatedSection": 4, "q": "Q5. [4단락 문맥] 자연어 질문 (~나요?)", "a": "4단락 내용에 기반한 구체적인 2문장 완결형 답변 (~합니다 체)"}
   ],
   "fanoutQuestions": [
-    {"category": "핵심특징·비교", "q": "'${keyword}'에 대해 독자가 추가로 가장 궁금해할 구체적인 꼬리 질문 1 (~나요?)", "a": "구체적인 팩트 기반 답변 1~2문장 (~합니다 체)"},
-    {"category": "가격·구성", "q": "'${keyword}' 가격·용량·구성에 관한 구체적인 꼬리 질문 2 (~나요?)", "a": "구체적인 팩트 기반 답변 1~2문장 (~합니다 체)"},
-    {"category": "이용·구매처", "q": "'${keyword}' 구매 채널·매장·배달·온라인 이용에 관한 꼬리 질문 3 (~나요?)", "a": "구체적인 팩트 기반 답변 1~2문장 (~합니다 체)"},
-    {"category": "추천조합·활용팁", "q": "'${keyword}'을 더 맛있게/효과적으로 즐기는 조합이나 활용 팁 질문 4 (~나요?)", "a": "구체적인 팩트 기반 답변 1~2문장 (~합니다 체)"},
-    {"category": "성분·스펙·보관", "q": "'${keyword}' 원재료·성분·칼로리·보관법 등에 관한 꼬리 질문 5 (~나요?)", "a": "구체적인 팩트 기반 답변 1~2문장 (~합니다 체)"},
-    {"category": "이벤트·프로모션", "q": "'${keyword}' 출시 기념 혜택·할인·한정 여부에 관한 꼬리 질문 6 (~나요?)", "a": "구체적인 팩트 기반 답변 1~2문장 (~합니다 체)"}
+    {"category": "핵심배경·비교", "q": "독자가 추가로 궁금해할 꼬리 질문 1 (~나요?)", "a": "팩트 기반 답변 1~2문장 (~합니다 체)"},
+    {"category": "인기메뉴·아이템", "q": "꼬리 질문 2 (~나요?)", "a": "팩트 기반 답변 1~2문장 (~합니다 체)"},
+    {"category": "추천조합·활용팁", "q": "꼬리 질문 3 (~나요?)", "a": "팩트 기반 답변 1~2문장 (~합니다 체)"},
+    {"category": "구매처·이벤트", "q": "꼬리 질문 4 (~나요?)", "a": "팩트 기반 답변 1~2문장 (~합니다 체)"}
   ],
-  "closingParagraph": "기사 전체 핵심 메시지를 종합하며 독자에게 실질적인 통찰과 여운을 남기는 마무리 총평 2~3문장 (~합니다 체)",
+  "closingParagraph": "기사 전체 핵심 메시지를 종합하며 독자에게 실질적인 통찰과 여운을 남기는 마무리 총평 2문장 (~합니다 체)",
   "oneLineSummary": "한 줄 요약! “핵심 통찰 인용구” 독자가 꼭 기억해야 할 핵심 메시지입니다."
 }`;
 
-    const { parsed, citations, searchResults } = await callPerplexityDirectFromBrowser(apiKey, sys, usr, 'month', 'draft');
+    const { parsed, citations, searchResults, activeModel, fallbackFromModel, fallbackReason } = await callPerplexityDirectFromBrowser(apiKey, sys, usr, 'month', 'draft');
     const mergedSources = [];
     const usedSrUrls = new Set();
     const factsArr = Array.isArray(parsed.researchFacts) ? parsed.researchFacts : [];
@@ -924,6 +1196,10 @@
 
     return {
       ...baseScenario,
+      usedPerplexity: true,
+      activeWriterModel: activeModel || getSelectedWriterModel(),
+      fallbackFromModel: fallbackFromModel || '',
+      fallbackReason: fallbackReason || '',
       titleCandidates: processedTitleCandidates,
       sources: mergedSources,
       researchItems,
@@ -2227,18 +2503,18 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
       <div style="position: fixed; inset: 0; background: rgba(17, 24, 39, 0.45); z-index: 300; display: flex; align-items: center; justify-content: center; padding: 20px;">
         <div class="card" style="width: 100%; max-width: 540px; margin-bottom: 0; padding: 24px 28px;">
           <div class="flex-between mb-8">
-            <h3 style="font-size: 17px; font-weight: 800;">Perplexity × Claude 하이브리드 설정 · 실시간 과금 모니터</h3>
+            <h3 style="font-size: 17px; font-weight: 800;">Perplexity × AI 집필 하이브리드 설정 · 실시간 과금 모니터</h3>
             <button type="button" class="text-action" id="closeApiModalBtn" style="font-size: 16px;">✕</button>
           </div>
           <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 12px; line-height: 1.55;">
-            현재 <strong>[1단계 수집: Perplexity 실시간 웹·뉴스 검색] → [2단계 집필: <code>anthropic/claude-sonnet-4-5</code> (클로드 소넷 4.5)]</strong> 원클릭 자동 하이브리드 파이프라인으로 작동합니다. <strong>[초안 생성] 버튼 한 번만 누르면</strong> 수동 전환 없이 실시간 팩트 수집부터 매경 경어체 기사·표·FAQ 작성까지 자동으로 이어집니다.
+            현재 <strong>[1단계 수집: Perplexity(<code>sonar-pro</code>) 실시간 웹·뉴스 검색] → [2단계 집필: <code>${escapeHtml(getWriterModelShortLabel())}</code>]</strong> 2단계 고속 하이브리드 파이프라인으로 작동합니다. 상단 드롭다운에서 언제든 집필 AI 모델(Gemini 4 Argon / GPT-5 / Claude Sonnet 4.5 / Sonar-Pro)을 변경할 수 있습니다.
           </p>
 
           <!-- 실시간 API 사용량 & 예상 비용 대시보드 -->
           <div style="padding: 12px 14px; background-color: var(--bg-subtle); border: var(--border-thin); border-radius: var(--radius-general); margin-bottom: 14px;">
             <div class="flex-between mb-6">
               <strong style="font-size: 12.5px; color: var(--text-primary);">📊 누적 API 호출 및 실제 과금(버닝) 현황</strong>
-              <span style="font-size: 11.5px; color: var(--mk-orange); font-weight: 700;">하이브리드: Perplexity Web Search + Claude Sonnet 4.5</span>
+              <span style="font-size: 11.5px; color: var(--mk-orange); font-weight: 700;">하이브리드: Perplexity 검색 + ${escapeHtml(getWriterModelShortLabel())}</span>
             </div>
             <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; text-align: center;">
               <div style="padding: 8px; background: var(--white); border: var(--border-thin); border-radius: 6px;">
@@ -2376,21 +2652,31 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
 
     const calls = state.apiUsageStats?.totalCalls || 0;
     const krw = state.apiUsageStats?.estimatedCostKrw || 0;
+    const activeWriterLabel = getWriterModelShortLabel();
     meta.innerHTML = `
-      <div class="flex-row" style="gap: 8px;">
+      <div class="flex-row" style="gap: 8px; flex-wrap: wrap;">
+        ${renderWriterModelSelectHtml()}
         ${state.hasPerplexityKey ? `
           <button type="button" class="btn btn-sm" id="topbarCopyShareLinkBtn" style="border-color: #8FD4B2; color: var(--status-green); background-color: #FFFFFF; font-weight: 800;" title="다른 사람의 브라우저에서도 API 키가 자동 연결되는 공유 링크를 복사합니다">
-            🔗 API 포함 공유 링크 복사
+            🔗 API 공유 링크 복사
           </button>
         ` : ''}
         <button type="button" class="btn btn-sm" id="openUserGuideModalBtn" style="border-color: var(--mk-orange); color: var(--mk-orange); background-color: #FFFFFF; font-weight: 800;">
-          📖 사용 가이드 (PPT·PDF)
+          📖 사용 가이드
         </button>
         <button type="button" class="btn btn-sm" id="openApiKeyModalBtn" style="border-color: ${state.hasPerplexityKey ? '#8FD4B2' : 'var(--mk-orange)'}; color: ${state.hasPerplexityKey ? 'var(--status-green)' : 'var(--mk-orange)'}; background-color: ${state.hasPerplexityKey ? 'var(--status-green-bg)' : 'var(--mk-orange-light)'}; font-weight: 700;">
-          ${state.hasPerplexityKey ? `🟢 Perplexity 검색 + Claude Sonnet 4.5 연결됨 · 호출 ${calls}회 (약 ${krw}원)` : '⚙ Perplexity × Claude 하이브리드 설정'}
+          ${state.hasPerplexityKey ? `🟢 Perplexity 검색 + ${escapeHtml(activeWriterLabel)} · 호출 ${calls}회 (약 ${krw}원)` : '⚙ Perplexity 하이브리드 설정'}
         </button>
       </div>
     `;
+
+    meta.querySelectorAll('[data-writer-model-select]').forEach(sel => {
+      sel.addEventListener('change', e => {
+        const nextModel = setSelectedWriterModel(e.target.value);
+        showToast(`✓ 집필 AI 모델이 [${getWriterModelShortLabel(nextModel)}](으)로 변경되었습니다!`);
+        render(true);
+      });
+    });
 
     document.getElementById('topbarCopyShareLinkBtn')?.addEventListener('click', copyShareableTeamUrl);
     document.getElementById('openUserGuideModalBtn')?.addEventListener('click', openUserGuideModal);
@@ -2415,6 +2701,8 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
     const prevWinScroll = preserveScroll ? window.scrollY : 0;
     const leftPanel = document.querySelector('.left-panel-sticky');
     const prevLeftScroll = preserveScroll && leftPanel ? leftPanel.scrollTop : 0;
+    const rightPanel = document.querySelector('.right-panel-sticky');
+    const prevRightScroll = preserveScroll && rightPanel ? rightPanel.scrollTop : 0;
 
     renderTopbar();
     try {
@@ -2436,16 +2724,26 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
       renderEditorScreen(root);
     }
 
+    root.querySelectorAll('[data-writer-model-select]').forEach(sel => {
+      sel.addEventListener('change', e => {
+        const nextModel = setSelectedWriterModel(e.target.value);
+        showToast(`✓ 집필 AI 모델이 [${getWriterModelShortLabel(nextModel)}](으)로 변경되었습니다!`);
+        render(true);
+      });
+    });
+
     if (preserveScroll) {
       window.scrollTo(0, prevWinScroll);
       const newLeftPanel = document.querySelector('.left-panel-sticky');
       if (newLeftPanel) newLeftPanel.scrollTop = prevLeftScroll;
+      const newRightPanel = document.querySelector('.right-panel-sticky');
+      if (newRightPanel) newRightPanel.scrollTop = prevRightScroll;
     }
     syncDraftFloatingBannerDOM();
   }
 
   let draftTimerId = null;
-  const ESTIMATED_DRAFT_TOTAL_SEC = 15;
+  const ESTIMATED_DRAFT_TOTAL_SEC = 18;
 
   function formatDraftRemainingInfo(elapsedSec) {
     const remain = Math.max(0, Math.ceil(ESTIMATED_DRAFT_TOTAL_SEC - elapsedSec));
@@ -2453,11 +2751,12 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
       ? Math.min(92, Math.round((elapsedSec / ESTIMATED_DRAFT_TOTAL_SEC) * 90) + 5)
       : Math.min(98, 92 + Math.floor((elapsedSec - ESTIMATED_DRAFT_TOTAL_SEC) / 2));
 
-    let stageText = '1/3단계 [Perplexity 수집] · 실시간 한국 언론 뉴스·원문 출처 및 트렌드 팩트 수집 중...';
-    if (elapsedSec >= 3.0 && elapsedSec < 9.5) {
-      stageText = '2/3단계 [Claude Sonnet 4.5 집필] · 수집된 팩트로 매경 경어체 본문 3~4단락을 집필하고 있습니다...';
-    } else if (elapsedSec >= 9.5) {
-      stageText = '3/3단계 [Claude Sonnet 4.5 검수] · 본문 맞춤 비교 요약표 · 핵심 용어사전 · FAQ 및 팩트체크 구성 중...';
+    const writerLabel = getWriterModelShortLabel();
+    let stageText = '1/3단계 [Perplexity(sonar-pro) 수집] · 실시간 한국 언론 뉴스·원문 출처 및 트렌드 팩트 수집 중...';
+    if (elapsedSec >= 3.5 && elapsedSec < 12.0) {
+      stageText = `2/3단계 [${writerLabel} 집필] · 수집된 팩트와 기획 의도에 맞춰 MK Pick 매거진 본문 4단락 집필 중...`;
+    } else if (elapsedSec >= 12.0) {
+      stageText = `3/3단계 [${writerLabel} 검수] · 본문 맞춤 비교 요약표 · 핵심 용어사전 · FAQ 및 팩트체크 구성 중...`;
     }
 
     const timeBadgeText = remain > 0
@@ -2581,6 +2880,7 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
     const direction = (customDirection !== undefined ? customDirection : (state.homeInput.direction || '')).trim();
     const matchedType = autoMatchType ? detectBestContentType(keyword, company, `${state.homeInput.rawText || ''} ${direction} ${subKeywords}`, typeId) : typeId;
     const tName = CONTENT_TYPES[matchedType]?.shortName || '맞춤 유형';
+    const selectedWriter = getSelectedWriterModel();
     state.homeInput.keyword = keyword;
     if (company) state.homeInput.company = company;
     state.homeInput.subKeywords = subKeywords;
@@ -2590,6 +2890,11 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
     const stopTimer = startDraftProgressTimer(keyword, tName);
     render(true);
     try {
+      const isLocalServer = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+      if (!isLocalServer) {
+        // Netlify(서버리스 10초 제한 및 한도 절약) 및 GitHub Pages 환경: 브라우저에서 직접 2단계 하이브리드 파이프라인 실행
+        throw new Error('USE_CLIENT_HYBRID_DIRECT');
+      }
       const res = await apiFetch('/api/works', {
         method: 'POST',
         body: JSON.stringify({
@@ -2598,12 +2903,16 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
           company,
           subKeywords,
           direction,
+          writerModel: selectedWriter,
           url: state.homeInput.url || '',
           rawText: state.homeInput.rawText || '',
           typeId: matchedType,
           autoMatchType
         })
       });
+      if (!res.usedPerplexity && getClientPerplexityKey()) {
+        throw new Error('SERVER_FALLBACK_RETRY_IN_CLIENT');
+      }
       await loadConfig();
       state.isSearchingNews = false;
       const elapsed = stopTimer();
@@ -2615,10 +2924,10 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
       state.screen = 'editor';
       const finalTypeName = CONTENT_TYPES[res.work.typeId]?.shortName || tName;
       const finalCat = res.work.summaryBlocks?.mkCategory || '산업 Q&A';
-      showToast(`✓ [${finalTypeName} · ${finalCat}] '${keyword}' 맞춤 초안이 완성되었습니다! (${elapsed}초 소요)`);
+      showToast(`✓ [${finalTypeName} · ${finalCat}] '${keyword}' 맞춤 초안이 완성되었습니다! (${getWriterModelShortLabel(selectedWriter)} · ${elapsed}초 소요)`);
       render(false);
     } catch (err) {
-      // GitHub Pages 등 정적 호스팅 환경: 브라우저에서 Perplexity API를 직접 호출해 실시간 초안 생성
+      // 브라우저 2단계 하이브리드 파이프라인 직접 실행 (Stage 1: Perplexity sonar-pro 검색 -> Stage 2: 선택된 집필 AI)
       const matchedTrendNews = extractMatchingTrendNewsItems(keyword, company);
       let fallbackScenario = (buildDynamicScenario || buildPresetScenario)({
         keyword,
@@ -2632,6 +2941,7 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
         newsItems: matchedTrendNews
       });
       const clientKey = getClientPerplexityKey();
+      let clientPplxError = '';
       if (clientKey) {
         try {
           fallbackScenario = await buildClientPerplexityEnhancedScenario({
@@ -2647,7 +2957,10 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
           });
         } catch (pplxErr) {
           console.warn('Client Perplexity draft fallback:', pplxErr.message);
+          clientPplxError = pplxErr.message || 'AI 응답 시간 초과(Timeout)';
         }
+      } else {
+        clientPplxError = 'API 키 미설정';
       }
       await loadConfig();
       state.isSearchingNews = false;
@@ -2682,6 +2995,11 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
           };
       fallbackWork.inputSubKeywords = subKeywords;
       fallbackWork.inputDirection = direction;
+      fallbackWork.usedPerplexity = Boolean(fallbackScenario.usedPerplexity);
+      fallbackWork.activeWriterModel = fallbackScenario.activeWriterModel || (fallbackScenario.usedPerplexity ? selectedWriter : '');
+      fallbackWork.fallbackFromModel = fallbackScenario.fallbackFromModel || '';
+      fallbackWork.fallbackReason = fallbackScenario.fallbackReason || '';
+      fallbackWork.pplxError = fallbackScenario.usedPerplexity ? '' : clientPplxError;
       state.currentWork = fallbackWork;
       state.works.unshift(fallbackWork);
       try {
@@ -2689,7 +3007,12 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
       } catch (e) {}
       state.screen = 'editor';
       const finalCat = fallbackWork.summaryBlocks?.mkCategory || '산업 Q&A';
-      showToast(`✓ [${tName} · ${finalCat}] '${keyword}' 맞춤 초안이 완성되었습니다! (${elapsed}초 소요)`);
+      if (fallbackWork.usedPerplexity) {
+        const usedModelLabel = getWriterModelShortLabel(fallbackWork.activeWriterModel || selectedWriter);
+        showToast(`✓ [${tName} · ${finalCat}] '${keyword}' 맞춤 초안이 완성되었습니다! (${usedModelLabel} · ${elapsed}초 소요)`);
+      } else {
+        showToast(`⚠️ AI 호출이 실패(${clientPplxError})하여 임시 기본 골격이 표시되었습니다. 상단 진단 배너에서 [즉시 다시 생성]을 눌러주세요!`);
+      }
       render(false);
     }
   }
@@ -2717,62 +3040,86 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
         : state.trendRadar.newsletterTrends;
 
     root.innerHTML = `
-      <!-- 1. 상단 통합 작성 카드: 키워드 입력 + 5대 콘텐츠 유형(5열 그리드) + 초안 만들기 버튼 하나로 완결 -->
-      <div class="card" style="padding: 26px 28px; margin-bottom: 20px;">
-        <div class="flex-between mb-12" style="flex-wrap: wrap; gap: 8px;">
-          <div>
-            <h1 style="font-size: 19px; font-weight: 800; letter-spacing: -0.3px;">새 기사 초안 만들기</h1>
-            <p style="font-size: 13px; color: var(--text-secondary); margin-top: 2px;">
-              <strong>① 키워드</strong>를 입력하고 <strong>② 콘텐츠 유형(01~05)</strong>을 고른 뒤 우측 <strong>[초안 만들기 →]</strong> 버튼을 누르세요.
-            </p>
+      <!-- 1. 상단 통합 작성 카드: STEP 1(주제·기획 방향) + STEP 2(AI 자동 맞춤 & 5대 기사 관점) -->
+      <div class="card" style="padding: 24px 28px; margin-bottom: 20px;">
+        <div class="flex-between mb-12" style="flex-wrap: wrap; gap: 8px; padding-bottom: 12px; border-bottom: 1px solid #F1F3F5;">
+          <div style="display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;">
+            <h1 style="font-size: 19px; font-weight: 800; letter-spacing: -0.3px; color: var(--text-primary);">새 기사 초안 만들기</h1>
+            <span style="font-size: 12.5px; color: var(--text-secondary);">
+              키워드만 입력하고 <strong>[✨ 초안 만들기 →]</strong>를 누르면 <strong>1단계 Perplexity 실시간 취재 → 2단계 ${escapeHtml(getWriterModelShortLabel())} 집필</strong>이 자동 실행됩니다.
+            </span>
           </div>
-          <span id="toggleRawPasteBtn" class="text-action" style="text-decoration: underline;">
-            ${state.showRawPasteInput ? '보도자료 / 참고 URL 입력창 접기 ▲' : '+ 보도자료 원문이나 참고 URL 추가 (선택)'}
-          </span>
+          <div class="flex-row" style="gap: 8px; flex-wrap: wrap;">
+            ${renderWriterModelSelectHtml()}
+            <button type="button" id="toggleRawPasteBtn" class="btn btn-sm" style="font-size: 12px; font-weight: 700; color: ${state.showRawPasteInput ? 'var(--mk-orange)' : 'var(--text-secondary)'}; background-color: ${state.showRawPasteInput ? 'var(--mk-orange-light)' : '#F8FAFC'}; border-color: ${state.showRawPasteInput ? 'var(--mk-orange-border)' : '#E2E8F0'}; padding: 5px 11px;">
+              ${state.showRawPasteInput ? '📎 보도자료 · 참고 URL 입력창 접기 ▲' : '📎 + 보도자료 원문 · 참고 URL 추가 (선택)'}
+            </button>
+          </div>
         </div>
 
-        <!-- STEP 1: 메인 키워드 · 기업명 입력 + 바로 아래 서브 키워드 & 원하는 글의 방향·맥락 설정 -->
+        <!-- STEP 1: 메인 키워드 · 기업명 입력 + 정돈된 서브 키워드 & 기획 방향 바 -->
         <div id="homeStep1Box" style="margin-bottom: 16px;">
-          <div style="display: grid; grid-template-columns: 1.6fr 1fr auto; gap: 10px; align-items: end; margin-bottom: 10px;">
+          <div style="display: grid; grid-template-columns: 1.65fr 1fr auto; gap: 10px; align-items: end; margin-bottom: 10px;">
             <div>
-              <label style="display:block; font-size:12px; font-weight:800; color:var(--text-primary); margin-bottom:5px;">
-                <span style="color: var(--mk-orange); margin-right: 4px;">STEP 1</span>트렌드 키워드 / 주제
+              <label style="display: flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 800; color: var(--text-primary); margin-bottom: 6px;">
+                <span style="background-color: var(--mk-orange); color: #FFFFFF; font-size: 10.5px; font-weight: 800; padding: 1px 6px; border-radius: 4px;">STEP 1</span>
+                <span>트렌드 키워드 / 주제 <span style="color: var(--mk-orange);">*</span></span>
               </label>
-              <input type="text" class="input" id="homeKeywordInput" placeholder="예: 이디야·맘스터치·메가커피 신메뉴, 빼빼로데이, 다이소 뷰티..." value="${escapeHtml(hi.keyword)}" style="padding: 11px 14px; font-size: 14px;" />
+              <input type="text" class="input" id="homeKeywordInput" placeholder="예: 이디야·맘스터치·메가커피 신메뉴, 빼빼로데이, 다이소 뷰티..." value="${escapeHtml(hi.keyword)}" style="padding: 11px 14px; font-size: 14px; font-weight: 600;" />
             </div>
             <div>
-              <label style="display:block; font-size:12px; font-weight:700; color:var(--text-secondary); margin-bottom:5px;">
-                기업·브랜드명 <span style="font-weight: 400; color: var(--text-muted);">(선택 · 쉼표로 복수 입력 가능)</span>
+              <label style="display: block; font-size: 12.5px; font-weight: 700; color: var(--text-secondary); margin-bottom: 6px;">
+                기업·브랜드명 <span style="font-weight: 400; font-size: 11.5px; color: var(--text-muted);">(선택 · 쉼표로 복수 입력)</span>
               </label>
               <input type="text" class="input" id="homeCompanyInput" placeholder="예: 이디야커피, 맘스터치, 메가MGC커피" value="${escapeHtml(hi.company)}" style="padding: 11px 14px; font-size: 14px;" />
             </div>
             <div>
-              <button class="btn btn-primary btn-lg" id="homeStartDynamicBtn" style="height: 44px; padding: 0 24px; font-size: 14.5px; font-weight: 800;" ${state.isSearchingNews ? 'disabled' : ''}>
+              <button class="btn btn-primary btn-lg" id="homeStartDynamicBtn" style="height: 44px; padding: 0 26px; font-size: 14.5px; font-weight: 800; box-shadow: 0 2px 6px rgba(243, 112, 33, 0.25);" ${state.isSearchingNews ? 'disabled' : ''}>
                 ${state.isSearchingNews ? formatDraftRemainingInfo(state.draftElapsedSec || 0).shortBtnText : '✨ 초안 만들기 →'}
               </button>
             </div>
           </div>
 
-          <!-- 서브 키워드 & 편집자가 원하는 글의 방향·맥락 입력란 (키워드 바로 아래 배치) -->
-          <div style="padding: 12px 14px; background-color: #FFFDFB; border: 1px solid var(--mk-orange-border); border-radius: var(--radius-general);">
-            <div style="display: grid; grid-template-columns: 1fr 1.8fr; gap: 10px; align-items: start;">
+          <!-- 서브 키워드 & 원하는 글의 방향·맥락 (중첩 테두리 피로감을 없앤 소프트 그레이 슬림 바) -->
+          <div style="padding: 11px 14px; background-color: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 8px;">
+            <div style="display: grid; grid-template-columns: 1fr 1.85fr; gap: 12px; align-items: start;">
               <div>
-                <label style="display:block; font-size:12px; font-weight:800; color:var(--text-primary); margin-bottom:4px;">
-                  🏷️ 서브 키워드 <span style="font-weight: 500; color: var(--text-muted);">(선택 · 쉼표로 복수 입력)</span>
-                </label>
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 5px;">
+                  <label style="font-size: 12px; font-weight: 800; color: var(--text-primary);">
+                    🏷️ 서브 키워드 <span style="font-weight: 500; color: var(--text-muted);">(선택 · 쉼표 구분)</span>
+                  </label>
+                </div>
                 <input
                   type="text"
                   class="input"
                   id="homeSubKeywordsInput"
-                  placeholder="예: 푸드·스낵 신메뉴, 가성비 세트, 출시 가격, 편의점 단독"
+                  placeholder="예: 푸드·스낵 신메뉴, 가성비 세트, 출시 가격"
                   value="${escapeHtml(hi.subKeywords || '')}"
                   style="padding: 8px 12px; font-size: 13px; background-color: #FFFFFF;"
                 />
               </div>
               <div>
-                <label style="display:block; font-size:12px; font-weight:800; color:var(--text-primary); margin-bottom:4px;">
-                  🧭 원하는 글의 방향 · 맥락 <span style="font-weight: 500; color: var(--text-muted);">(편집자 기획 의도에 맞춰 초안이 생성됩니다)</span>
-                </label>
+                <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px; margin-bottom: 5px;">
+                  <label style="font-size: 12px; font-weight: 800; color: var(--text-primary);">
+                    🧭 원하는 글의 방향 · 맥락 <span style="font-weight: 500; color: var(--text-muted);">(선택 · 입력 시 기획 의도 최우선 반영)</span>
+                  </label>
+                  <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 4px;">
+                    <button type="button" class="text-action-orange" data-home-quick-dir="각 브랜드가 실제로 출시한 대표 신메뉴·신상품의 정확한 명칭, 가격, 핵심 특징을 1:1로 비교하고 추천 가이드를 정리해줘" style="font-size: 11px; background: #FFFFFF; border: 1px solid #CBD5E1; color: var(--text-secondary); padding: 1px 7px; border-radius: 99px; font-weight: 700;">
+                      + 신메뉴·스펙 비교
+                    </button>
+                    <button type="button" class="text-action-orange" data-home-quick-dir="2030 소비자와 SNS에서 왜 지금 이 키워드가 화제인지 최신 트렌드 배경과 실제 소비자 반응을 중심으로 작성해줘" style="font-size: 11px; background: #FFFFFF; border: 1px solid #CBD5E1; color: var(--text-secondary); padding: 1px 7px; border-radius: 99px; font-weight: 700;">
+                      + 2030 인기 배경 분석
+                    </button>
+                    <button type="button" class="text-action-orange" data-home-quick-dir="독자가 바로 활용할 수 있는 할인 프로모션 일정, 결제 혜택, 구매처, 실전 체크포인트를 중심으로 정리해줘" style="font-size: 11px; background: #FFFFFF; border: 1px solid #CBD5E1; color: var(--text-secondary); padding: 1px 7px; border-radius: 99px; font-weight: 700;">
+                      + 할인 혜택·구매 팁
+                    </button>
+                    ${(hi.subKeywords || hi.direction) ? `
+                      <button type="button" class="text-action" id="clearHomeSubAndDirBtn" style="font-size: 11px; color: var(--status-red); font-weight: 700; margin-left: 2px;">
+                        초기화 ✕
+                      </button>
+                    ` : ''}
+                  </div>
+                </div>
                 <input
                   type="text"
                   class="input"
@@ -2782,23 +3129,6 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
                   style="padding: 8px 12px; font-size: 13px; background-color: #FFFFFF;"
                 />
               </div>
-            </div>
-            <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 8px;">
-              <span style="font-size: 11px; font-weight: 700; color: var(--text-muted);">빠른 방향 예시 클릭:</span>
-              <button type="button" class="text-action-orange" data-home-quick-dir="각 브랜드가 실제로 출시한 대표 신메뉴·신상품의 정확한 명칭, 가격, 핵심 특징을 1:1로 비교하고 추천 가이드를 정리해줘" style="font-size: 11px; background: #FFFFFF; border: 1px solid #FFD8A8; padding: 2px 8px; border-radius: 99px;">
-                + 브랜드별 실제 신메뉴·제품 스펙 비교
-              </button>
-              <button type="button" class="text-action-orange" data-home-quick-dir="2030 소비자와 SNS에서 왜 지금 이 키워드가 화제인지 최신 트렌드 배경과 실제 소비자 반응을 중심으로 작성해줘" style="font-size: 11px; background: #FFFFFF; border: 1px solid #FFD8A8; padding: 2px 8px; border-radius: 99px;">
-                + 2030 인기 배경·SNS 트렌드 분석
-              </button>
-              <button type="button" class="text-action-orange" data-home-quick-dir="독자가 바로 활용할 수 있는 할인 프로모션 일정, 결제 혜택, 구매처, 실전 체크포인트를 중심으로 정리해줘" style="font-size: 11px; background: #FFFFFF; border: 1px solid #FFD8A8; padding: 2px 8px; border-radius: 99px;">
-                + 소비자 할인 혜택·구매 팁 중심
-              </button>
-              ${(hi.subKeywords || hi.direction) ? `
-                <button type="button" class="text-action" id="clearHomeSubAndDirBtn" style="font-size: 11px; color: var(--text-muted); margin-left: auto;">
-                  서브키워드·방향 비우기 ✕
-                </button>
-              ` : ''}
             </div>
           </div>
         </div>
@@ -2816,55 +3146,67 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
           </div>
         ` : ''}
 
-        <!-- STEP 2: 5가지 콘텐츠 유형 선택 (한 줄 5열 컴팩트 그리드) -->
-        <div style="padding-top: 14px; border-top: var(--border-thin);">
-          <div class="flex-between mb-8" style="flex-wrap: wrap; gap: 6px;">
-            <div style="font-size: 12px; font-weight: 800; color: var(--text-primary);">
-              <span style="color: var(--mk-orange); margin-right: 4px;">STEP 2</span>콘텐츠 유형 선택 (5대 템플릿 · 키워드 입력 시 자동 추천되며 직접 변경 가능)
+        <!-- STEP 2: 기사 전개 관점 선택 (AI 자동 맞춤 기본 작동 + 직관적인 5대 에디토리얼 관점 카드) -->
+        <div style="padding-top: 14px; border-top: 1px solid #F1F3F5;">
+          <div class="flex-between mb-10" style="flex-wrap: wrap; gap: 8px;">
+            <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 8px;">
+              <span style="background-color: #334155; color: #FFFFFF; font-size: 10.5px; font-weight: 800; padding: 1px 6px; border-radius: 4px;">STEP 2</span>
+              <span style="font-size: 12.5px; font-weight: 800; color: var(--text-primary);">기사 전개 관점 (콘텐츠 유형)</span>
+              <button
+                type="button"
+                id="homeAutoTypeModeBtn"
+                style="display: inline-flex; align-items: center; gap: 5px; padding: 4px 11px; border-radius: 99px; font-size: 11.5px; font-weight: 800; cursor: pointer; font-family: inherit; transition: all 0.12s ease; border: 1.5px solid ${hi.typeMode !== 'manual' ? 'var(--mk-orange)' : '#CBD5E1'}; background-color: ${hi.typeMode !== 'manual' ? 'var(--mk-orange)' : '#FFFFFF'}; color: ${hi.typeMode !== 'manual' ? '#FFFFFF' : 'var(--text-secondary)'};"
+                title="키워드와 최신 뉴스 성격에 맞춰 AI가 고정 틀 없이 가장 자연스러운 기사 구조를 자동 설계합니다"
+              >
+                ✨ AI 자동 맞춤 ${hi.typeMode !== 'manual' ? '(현재 켜짐 · 권장)' : '켜기'}
+              </button>
+              <span style="font-size: 11.5px; color: var(--text-muted);">
+                ${hi.typeMode !== 'manual'
+                  ? '고정된 템플릿에 억지로 끼워 넣지 않고, 최신 뉴스 팩트에 맞춰 최적의 관점을 자동 적용합니다.'
+                  : '선택하신 유형의 관점을 기준으로 기사를 구성합니다. (다시 클릭하면 AI 자동 맞춤으로 전환)'}
+              </span>
             </div>
-            <div style="font-size: 12px; color: var(--text-secondary);">
-              추천 MK Pick 카테고리: <strong style="color: var(--mk-orange);">[${escapeHtml(previewCat.recommendedCategory)}]</strong>
+            <div style="display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: var(--text-secondary); background-color: #F8FAFC; padding: 4px 10px; border-radius: 6px; border: 1px solid #E2E8F0;">
+              <span>추천 카테고리: <strong style="color: var(--mk-orange);">[${escapeHtml(previewCat.recommendedCategory)}]</strong></span>
+              <span style="color: #CBD5E1;">|</span>
+              <span>전개 흐름: <strong style="color: var(--text-primary); font-weight: 700;">${escapeHtml(selectedTypeInfo.structure)}</strong></span>
             </div>
           </div>
 
           <div class="home-type-grid">
             ${Object.values(CONTENT_TYPES).map(t => {
-              const isSelected = Number(hi.typeId) === t.id;
+              const isMatched = Number(hi.typeId) === t.id;
+              const isManualSelected = hi.typeMode === 'manual' && isMatched;
+              const isAutoMatched = hi.typeMode !== 'manual' && isMatched;
+              const cardClass = isManualSelected ? 'selected' : (isAutoMatched ? 'auto-matched' : '');
               return `
-                <div class="home-type-card ${isSelected ? 'selected' : ''}" data-select-home-type="${t.id}">
-                  <div>
-                    <div class="flex-between mb-6">
-                      <span style="font-size: 12px; font-weight: 800; color: ${isSelected ? 'var(--mk-orange)' : 'var(--text-muted)'};">
-                        유형 0${t.id}
+                <div class="home-type-card ${cardClass}" data-select-home-type="${t.id}" title="클릭하여 '${escapeHtml(t.uiTitle || t.name)}' 관점으로 직접 지정 (다시 클릭 시 AI 자동 맞춤)">
+                  <div class="flex-between mb-6" style="gap: 4px;">
+                    <span style="font-size: 11px; font-weight: 800; color: ${isMatched ? 'var(--mk-orange)' : 'var(--text-muted)'};">
+                      유형 0${t.id} · ${escapeHtml(t.defaultCategory)}
+                    </span>
+                    ${isManualSelected ? `
+                      <span style="font-size: 10.5px; font-weight: 800; color: #FFFFFF; background-color: var(--mk-orange); padding: 1px 6px; border-radius: 99px;">
+                        ✓ 직접 선택
                       </span>
-                      <span style="font-size: 11px; font-weight: 700; color: ${isSelected ? 'var(--mk-orange)' : 'var(--text-secondary)'}; background-color: ${isSelected ? 'var(--white)' : 'var(--bg-subtle)'}; border: var(--border-thin); padding: 1px 6px; border-radius: 4px;">
-                        ${escapeHtml(t.defaultCategory)}
+                    ` : isAutoMatched ? `
+                      <span style="font-size: 10.5px; font-weight: 800; color: var(--mk-orange); background-color: #FFFFFF; border: 1px solid var(--mk-orange-border); padding: 1px 6px; border-radius: 99px;">
+                        ✨ 자동 매칭
                       </span>
-                    </div>
-                    <div style="font-size: 13.5px; font-weight: 800; color: ${isSelected ? 'var(--mk-orange)' : 'var(--text-primary)'}; margin-bottom: 4px; line-height: 1.35;">
-                      ${escapeHtml(t.name)}
-                    </div>
-                    <div style="font-size: 12px; color: var(--text-secondary); line-height: 1.45;">
-                      ${escapeHtml(t.desc)}
-                    </div>
+                    ` : ''}
                   </div>
-                  <div style="margin-top: 10px; padding-top: 8px; border-top: var(--border-thin); font-size: 11.5px; font-weight: ${isSelected ? '800' : '600'}; color: ${isSelected ? 'var(--mk-orange)' : 'var(--text-muted)'}; text-align: right;">
-                    ${isSelected ? '✓ 현재 선택됨' : '선택하기'}
+                  <div style="font-size: 13.5px; font-weight: 800; color: ${isMatched ? 'var(--mk-orange)' : 'var(--text-primary)'}; margin-bottom: 3px; line-height: 1.3; letter-spacing: -0.2px;">
+                    ${t.icon ? `${t.icon} ` : ''}${escapeHtml(t.uiTitle || t.name)}
+                  </div>
+                  <div style="font-size: 11.5px; color: var(--text-secondary); line-height: 1.4; margin-bottom: 4px;">
+                    ${escapeHtml(t.desc)}
+                  </div>
+                  <div style="font-size: 10.5px; color: var(--text-muted); margin-top: auto;">
+                    기존 명칭: ${escapeHtml(t.name)}
                   </div>
                 </div>
               `;
             }).join('')}
-          </div>
-
-          <!-- 선택된 유형의 본문 전개 프로세스 1줄 요약 바 -->
-          <div class="flex-between mt-12" style="padding: 9px 14px; background-color: var(--bg-subtle); border: var(--border-thin); border-radius: var(--radius-general); flex-wrap: wrap; gap: 8px;">
-            <div style="font-size: 12.5px; color: var(--text-secondary);">
-              <strong style="color: var(--mk-orange); margin-right: 6px;">[${escapeHtml(selectedTypeInfo.shortName)}] 본문 구성 흐름:</strong>
-              ${escapeHtml(selectedTypeInfo.structure)}
-            </div>
-            <span style="font-size: 11.5px; color: var(--text-muted);">
-              소재를 아직 못 정하셨다면 아래 탭에서 트렌드 키워드나 캘린더 일정을 클릭해 바로 시작하세요 ↓
-            </span>
           </div>
         </div>
       </div>
@@ -3232,9 +3574,11 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
 
     document.getElementById('homeKeywordInput')?.addEventListener('input', e => {
       hi.keyword = e.target.value;
-      const autoDetected = detectBestContentType(hi.keyword, hi.company, `${hi.rawText} ${hi.direction} ${hi.subKeywords}`, hi.typeId);
-      if (hi.keyword.trim().length >= 2 && hi.typeId !== autoDetected) {
-        hi.typeId = autoDetected;
+      if (hi.typeMode !== 'manual') {
+        const autoDetected = detectBestContentType(hi.keyword, hi.company, `${hi.rawText} ${hi.direction} ${hi.subKeywords}`, hi.typeId);
+        if (hi.keyword.trim().length >= 2 && hi.typeId !== autoDetected) {
+          hi.typeId = autoDetected;
+        }
       }
     });
 
@@ -3277,6 +3621,7 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
         hi.keyword = kw;
         hi.company = comp;
         hi.typeId = matchedType;
+        hi.typeMode = 'auto';
         render(false);
         setTimeout(() => {
           flashElement('homeStep1Box');
@@ -3308,12 +3653,31 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
       render(true);
     });
 
-    // 5대 콘텐츠 유형 카드 클릭 시 유형 선택
+    // [✨ AI 자동 맞춤] 버튼 클릭 시 자동 매칭 모드로 전환
+    document.getElementById('homeAutoTypeModeBtn')?.addEventListener('click', () => {
+      syncHomeInputs();
+      hi.typeMode = 'auto';
+      if (hi.keyword.trim().length >= 2) {
+        hi.typeId = detectBestContentType(hi.keyword, hi.company, `${hi.rawText} ${hi.direction} ${hi.subKeywords}`, hi.typeId || 4);
+      }
+      showToast('✨ AI 자동 맞춤 모드가 켜졌습니다. 키워드와 최신 뉴스에 맞춰 최적 구조로 작성됩니다.');
+      render(true);
+    });
+
+    // 5대 콘텐츠 유형(관점) 카드 클릭 시 직접 고정 선택 (이미 직접 선택된 카드를 다시 누르면 AI 자동 맞춤으로 복귀)
     root.querySelectorAll('[data-select-home-type]').forEach(card => {
       card.addEventListener('click', () => {
         syncHomeInputs();
         const nextType = Number(card.getAttribute('data-select-home-type'));
-        hi.typeId = nextType;
+        if (hi.typeMode === 'manual' && hi.typeId === nextType) {
+          hi.typeMode = 'auto';
+          showToast('✨ AI 자동 맞춤 모드로 전환되었습니다.');
+        } else {
+          hi.typeMode = 'manual';
+          hi.typeId = nextType;
+          const tName = CONTENT_TYPES[nextType]?.uiTitle || CONTENT_TYPES[nextType]?.name || `유형 0${nextType}`;
+          showToast(`✓ [${tName}] 관점으로 고정되었습니다.`);
+        }
         render(true);
       });
     });
@@ -3601,18 +3965,18 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
       ...(state.trendRadar.googleTrends || []).slice(0, 2).map(t => t.keyword)
     ].filter((v, i, arr) => v && arr.indexOf(v) === i).slice(0, 10);
 
-    // 유형별 및 주제 맞춤형 단락 역할 안내 라벨
+    // 유형별 및 주제 맞춤형 단락 역할 안내 라벨 (고정 틀 문구 대신 자연스러운 매거진 단락 역할 표기)
     function getSectionRoleLabel(sec, sIdx, totalLen) {
       const titleStr = (sec?.title || '').trim();
       if (/^Bonus\s*Track/i.test(titleStr)) {
         return 'Bonus Track · 외전 & 추가 포인트';
       }
       const roleMap = {
-        1: ['도입 · 소비자 고민과 트렌드 변화', '대표 서비스 · 파트너사별 핵심 혜택', '비교 · 업체별 차별점 및 추천 대상', '전망 · 실패 없는 선택 기준 제시'],
-        2: ['도입 · 기념일 유래와 사회적 의미', '제도 · 정부·지자체 공식 지원 바우처', '브랜드별 소개 · 참여 기업 캠페인·제품 총정리', '시사점 · 캠페인 참여 방법과 기대 효과'],
-        3: ['도입 · 트렌드 부상 배경과 핵심 화두', '심층 분석 1 · 주요 소재·주자별 핵심 특징', '심층 분석 2 · 시장 파급력과 대표 사례', '전망 · 향후 트렌드 흐름과 시사점'],
-        4: ['도입 · 소비자 관심 배경과 트렌드 정의', '핵심 포인트 1 · 주요 아이템·성분·특징 분석', '핵심 포인트 2 · 브랜드별 차별점 및 인기 요인', '활용 가이드 · 똑똑한 선택 기준과 실전 팁'],
-        5: ['도입 · 시장 메가 트렌드 Q1~Q4 문답', '해법 · 선택 기준 및 타깃 기업 Q5~Q7 집중 조명', '성과 · 핵심 기능과 기대효과 분석']
+        1: ['도입 · 소비자 고민과 트렌드 배경', '핵심 분석 1 · 주요 브랜드·서비스 특징', '핵심 분석 2 · 차별점 및 상세 비교', '활용 가이드 · 똑똑한 선택 체크포인트'],
+        2: ['도입 · 시즌·기념일 배경과 핵심 화두', '핵심 포인트 1 · 유래·트렌드 및 주요 이슈', '핵심 포인트 2 · 화제의 아이템·프로모션 분석', '실전 가이드 · 즐기는 법 & 똑똑한 체크포인트'],
+        3: ['도입 · 트렌드 부상 배경과 핵심 화두', '심층 분석 1 · 주요 소재·배경 집중 조명', '심층 분석 2 · 확산 요인과 대표 사례', '전망 · 향후 흐름과 실전 체크포인트'],
+        4: ['도입 · 소비자 관심 배경과 트렌드 정의', '핵심 포인트 1 · 주요 아이템·신메뉴 특징', '핵심 포인트 2 · 브랜드별 차별점 및 인기 요인', '활용 가이드 · 똑똑한 선택 기준과 실전 팁'],
+        5: ['도입 · 시장 메가 트렌드 핵심 문답', '해법 · 선택 기준 및 타깃 기업 집중 조명', '성과 · 핵심 경쟁력과 기대효과 분석']
       };
       const list = roleMap[w.typeId] || roleMap[4];
       return list[sIdx] || '심층 분석 · 핵심 포인트 집중 조명';
@@ -3695,15 +4059,27 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
                     </select>
                   </div>
 
-                  <div class="flex-row mb-6" style="gap: 6px;">
-                    <input type="text" class="input" id="leftSearchKwInput" value="${escapeHtml(w.keyword)}" placeholder="새 키워드 직접 입력" style="flex: 1; padding: 7px 10px;" />
-                    <input type="text" class="input" id="leftSearchCompInput" value="${escapeHtml(w.inputCompany || '')}" placeholder="기업명(선택)" style="width: 92px; padding: 7px 10px;" />
-                  </div>
-                  <div class="mb-6">
-                    <input type="text" class="input" id="leftSearchSubKwInput" value="${escapeHtml(w.inputSubKeywords || '')}" placeholder="🎯 서브 키워드 (선택 · 쉼표로 구분)" style="width: 100%; padding: 6px 10px; font-size: 12px;" />
+                  <div style="display: grid; grid-template-columns: 1fr 96px; gap: 6px; margin-bottom: 8px;">
+                    <div>
+                      <label for="leftSearchKwInput" style="display: block; font-size: 11px; font-weight: 800; color: var(--mk-orange); margin-bottom: 3px;">🔑 메인 키워드</label>
+                      <input type="text" class="input" id="leftSearchKwInput" value="${escapeHtml(w.keyword)}" placeholder="메인 키워드 입력" style="width: 100%; padding: 6px 9px; font-size: 12.5px; font-weight: 700;" />
+                    </div>
+                    <div>
+                      <label for="leftSearchCompInput" style="display: block; font-size: 11px; font-weight: 800; color: var(--text-secondary); margin-bottom: 3px;">🏢 기업명(선택)</label>
+                      <input type="text" class="input" id="leftSearchCompInput" value="${escapeHtml(w.inputCompany || '')}" placeholder="예: 롯데웰푸드" style="width: 100%; padding: 6px 8px; font-size: 12px;" />
+                    </div>
                   </div>
                   <div class="mb-8">
-                    <input type="text" class="input" id="leftSearchDirectionInput" value="${escapeHtml(w.inputDirection || '')}" placeholder="🧭 원하는 글의 방향·맥락 (예: 브랜드별 신메뉴·가격 비교 중심으로)" style="width: 100%; padding: 6px 10px; font-size: 12px;" />
+                    <label for="leftSearchSubKwInput" style="display: block; font-size: 11px; font-weight: 800; color: #1971C2; margin-bottom: 3px;">🏷️ 서브 키워드 <span style="font-weight: 600; color: var(--text-muted);">(쉼표로 구분)</span></label>
+                    <input type="text" class="input" id="leftSearchSubKwInput" value="${escapeHtml(w.inputSubKeywords || '')}" placeholder="예: 가래떡데이, 떡 디저트, 농업인의 날" style="width: 100%; padding: 6px 9px; font-size: 12px;" />
+                  </div>
+                  <div class="mb-8">
+                    <label for="leftSearchDirectionInput" style="display: block; font-size: 11px; font-weight: 800; color: #2B8A3E; margin-bottom: 3px;">🧭 원하는 글의 방향·맥락 <span style="font-weight: 600; color: var(--text-muted);">(기획 의도)</span></label>
+                    <textarea class="textarea" id="leftSearchDirectionInput" rows="2" placeholder="예: 빼빼로데이만 알고 있던 독자에게 가래떡데이를 알려주고, 요즘 유행하는 떡 디저트와 엮어서 소개" style="width: 100%; min-height: 48px; padding: 6px 9px; font-size: 12px; line-height: 1.45; resize: vertical;">${escapeHtml(w.inputDirection || '')}</textarea>
+                  </div>
+
+                  <div class="mb-8">
+                    ${renderWriterModelSelectHtml('width: 100%;')}
                   </div>
 
                   <button
@@ -3713,7 +4089,7 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
                     style="width: 100%; justify-content: center; padding: 8px 12px; font-weight: 800;"
                     ${state.isRefreshingInEditor ? 'disabled' : ''}
                   >
-                    ${state.isRefreshingInEditor ? '⏳ 실시간 뉴스·Perplexity로 기사 새로 작성 중...' : '🔄 위 키워드·방향으로 오른쪽 기사 전체 새로 쓰기 →'}
+                    ${state.isRefreshingInEditor ? `⏳ Perplexity + ${escapeHtml(getWriterModelShortLabel())} 집필 중...` : '🔄 위 키워드·방향으로 오른쪽 기사 전체 새로 쓰기 →'}
                   </button>
                 </div>
 
@@ -3928,80 +4304,17 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
           </div>
         </aside>
 
-        <!-- [오른쪽 영역] 우측 상단 AI 자연어 편집 프롬프트 + 구조별 편집 모드 vs 실제 기사 미리보기 모드 -->
-        <div>
-          <!-- ✨ 우측 상단 AI 자연어 기사 편집 프롬프트 바 (반영 문장 자동 하이라이팅 & 하단 FAQ 동시 수정) -->
-          <div class="card" style="padding: 14px 16px; margin-bottom: 14px; border: 1.5px solid var(--mk-orange-border); background: linear-gradient(180deg, #FFFDFB 0%, #FFF8F3 100%);" id="aiNaturalEditBox">
-            <div class="flex-between mb-8" style="flex-wrap: wrap; gap: 8px;">
-              <div class="flex-row" style="gap: 8px; flex-wrap: wrap;">
-                <span style="display: inline-flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 800; color: #FFFFFF; background-color: var(--mk-orange); padding: 3px 10px; border-radius: 99px;">
-                  ✨ AI 자연어 편집 프롬프트
-                </span>
-                <strong style="font-size: 13px; color: var(--text-primary);">
-                  생성된 글을 보고 원하는 수정 방향을 자유롭게 입력하면 본문·요약표·하단 FAQ를 동시에 편집하고 수정된 문장을 하이라이팅합니다.
-                </strong>
-              </div>
-              <div class="flex-row" style="gap: 6px;">
-                ${Array.isArray(w.aiEditHistory) && w.aiEditHistory.length > 0 ? `
-                  <button type="button" class="btn btn-sm" id="undoAiPromptEditBtn" style="padding: 4px 10px; font-size: 11.5px; font-weight: 700;">
-                    ↩ 이전 상태로 되돌리기 (${w.aiEditHistory.length})
-                  </button>
-                ` : ''}
-                ${state.activeHighlight ? `
-                  <button type="button" class="btn btn-sm" data-clear-highlight="1" style="padding: 4px 10px; font-size: 11.5px; color: var(--text-secondary);">
-                    🖍️ 하이라이트 끄기 ✕
-                  </button>
-                ` : ''}
-              </div>
+        <!-- [가운데 영역] 원문 기사 본문 (구조별 편집 모드 vs 실제 기사 미리보기 모드) -->
+        <div style="min-width: 0;">
+          ${state.activeHighlight ? `
+            <div style="margin-bottom: 12px; padding: 10px 14px; background-color: #FFF9DB; border: 1.5px solid #FAB005; border-radius: 8px; display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap;">
+              <span style="font-size: 12.5px; font-weight: 800; color: #D9480F;">
+                🖍️ ${state.activeHighlight.mode === 'memo' ? '취재 팩트 메모 본문 반영 위치 하이라이트 표시 중:' : 'AI 프롬프트 편집 반영 하이라이트 표시 중:'}
+                <span style="color: #111; font-weight: 700;">${escapeHtml(state.activeHighlight.summary || '')}</span>
+              </span>
+              <button type="button" class="text-action" data-clear-highlight="1" style="font-size: 11.5px; font-weight: 800; color: #D9480F;">하이라이트 끄기 ✕</button>
             </div>
-
-            <div class="flex-row mb-8" style="gap: 8px;">
-              <input
-                type="text"
-                class="input"
-                id="aiNaturalPromptInput"
-                value="${escapeHtml(state.aiPromptDraft || '')}"
-                placeholder="예: 2단락에 최신 수치와 구체적 사례를 더 보강해줘 / 특정 브랜드 내용을 빼고 소비자 체크포인트 위주로 간결하게 고쳐줘"
-                style="flex: 1; padding: 9px 12px; font-size: 13px; font-weight: 600; background-color: #FFFFFF; border: 1px solid var(--mk-orange-border);"
-                ${state.isApplyingAiEdit ? 'disabled' : ''}
-              />
-              <button
-                type="button"
-                class="btn btn-primary"
-                id="applyAiNaturalPromptBtn"
-                style="padding: 9px 18px; font-size: 13px; font-weight: 800; white-space: nowrap;"
-                ${state.isApplyingAiEdit ? 'disabled' : ''}
-              >
-                ${state.isApplyingAiEdit ? '⏳ AI가 본문·FAQ 편집 중...' : '✨ AI 편집 적용 →'}
-              </button>
-            </div>
-
-            <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 6px;">
-              <span style="font-size: 11.5px; font-weight: 700; color: var(--text-muted);">빠른 편집 지시:</span>
-              <button type="button" class="text-action-orange" data-quick-ai-prompt="가장 최신 뉴스의 구체적인 수치(날짜, 가격, 할인율, 조회수 등)와 실제 브랜드 사례를 본문 각 단락에 더 풍부하게 보강해줘" style="font-size: 11.5px; background: #FFFFFF; border: 1px solid #FFD8A8; padding: 2px 8px; border-radius: 99px;">
-                + 최신 팩트·구체적 수치 보강
-              </button>
-              <button type="button" class="text-action-orange" data-quick-ai-prompt="불필요한 수식어와 반복 표현을 줄이고 핵심 팩트 중심으로 문장을 더 간결하고 읽기 쉽게 다듬어줘" style="font-size: 11.5px; background: #FFFFFF; border: 1px solid #FFD8A8; padding: 2px 8px; border-radius: 99px;">
-                ✂️ 문장 간결하게 다듬기
-              </button>
-              <button type="button" class="text-action-orange" data-quick-ai-prompt="독자와 소비자가 실제로 챙길 수 있는 실질적인 혜택, 신청/이용 방법, 주의사항 체크포인트를 더 구체적으로 강조해줘" style="font-size: 11.5px; background: #FFFFFF; border: 1px solid #FFD8A8; padding: 2px 8px; border-radius: 99px;">
-                🎯 소비자 실전 혜택·체크포인트 강조
-              </button>
-              <button type="button" class="text-action-orange" data-quick-ai-prompt="기사 제목과 첫 단락 도입부 질문을 독자의 클릭을 부르는 더 흥미롭고 임팩트 있는 표현으로 수정해줘" style="font-size: 11.5px; background: #FFFFFF; border: 1px solid #FFD8A8; padding: 2px 8px; border-radius: 99px;">
-                🔥 도입부·제목 더 매력적으로 수정
-              </button>
-            </div>
-
-            ${state.activeHighlight ? `
-              <div style="margin-top: 10px; padding: 8px 12px; background-color: #FFF9DB; border: 1px solid #FAB005; border-radius: 6px; display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap;">
-                <span style="font-size: 12px; font-weight: 800; color: #D9480F;">
-                  🖍️ ${state.activeHighlight.mode === 'memo' ? '취재 팩트 메모 본문 반영 위치 하이라이트 표시 중:' : 'AI 프롬프트 편집 반영 하이라이트 표시 중:'}
-                  <span style="color: #111; font-weight: 700;">${escapeHtml(state.activeHighlight.summary || '')}</span>
-                </span>
-                <button type="button" class="text-action" data-clear-highlight="1" style="font-size: 11.5px; font-weight: 700; color: #D9480F;">하이라이트 닫기 ✕</button>
-              </div>
-            ` : ''}
-          </div>
+          ` : ''}
 
           ${isPreview ? `
             <!-- ============================================================== -->
@@ -4171,6 +4484,74 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
             <!-- ✏️ 구조별 편집 모드 (8단계 블록 배지로 기사 구조가 한눈에 들어오는 편집기) -->
             <!-- ============================================================== -->
             <div>
+              ${(() => {
+                // [AI 생성 상태 · 원인 진단 배너] 에디터가 현재 원고가 AI 정상 집필본인지, 아니면 타임아웃/오류로 인한 임시 골격인지 1초 만에 파악하고 즉시 복구할 수 있는 배너
+                const isOfflineFallback = w.usedPerplexity === false;
+                const activeWriterLabel = getWriterModelShortLabel(w.activeWriterModel || getSelectedWriterModel());
+                if (isOfflineFallback) {
+                  const diag = diagnoseAiErrorReason(w.pplxError || '', Boolean(getClientPerplexityKey()));
+                  return `
+                    <div style="margin-bottom: 14px; padding: 14px 16px; border-radius: var(--radius-general); border: 2px solid #E03131; background-color: #FFF5F5;">
+                      <div class="flex-between" style="flex-wrap: wrap; gap: 10px; margin-bottom: 8px;">
+                        <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                          <span style="padding: 3px 9px; border-radius: 99px; background-color: #E03131; color: #FFFFFF; font-size: 11.5px; font-weight: 800;">
+                            🚨 AI 호출 실패 · 임시 기본 골격 표시 중
+                          </span>
+                          <strong style="font-size: 13.5px; font-weight: 800; color: #C92A2A;">
+                            ${escapeHtml(diag.title)}
+                          </strong>
+                        </div>
+                        <div class="flex-row" style="gap: 6px; flex-wrap: wrap;">
+                          <button
+                            type="button"
+                            data-retry-ai-model="google/gemini-4-argon"
+                            style="padding: 5px 11px; border-radius: 6px; border: 1.5px solid #D9480F; background-color: var(--mk-orange); color: #FFFFFF; font-size: 12px; font-weight: 800; cursor: pointer; font-family: inherit;"
+                            ${state.isRefreshingInEditor ? 'disabled' : ''}
+                          >
+                            ${state.isRefreshingInEditor ? '⏳ AI 재집필 중...' : '⚡ Gemini 4 Argon으로 즉시 다시 생성 →'}
+                          </button>
+                          <button
+                            type="button"
+                            data-retry-ai-model="sonar-pro"
+                            style="padding: 5px 11px; border-radius: 6px; border: 1px solid #C92A2A; background-color: #FFFFFF; color: #C92A2A; font-size: 12px; font-weight: 800; cursor: pointer; font-family: inherit;"
+                            ${state.isRefreshingInEditor ? 'disabled' : ''}
+                          >
+                            🌐 초고속 Sonar-Pro(5초)로 다시 생성
+                          </button>
+                        </div>
+                      </div>
+                      <div style="font-size: 12.5px; line-height: 1.55; color: #A61E4D; font-weight: 600; margin-bottom: 4px;">
+                        • <strong>원인 진단:</strong> ${escapeHtml(diag.cause)}
+                      </div>
+                      <div style="font-size: 12px; line-height: 1.5; color: #495057; font-weight: 600;">
+                        • <strong>해결 방법:</strong> ${escapeHtml(diag.solution)}
+                      </div>
+                    </div>
+                  `;
+                }
+                const hasAutoFallback = Boolean(w.fallbackFromModel && w.fallbackFromModel !== w.activeWriterModel);
+                return `
+                  <div style="margin-bottom: 10px; padding: 8px 14px; border-radius: var(--radius-general); border: 1px solid ${hasAutoFallback ? '#FAB005' : '#D0EBFF'}; background-color: ${hasAutoFallback ? '#FFF9DB' : '#F8FAFC'}; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
+                    <div style="font-size: 12px; font-weight: 700; color: var(--text-primary); display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+                      <span style="padding: 2px 8px; border-radius: 99px; background-color: ${hasAutoFallback ? '#FFF3BF' : '#E7F5FF'}; color: ${hasAutoFallback ? '#D9480F' : '#1971C2'}; font-weight: 800; font-size: 11px;">
+                        ${hasAutoFallback ? '⚡ AI 자동 백업 전환 완료' : '🤖 2단계 하이브리드 AI 정상 집필본'}
+                      </span>
+                      <span>
+                        1단계 실시간 검색(<strong>Perplexity Sonar-Pro</strong>) → 2단계 매거진 집필(<strong>${escapeHtml(activeWriterLabel)}</strong>)
+                      </span>
+                      ${hasAutoFallback ? `
+                        <span style="color: #D9480F; font-size: 11.5px;">
+                          (선택 모델 ${escapeHtml(getWriterModelShortLabel(w.fallbackFromModel))} 지연으로 백업 AI가 자동 완주함)
+                        </span>
+                      ` : ''}
+                    </div>
+                    <span style="font-size: 11px; color: var(--text-muted); font-weight: 600;">
+                      실시간 출처 ${(w.sources || []).length}건 반영됨
+                    </span>
+                  </div>
+                `;
+              })()}
+
               ${(() => {
                 const fv = w.factVerification || (inspectTopicFactVerification ? inspectTopicFactVerification(w.keyword, w.inputCompany, (w.sources || []).length) : null);
                 if (!fv) return '';
@@ -4714,6 +5095,109 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
             </div>
           `}
         </div>
+
+        <!-- [오른쪽 사이드 고정 패널] 원문 글을 위·아래로 스크롤하며 읽으면서 언제든 바로 입력해 수정하는 AI 자연어 편집 사이드바 -->
+        <aside class="right-panel-sticky" id="aiNaturalEditBox">
+          <div class="card" style="padding: 18px 18px; margin-bottom: 0; border: 1.5px solid var(--mk-orange-border); background: linear-gradient(180deg, #FFFDFB 0%, #FFF9F4 100%);">
+            <div class="flex-between mb-8" style="gap: 6px;">
+              <span style="display: inline-flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 800; color: #FFFFFF; background-color: var(--mk-orange); padding: 3px 10px; border-radius: 99px;">
+                ✨ AI 자연어 편집 프롬프트
+              </span>
+              <span style="font-size: 11px; font-weight: 700; color: var(--mk-orange);">스크롤 따라오기 고정</span>
+            </div>
+
+            <p style="font-size: 12.5px; color: var(--text-primary); font-weight: 700; line-height: 1.5; margin-bottom: 10px;">
+              왼쪽 원문 글을 스크롤하며 보면서 수정 방향을 자유롭게 입력하면 <strong>본문·요약표·하단 FAQ를 동시에 편집</strong>하고 반영된 문장을 하이라이팅합니다.
+            </p>
+
+            <!-- 원문 위치 빠른 이동 & 단락 지목 칩 -->
+            <div style="margin-bottom: 10px; padding: 8px 10px; background-color: #FFFFFF; border: 1px solid #F1E4DA; border-radius: 8px;">
+              <div style="font-size: 11px; font-weight: 800; color: var(--text-secondary); margin-bottom: 5px;">
+                📍 보고 싶은 위치로 이동 & 수정 대상 지목 (클릭):
+              </div>
+              <div style="display: flex; flex-wrap: wrap; gap: 4px;">
+                <button type="button" class="text-action" data-ai-target-jump="block-step-2" data-ai-target-prefix="[제목·소제목 수정] " style="font-size: 11px; background: var(--bg-subtle); border: var(--border-thin); padding: 2px 7px; border-radius: 6px; font-weight: 700;">
+                  제목·부제
+                </button>
+                ${(w.draftSections || []).map((sec, sIdx) => `
+                  <button type="button" class="text-action" data-ai-target-jump="secWrap-${sec.id}" data-ai-target-prefix="[단락 0${sIdx + 1} 수정] " style="font-size: 11px; background: var(--bg-subtle); border: var(--border-thin); padding: 2px 7px; border-radius: 6px; font-weight: 700;">
+                    단락 0${sIdx + 1}
+                  </button>
+                `).join('')}
+                <button type="button" class="text-action" data-ai-target-jump="block-step-6" data-ai-target-prefix="[비교 요약표 수정] " style="font-size: 11px; background: var(--bg-subtle); border: var(--border-thin); padding: 2px 7px; border-radius: 6px; font-weight: 700;">
+                  요약표
+                </button>
+                <button type="button" class="text-action" data-ai-target-jump="block-step-7" data-ai-target-prefix="[FAQ 수정] " style="font-size: 11px; background: var(--bg-subtle); border: var(--border-thin); padding: 2px 7px; border-radius: 6px; font-weight: 700;">
+                  FAQ
+                </button>
+              </div>
+            </div>
+
+            <div class="mb-8">
+              <textarea
+                class="textarea"
+                id="aiNaturalPromptInput"
+                rows="4"
+                placeholder="예: 2단락에 최신 수치와 실제 신메뉴 가격을 더 보강해줘 / 특정 브랜드 내용을 빼고 소비자 체크포인트 위주로 간결하게 고쳐줘 (Enter: 바로 적용, Shift+Enter: 줄바꿈)"
+                style="width: 100%; min-height: 92px; padding: 10px 12px; font-size: 13px; font-weight: 600; line-height: 1.55; background-color: #FFFFFF; border: 1.5px solid var(--mk-orange-border); border-radius: 8px;"
+                ${state.isApplyingAiEdit ? 'disabled' : ''}
+              >${escapeHtml(state.aiPromptDraft || '')}</textarea>
+            </div>
+
+            <button
+              type="button"
+              class="btn btn-primary"
+              id="applyAiNaturalPromptBtn"
+              style="width: 100%; justify-content: center; padding: 11px 16px; font-size: 13.5px; font-weight: 800; margin-bottom: 10px; box-shadow: 0 2px 6px rgba(243, 112, 33, 0.22);"
+              ${state.isApplyingAiEdit ? 'disabled' : ''}
+            >
+              ${state.isApplyingAiEdit ? '⏳ AI가 본문·표·FAQ 편집 중...' : '✨ AI 편집 적용 →'}
+            </button>
+
+            ${(Array.isArray(w.aiEditHistory) && w.aiEditHistory.length > 0) || state.activeHighlight ? `
+              <div style="display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px;">
+                ${Array.isArray(w.aiEditHistory) && w.aiEditHistory.length > 0 ? `
+                  <button type="button" class="btn btn-sm" id="undoAiPromptEditBtn" style="width: 100%; justify-content: center; padding: 6px 10px; font-size: 12px; font-weight: 800; background-color: #FFFFFF;">
+                    ↩ 이전 상태로 되돌리기 (${w.aiEditHistory.length})
+                  </button>
+                ` : ''}
+                ${state.activeHighlight ? `
+                  <div style="padding: 8px 10px; background-color: #FFF9DB; border: 1px solid #FAB005; border-radius: 6px;">
+                    <div style="font-size: 11.5px; font-weight: 800; color: #D9480F; margin-bottom: 4px;">
+                      🖍️ ${state.activeHighlight.mode === 'memo' ? '메모 반영 하이라이트 켜짐' : 'AI 편집 반영 하이라이트 켜짐'}
+                    </div>
+                    <div style="font-size: 11.5px; color: #111; line-height: 1.45; margin-bottom: 6px;">
+                      ${escapeHtml(state.activeHighlight.summary || '')}
+                    </div>
+                    <button type="button" class="btn btn-sm" data-clear-highlight="1" style="width: 100%; justify-content: center; padding: 4px 8px; font-size: 11.5px; font-weight: 700; color: #D9480F; background: #FFFFFF; border-color: #FAB005;">
+                      🖍️ 하이라이트 끄기 ✕
+                    </button>
+                  </div>
+                ` : ''}
+              </div>
+            ` : ''}
+
+            <div style="padding-top: 10px; border-top: 1px solid #F1E4DA;">
+              <div style="font-size: 11.5px; font-weight: 800; color: var(--text-secondary); margin-bottom: 7px;">
+                ⚡ 원클릭 빠른 편집 지시:
+              </div>
+              <div style="display: flex; flex-direction: column; gap: 6px;">
+                <button type="button" class="text-action-orange" data-quick-ai-prompt="가장 최신 뉴스의 구체적인 수치(날짜, 가격, 할인율, 조회수 등)와 실제 브랜드 사례를 본문 각 단락에 더 풍부하게 보강해줘" style="text-align: left; font-size: 12px; background: #FFFFFF; border: 1px solid #FFD8A8; padding: 7px 10px; border-radius: 8px; width: 100%;">
+                  + 최신 팩트·구체적 수치 보강
+                </button>
+                <button type="button" class="text-action-orange" data-quick-ai-prompt="불필요한 수식어와 반복 표현을 줄이고 핵심 팩트 중심으로 문장을 더 간결하고 읽기 쉽게 다듬어줘" style="text-align: left; font-size: 12px; background: #FFFFFF; border: 1px solid #FFD8A8; padding: 7px 10px; border-radius: 8px; width: 100%;">
+                  ✂️ 문장 간결하게 다듬기
+                </button>
+                <button type="button" class="text-action-orange" data-quick-ai-prompt="독자와 소비자가 실제로 챙길 수 있는 실질적인 혜택, 신청/이용 방법, 주의사항 체크포인트를 더 구체적으로 강조해줘" style="text-align: left; font-size: 12px; background: #FFFFFF; border: 1px solid #FFD8A8; padding: 7px 10px; border-radius: 8px; width: 100%;">
+                  🎯 소비자 실전 혜택·체크포인트 강조
+                </button>
+                <button type="button" class="text-action-orange" data-quick-ai-prompt="기사 제목과 첫 단락 도입부 질문을 독자의 클릭을 부르는 더 흥미롭고 임팩트 있는 표현으로 수정해줘" style="text-align: left; font-size: 12px; background: #FFFFFF; border: 1px solid #FFD8A8; padding: 7px 10px; border-radius: 8px; width: 100%;">
+                  🔥 도입부·제목 더 매력적으로 수정
+                </button>
+              </div>
+            </div>
+          </div>
+        </aside>
       </div>
     `;
 
@@ -4886,10 +5370,15 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
       const shouldAutoMatch = rebuildDraft && !keepCurrentType;
       const nextTypeId = shouldAutoMatch ? detectBestContentType(kw, comp, `${subKeywords} ${direction}`, w.typeId) : w.typeId;
       const nextTypeName = CONTENT_TYPES[nextTypeId]?.shortName || '맞춤 유형';
+      const selectedWriter = getSelectedWriterModel();
       state.isRefreshingInEditor = true;
       const stopEditorTimer = startDraftProgressTimer(kw, nextTypeName);
       render(true);
       try {
+        const isLocalServer = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+        if (!isLocalServer) {
+          throw new Error('USE_CLIENT_HYBRID_DIRECT');
+        }
         const res = await apiFetch(`/api/works/${w.id}/refresh-news`, {
           method: 'POST',
           body: JSON.stringify({
@@ -4897,6 +5386,7 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
             company: comp,
             subKeywords,
             direction,
+            writerModel: selectedWriter,
             typeId: nextTypeId,
             autoMatchType: shouldAutoMatch,
             rebuildDraft,
@@ -4904,6 +5394,9 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
             existingResearchItems: w.researchItems || []
           })
         });
+        if (rebuildDraft && !res.usedPerplexity && getClientPerplexityKey()) {
+          throw new Error('SERVER_FALLBACK_RETRY_IN_CLIENT');
+        }
         state.isRefreshingInEditor = false;
         const elapsed = stopEditorTimer();
         state.currentWork = res.work;
@@ -4914,7 +5407,7 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
         await loadConfig();
         showToast(
           rebuildDraft
-            ? `✓ '${kw}' 최신 팩트 ${res.liveNewsCount || ''}건을 바탕으로 오른쪽 기사 전체를 새로 작성했습니다! (${elapsed}초 소요)`
+            ? `✓ '${kw}' 최신 팩트 ${res.liveNewsCount || ''}건을 바탕으로 오른쪽 기사 전체를 새로 작성했습니다! (${getWriterModelShortLabel(selectedWriter)} · ${elapsed}초 소요)`
             : `✓ '${kw}' 최신 뉴스 문장 ${res.liveNewsCount || ''}건을 매경 문체로 다듬어 취재 메모장에 추가했습니다! (${elapsed}초 소요)`
         );
         render(true);
@@ -4953,6 +5446,7 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
             selectedType: nextTypeId,
             newsItems: matchedTrendNews
           });
+          let refreshPplxError = '';
           if (clientKey) {
             try {
               baseScen = await buildClientPerplexityEnhancedScenario({
@@ -4968,7 +5462,10 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
               });
             } catch (pplxErr) {
               console.warn('Client refresh fallback:', pplxErr.message);
+              refreshPplxError = pplxErr.message || 'AI 응답 시간 초과(Timeout)';
             }
+          } else {
+            refreshPplxError = 'API 키 미설정';
           }
           await loadConfig();
           w.keyword = kw;
@@ -4985,6 +5482,11 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
             w.summaryBlocks = baseScen.summaryBlocks;
             w.factChecks = baseScen.factChecks;
             w.factVerification = baseScen.factVerification;
+            w.usedPerplexity = Boolean(baseScen.usedPerplexity);
+            w.activeWriterModel = baseScen.activeWriterModel || (baseScen.usedPerplexity ? selectedWriter : '');
+            w.fallbackFromModel = baseScen.fallbackFromModel || '';
+            w.fallbackReason = baseScen.fallbackReason || '';
+            w.pplxError = baseScen.usedPerplexity ? '' : refreshPplxError;
           } else {
             w.sources = [...(baseScen.sources || []), ...(w.sources || [])];
             w.researchItems = [...(baseScen.researchItems || []), ...(w.researchItems || [])];
@@ -4992,11 +5494,15 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
           state.isRefreshingInEditor = false;
           const elapsed = stopEditorTimer();
           saveCurrentWork(true);
-          showToast(
-            rebuildDraft
-              ? `✓ '${kw}' 키워드로 오른쪽 기사 전체를 새로 작성했습니다! (${elapsed}초 소요)`
-              : `✓ '${kw}' 최신 팩트를 취재 메모장에 추가했습니다! (${elapsed}초 소요)`
-          );
+          if (rebuildDraft && !w.usedPerplexity) {
+            showToast(`⚠️ AI 호출이 실패(${refreshPplxError})하여 임시 기본 골격이 표시되었습니다. 상단 진단 배너에서 원인을 확인하세요!`);
+          } else {
+            showToast(
+              rebuildDraft
+                ? `✓ '${kw}' 키워드로 오른쪽 기사 전체를 새로 작성했습니다! (${getWriterModelShortLabel(w.activeWriterModel || selectedWriter)} · ${elapsed}초 소요)`
+                : `✓ '${kw}' 최신 팩트를 취재 메모장에 추가했습니다! (${elapsed}초 소요)`
+            );
+          }
           render(true);
         } catch (fallbackErr) {
           state.isRefreshingInEditor = false;
@@ -5009,6 +5515,17 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
 
     document.getElementById('leftFetchMemoOnlyBtn')?.addEventListener('click', () => triggerLiveNewsRefresh(false));
     document.getElementById('leftRebuildDraftBtn')?.addEventListener('click', () => triggerLiveNewsRefresh(true));
+
+    // 상단 AI 실패 진단 배너의 원클릭 [⚡ Gemini 4 Argon / 🌐 Sonar-Pro로 즉시 다시 생성] 버튼 연결
+    root.querySelectorAll('[data-retry-ai-model]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const retryModel = btn.getAttribute('data-retry-ai-model');
+        if (retryModel) {
+          setSelectedWriterModel(retryModel);
+        }
+        triggerLiveNewsRefresh(true, w.keyword, true);
+      });
+    });
 
     // 왼쪽 패널: 인기 키워드 드롭다운 선택 시 즉시 해당 키워드로 오른쪽 기사 새로 쓰기
     document.getElementById('leftQuickTrendSelect')?.addEventListener('change', e => {
@@ -5132,6 +5649,30 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
         if (!presetPrompt) return;
         state.aiPromptDraft = presetPrompt;
         triggerAiNaturalPromptEdit(presetPrompt);
+      });
+    });
+
+    // 오른쪽 사이드 AI 편집 패널에서 [제목·부제 / 단락 01~04 / 요약표 / FAQ] 클릭 시 해당 원문 위치로 스크롤 & 프롬프트 앞머리 자동 입력
+    root.querySelectorAll('[data-ai-target-jump]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const targetId = btn.getAttribute('data-ai-target-jump') || '';
+        const prefix = btn.getAttribute('data-ai-target-prefix') || '';
+        if (state.editorViewMode === 'preview') {
+          state.editorViewMode = 'edit';
+          render(true);
+        }
+        if (targetId) {
+          setTimeout(() => flashElement(targetId), 40);
+        }
+        const inputEl = document.getElementById('aiNaturalPromptInput');
+        if (inputEl && prefix) {
+          const curVal = inputEl.value.replace(/^\[[^\]]+\]\s*/, '').trim();
+          const nextVal = `${prefix}${curVal}`;
+          inputEl.value = nextVal;
+          state.aiPromptDraft = nextVal;
+          inputEl.focus();
+          inputEl.setSelectionRange(nextVal.length, nextVal.length);
+        }
       });
     });
 

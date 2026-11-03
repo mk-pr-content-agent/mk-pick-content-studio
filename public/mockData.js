@@ -3,65 +3,80 @@
 const CONTENT_TYPES = {
   1: {
     id: 1,
+    icon: '🤝',
+    uiTitle: '다자간 브랜드·서비스 비교',
+    uiSubtitle: '유료 업체 타겟팅 기획',
     name: '유료 업체 타겟팅 기획 콘텐츠',
-    shortName: '1. 유료 업체 타겟팅 기획 콘텐츠',
-    badge: '유료 파트너사 서비스 노출 강화 및 자연스러운 브랜디드 콘텐츠',
-    desc: '유료 파트너사 서비스 노출 강화 및 자연스러운 브랜디드 콘텐츠',
+    shortName: '1. 다자간 브랜드·서비스 비교 (유료 타겟팅)',
+    badge: '여러 파트너사·브랜드의 서비스 강점과 혜택을 나란히 비교',
+    desc: '주요 파트너사·브랜드별 핵심 서비스 특징과 혜택을 입체 비교',
     exampleKeyword: '결혼 트렌드',
     exampleHeadline: '"스드메 패키지 대신 내 맘대로 골라요"…시대별 결혼 트렌드와 주목받는 웨딩 서비스 4선',
-    structure: '도입 질문 → 시대별 변화 비교 → 파트너사·주요 업체 4곳 서비스 비교 → 요약표 → FAQ 7문항',
-    tableDefault: '세대별 비교표 + 업체별 서비스 비교표',
+    structure: '소비자 고민 도입 → 시장 변화 배경 → 브랜드·서비스별 강점 비교 → 비교 요약표 → FAQ',
+    tableDefault: '업체·브랜드별 서비스·혜택 비교표',
     faqDefaultCount: 7,
     defaultCategory: '브랜드스토리(기업관)'
   },
   2: {
     id: 2,
+    icon: '📅',
+    uiTitle: '시즌·이벤트·혜택 총정리',
+    uiSubtitle: '특정 기념일·일정 기획',
     name: '특정 기념일 관련 콘텐츠',
-    shortName: '2. 특정 기념일 관련 콘텐츠',
-    badge: '법정기념일 이슈 선점 및 기업들의 프로모션·ESG 활동 연계',
-    desc: '법정기념일 이슈 선점 및 기업들의 프로모션·ESG 활동 연계',
+    shortName: '2. 시즌·이벤트·혜택 총정리 (기념일·일정)',
+    badge: '시즌 이슈·기념일·빅이벤트에 맞춘 기업 프로모션과 체크포인트',
+    desc: '시즌 데이·주요 일정에 맞춘 유통가 행사·할인 혜택 총정리',
     exampleKeyword: '10월 10일 임산부의 날',
     exampleHeadline: '"풍요의 10월, 왜 하필 10일일까?"…10월 10일 임산부의 날 유래부터 기업 5곳 혜택 총정리',
-    structure: '도입 질문 → 기념일 유래·지원 제도 → 참여 브랜드별 캠페인·제품·마케팅 각각 소개 → 혜택 비교표 → FAQ 5문항',
+    structure: '시즌 이슈 핵심 포인트 → 주요 브랜드·채널별 프로모션·캠페인 → 혜택 비교표 → FAQ',
     tableDefault: '브랜드별 혜택·기간 비교표',
     faqDefaultCount: 5,
     defaultCategory: '기업뉴스'
   },
   3: {
     id: 3,
+    icon: '🔥',
+    uiTitle: '트렌드·소비심리 심층분석',
+    uiSubtitle: '최신 트렌드 반영 1 (이슈·현상)',
     name: '최신 트렌드 반영 콘텐츠 1',
-    shortName: '3. 최신 트렌드 반영 콘텐츠 1',
-    badge: 'SNS 및 숏폼 기반의 바이럴 이슈를 문화/소비사 관점으로 확장',
-    desc: 'SNS 및 숏폼 기반의 바이럴 이슈를 문화/소비사 관점으로 확장',
+    shortName: '3. 트렌드·소비심리 심층분석 (최신 트렌드 1)',
+    badge: 'SNS·숏폼 화제 이슈의 인기 배경과 2030 소비 심리를 심층 해설',
+    desc: 'SNS·숏폼 바이럴 현상의 인기 배경과 소비자 반응 심층 분석',
     exampleKeyword: '민음사빵 책갈피',
     exampleHeadline: '"빵 봉지 열었더니 데미안 책갈피가?"…1999년 국진이빵부터 2026년 민음사빵까지 띠부씰 계보 총정리',
-    structure: '도입 질문 → 시대별 유행 계보 → MZ 소비 심리 4가지 분석 → 시대별 비교표 → FAQ 5문항',
-    tableDefault: '연대별 대표 유행 아이템 비교표',
+    structure: '화제 현상 질문 리드 → 인기 확산 배경·수치 → 핵심 매력·소비 심리 분석 → 요약표 → FAQ',
+    tableDefault: '핵심 트렌드 포인트·사례 비교표',
     faqDefaultCount: 5,
     defaultCategory: '산업 Q&A'
   },
   4: {
     id: 4,
+    icon: '🛍️',
+    uiTitle: '신제품·신메뉴 라인업 비교',
+    uiSubtitle: '최신 트렌드 반영 2 (신상·제품)',
     name: '최신 트렌드 반영 콘텐츠 2',
-    shortName: '4. 최신 트렌드 반영 콘텐츠 2',
-    badge: '개별 기업의 신제품 출시 소식을 거시적 마케팅 키워드로 재정의',
-    desc: '개별 기업의 신제품 출시 소식을 거시적 마케팅 키워드로 재정의',
+    shortName: '4. 신제품·신메뉴 라인업 비교 (최신 트렌드 2)',
+    badge: '새로 출시된 신메뉴·신상품의 실제 이름·가격·특징을 1:1 비교',
+    desc: '브랜드별 실제 출시 신메뉴·신상품 스펙·가격·인기 요인 비교',
     exampleKeyword: '편의점 전용 맛 · 다이소 뷰티',
     exampleHeadline: '"편의점마다 맛이 다르다고?"…유통가 휩쓴 도장깨기·멀티플레이버 신제품 라인업 비교',
-    structure: '도입 질문 → 거시적 마케팅 콘셉트 도출 → 브랜드·채널별 신제품 라인업 비교 → 라인업 요약표 → FAQ 5문항',
-    tableDefault: '채널·브랜드별 전용 라인업 비교표',
+    structure: '출시 배경 리드 → 브랜드별 실제 신메뉴·제품 스펙·가격 상세 비교 → 라인업 요약표 → FAQ',
+    tableDefault: '브랜드·제품별 실제 스펙·가격 비교표',
     faqDefaultCount: 5,
     defaultCategory: '제품·기술'
   },
   5: {
     id: 5,
+    icon: '🏢',
+    uiTitle: '단일 기업·성공사례 집중 조명',
+    uiSubtitle: '영업 기업 맞춤 기획',
     name: '영업 기업 맞춤 기획 콘텐츠',
-    shortName: '5. 영업 기업 맞춤 기획 콘텐츠',
-    badge: '영업 타깃 기업의 핵심 가치를 시의성 있는 대중 트렌드와 결합',
-    desc: '영업 타깃 기업의 핵심 가치를 시의성 있는 대중 트렌드와 결합',
+    shortName: '5. 단일 기업·성공사례 집중 조명 (영업 타깃)',
+    badge: '특정 기업의 혁신 서비스·솔루션 경쟁력을 시장 트렌드 Q&A와 결합',
+    desc: '타깃 기업의 핵심 기술·차별화 서비스를 트렌드 문답으로 집중 조명',
     exampleKeyword: '번개장터 정품 검수 리커머스',
     exampleHeadline: '"중고거래도 백화점처럼 검수합니다"…리커머스 트렌드부터 번개장터 핵심 서비스까지 7문 7답',
-    structure: '도입 1문단 → Q1~Q6 시장 트렌드 문답 → Q7 영업 타깃 기업 집중 소개 → 핵심 서비스 요약표',
+    structure: '시장 트렌드 도입 → 소비자 페인포인트 문답 → 타깃 기업 핵심 경쟁력 집중 소개 → 요약표·FAQ',
     tableDefault: '대상 기업 핵심 서비스·혜택 요약표',
     faqDefaultCount: 7,
     defaultCategory: '성공사례'
@@ -1025,8 +1040,17 @@ function buildDynamicWorkFromNews({ keyword, company, subKeywords = '', directio
   const fact2 = paraphrasedFacts[1] || (isFnbTopic
     ? `${comp || '주요 식음료 브랜드'} 등은 고물가 속 가성비와 이색적인 맛 조합을 앞세운 신메뉴 라인업을 잇달아 선보이며 객단가와 매장 방문율을 높이고 있습니다.`
     : `유통·서비스 업계에서도 '${kw}' 수요를 겨냥한 전용 라인업과 온·오프라인 프로모션을 잇달아 확대하고 있습니다.`);
-  const fact3 = paraphrasedFacts[2] || (userDirection
-    ? `특히 ${userDirection} 흐름에 맞춰 소비자 체감 만족도를 높인 실속형 구성이 주목받고 있습니다.`
+  const cleanDirSummary = userDirection
+    ? userDirection
+        .replace(/(?:작성해\s*줘|써\s*줘|쓰고\s*싶음|쓰고\s*싶어|알려\s*줘|알려\s*줌|소개해\s*줘|비교해\s*줘|중심으로|위주로)\.?$/g, '')
+        .replace(/알려줌\s*,/g, '소개하고,')
+        .replace(/유행이니/g, '유행하는 흐름에 맞춰')
+        .replace(/엮어서/g, '연계한 포인트가')
+        .replace(/\.+$/, '')
+        .trim()
+    : '';
+  const fact3 = paraphrasedFacts[2] || (userSubKeywordsStr
+    ? `특히 '${kw}'과 함께 '${userSubKeywordsStr}' 등 연관 트렌드가 맞물리며 소비자들의 선택 폭과 즐길 거리가 한층 넓어지고 있습니다.`
     : `소비자들은 단순 가격 비교를 넘어 본인의 취향에 맞는 맞춤형 구성과 검증된 품질을 핵심 선택 기준으로 삼고 있습니다.`);
 
   if (researchItems.length === 0) {
@@ -1086,8 +1110,8 @@ function buildDynamicWorkFromNews({ keyword, company, subKeywords = '', directio
     draftSections = [
       {
         id: 'sec-1',
-        title: `왜 요즘 '${kw}'에서 맞춤형 선택과 꼼꼼한 비교가 중요해졌을까요?`,
-        content: `최근 '${kw}'을 준비하거나 알아보면서 어떤 기준으로 선택해야 할지 고민해 보신 적 없으신가요?\n\n소비자들의 라이프스타일과 니즈가 세분화되면서, 정형화된 방식 대신 본인의 예산과 우선순위에 맞춰 핵심 요소만 합리적으로 선택하려는 흐름이 뚜렷해지고 있습니다. ${fact1}${userDirection ? `\n\n특히 ${userDirection} 관점에서 실질적인 조건과 구성을 꼼꼼히 따져보는 소비자가 늘고 있습니다.` : ''}`,
+        title: `‘${kw}’, 왜 지금 맞춤형 선택과 꼼꼼한 비교가 중요해졌을까요?`,
+        content: `최근 '${kw}'을 준비하거나 알아보면서 어떤 기준으로 선택해야 할지 고민해 보신 적 없으신가요?\n\n소비자들의 라이프스타일과 니즈가 세분화되면서, 정형화된 방식 대신 본인의 예산과 우선순위에 맞춰 핵심 요소만 합리적으로 선택하려는 흐름이 뚜렷해지고 있습니다. ${fact1}${userSubKeywordsStr ? `\n\n아울러 '${userSubKeywordsStr}' 등 연관 키워드에 대한 관심도 함께 높아지며 실용적인 정보 탐색이 활발히 이뤄지고 있습니다.` : ''}`,
         sourceIds: [sources[0]?.id].filter(Boolean)
       },
       {
@@ -1135,19 +1159,21 @@ function buildDynamicWorkFromNews({ keyword, company, subKeywords = '', directio
     draftSections = [
       {
         id: 'sec-1',
-        title: `왜 지금 '${kw}'에 대한 관심과 업계의 움직임이 활발해지고 있을까요?`,
-        content: `최근 '${kw}'을 앞두고 올해는 어떤 변화와 새로운 소식이 있는지 궁금해하신 적 없으신가요?\n\n'${kw}'은 시의성 높은 사회적 관심사이자 소비자와 관련 업계 모두가 주목하는 주요 일정입니다. 특히 올해는 변화된 트렌드와 실용적인 니즈가 맞물리면서 예년보다 한층 세분화된 움직임이 나타나고 있습니다. ${fact1}${userDirection ? `\n\n아울러 ${userDirection} 흐름에 맞춘 실용적인 정보 탐색도 활발히 이뤄지고 있습니다.` : ''}`,
+        title: `‘${kw}’${userSubKeywordsStr ? `부터 ‘${userSubKeywordsStr.split(',')[0].trim()}’까지` : ''}, 올해 주목해야 할 새로운 변화`,
+        content: `최근 '${kw}'을 앞두고 올해는 어떤 변화와 새로운 소식이 있는지 궁금해하신 적 없으신가요?\n\n'${kw}'은 시의성 높은 사회적 관심사이자 소비자와 관련 업계 모두가 주목하는 주요 일정입니다. 특히 올해는 변화된 트렌드와 실용적인 니즈가 맞물리면서 예년보다 한층 세분화된 움직임이 나타나고 있습니다. ${fact1}${userSubKeywordsStr ? `\n\n아울러 '${kw}'뿐만 아니라 '${userSubKeywordsStr}' 등 연관 기념일·트렌드를 함께 즐기려는 소비자들의 관심도 크게 높아지고 있습니다.` : ''}`,
         sourceIds: [sources[0]?.id].filter(Boolean)
       },
       {
         id: 'sec-2',
-        title: `'${kw}' 관련 올해 가장 주목해야 할 핵심 이슈와 현장 동향은 무엇인가요?`,
-        content: `이번 '${kw}'과 관련해 가장 눈에 띄는 부분은 실질적인 체감 가치와 맞춤형 구성입니다. ${fact2}\n\n${targetBrands} 등 관련 분야에서도 일회성 이벤트에 그치지 않고, 실제 수요자의 눈높이에 맞춘 실속형 구성${userSubKeywordsStr ? `(${userSubKeywordsStr})` : ''}과 차별화된 프로그램을 잇달아 선보이며 호응을 얻고 있습니다. ${fact3}`,
+        title: userSubKeywordsStr
+          ? `‘${kw}’과 함께 뜨는 ‘${userSubKeywordsStr}’, 왜 MZ세대의 눈길을 사로잡았을까요?`
+          : `‘${kw}’ 관련 올해 가장 주목해야 할 핵심 이슈와 현장 동향`,
+        content: `이번 '${kw}'과 관련해 가장 눈에 띄는 부분은 실질적인 체감 가치와 맞춤형 구성입니다. ${fact2}\n\n${targetBrands} 등 관련 분야에서도 일회성 이벤트에 그치지 않고, 실제 수요자의 눈높이에 맞춘 실속형 구성${userSubKeywordsStr ? `과 '${userSubKeywordsStr}' 연계 기획` : ''}을 잇달아 선보이며 호응을 얻고 있습니다. ${fact3}`,
         sourceIds: sources.slice(0, 2).map(s => s.id)
       },
       {
         id: 'sec-3',
-        title: `'${kw}'을 앞두고 미리 챙겨야 할 실전 체크포인트와 활용 가이드`,
+        title: `‘${kw}’을 더 특별하고 알뜰하게 즐기는 실전 체크포인트`,
         content: `전문가들은 '${kw}' 관련 정보나 혜택을 활용할 때 정확한 공식 일정과 세부 적용 기준을 미리 확인해 두는 것이 중요하다고 조언합니다. 아래 핵심 요약표와 자주 묻는 질문(FAQ)을 통해 주요 내용과 유의사항을 한눈에 점검해 보시기 바랍니다.`,
         sourceIds: sources.map(s => s.id)
       }
@@ -1203,8 +1229,8 @@ function buildDynamicWorkFromNews({ keyword, company, subKeywords = '', directio
             ? `왜 지금 ${comp || '외식·카페 업계'}에서 '${coreTopic}' 경쟁에 불이 붙었을까요?`
             : `왜 지금 '${kw}' 트렌드와 주요 라인업에 소비자들이 주목할까요?`,
           content: isFnbTopic
-            ? `최근 카페나 외식 매장을 찾았을 때 음료나 단품 메뉴 못지않게 다채로운 푸드·스낵 신메뉴가 눈길을 사로잡는다고 느껴보신 적 없으신가요?\n\n고물가 기조 속에서 합리적인 가격으로 간편한 한 끼나 이색 간식을 해결하려는 소비자가 늘어나면서, ${comp || '주요 프랜차이즈 브랜드'}들이 앞다퉈 '${coreTopic}' 전략에 힘을 싣고 있습니다. ${fact1}${userDirection ? `\n\n특히 ${userDirection} 흐름이 맞물리며 각 브랜드의 시그니처 신메뉴 경쟁이 한층 치열해지고 있습니다.` : ''}`
-            : `최근 일상 속이나 온라인에서 '${kw}' 관련 소식을 자주 접해 보신 적 없으신가요?\n\n소비자들의 취향과 니즈가 세분화되면서 실질적인 만족도와 차별화된 구성을 앞세운 '${coreTopic}' 관련 상품들이 큰 호응을 얻고 있습니다. ${fact1}${userDirection ? `\n\n특히 ${userDirection} 관점에서 브랜드별 핵심 차별점이 주목받고 있습니다.` : ''}`,
+            ? `최근 카페나 외식 매장을 찾았을 때 음료나 단품 메뉴 못지않게 다채로운 푸드·스낵 신메뉴가 눈길을 사로잡는다고 느껴보신 적 없으신가요?\n\n고물가 기조 속에서 합리적인 가격으로 간편한 한 끼나 이색 간식을 해결하려는 소비자가 늘어나면서, ${comp || '주요 프랜차이즈 브랜드'}들이 앞다퉈 '${coreTopic}' 전략에 힘을 싣고 있습니다. ${fact1}${userSubKeywordsStr ? `\n\n특히 '${userSubKeywordsStr}' 등 이색 조합과 가성비 구성을 중심으로 각 브랜드의 시그니처 신메뉴 경쟁이 한층 치열해지고 있습니다.` : ''}`
+            : `최근 일상 속이나 온라인에서 '${kw}' 관련 소식을 자주 접해 보신 적 없으신가요?\n\n소비자들의 취향과 니즈가 세분화되면서 실질적인 만족도와 차별화된 구성을 앞세운 '${coreTopic}' 관련 상품들이 큰 호응을 얻고 있습니다. ${fact1}${userSubKeywordsStr ? `\n\n특히 '${userSubKeywordsStr}' 등 핵심 포인트를 중심으로 브랜드별 차별화 전략이 주목받고 있습니다.` : ''}`,
           sourceIds: [sources[0]?.id].filter(Boolean)
         },
         ...focusEntities.map((entityName, idx) => {
@@ -1238,8 +1264,8 @@ function buildDynamicWorkFromNews({ keyword, company, subKeywords = '', directio
       draftSections = [
         {
           id: 'sec-1',
-          title: `왜 요즘 '${kw}' 트렌드와 신상품 라인업에 소비자들이 주목할까요?`,
-          content: `최근 일상 속이나 온라인에서 '${kw}'에 관한 이야기를 자주 접해 보신 적 없으신가요?\n\n소비자들의 취향이 세분화되고 실용성과 경험 가치를 동시에 추구하는 흐름이 강해지면서 '${kw}'이 주목받고 있습니다. ${fact1}${userDirection ? `\n\n특히 ${userDirection} 흐름에 맞춰 관련 브랜드들의 움직임도 빨라지고 있습니다.` : ''}`,
+          title: `‘${kw}’${userSubKeywordsStr ? `와 ‘${userSubKeywordsStr.split(',')[0].trim()}’` : ''}, 왜 요즘 소비자들이 주목할까요?`,
+          content: `최근 일상 속이나 온라인에서 '${kw}'에 관한 이야기를 자주 접해 보신 적 없으신가요?\n\n소비자들의 취향이 세분화되고 실용성과 경험 가치를 동시에 추구하는 흐름이 강해지면서 '${kw}'이 주목받고 있습니다. ${fact1}${userSubKeywordsStr ? `\n\n특히 '${userSubKeywordsStr}' 등 연관 트렌드가 맞물리며 관련 업계의 움직임도 한층 빨라지고 있습니다.` : ''}`,
           sourceIds: [sources[0]?.id].filter(Boolean)
         },
         {

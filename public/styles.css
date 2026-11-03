@@ -101,7 +101,7 @@ body {
 
 /* 메인 컨테이너 */
 .main-container {
-  max-width: 1400px;
+  max-width: 1620px;
   margin: 0 auto;
   padding: 20px 24px 60px;
 }
@@ -247,25 +247,34 @@ body {
 }
 
 .home-type-card {
-  border: var(--border-thin);
-  border-radius: var(--radius-general);
+  border: 1px solid #E5E7EB;
+  border-radius: 10px;
   background-color: var(--white);
-  padding: 14px 14px 12px;
+  padding: 12px 13px;
   cursor: pointer;
   display: flex;
   flex-direction: column;
-  justify-content: space-between;
-  transition: border-color 0.12s ease, background-color 0.12s ease;
+  justify-content: flex-start;
+  transition: all 0.14s ease;
+  position: relative;
 }
 
 .home-type-card:hover {
   border-color: var(--mk-orange-border);
-  background-color: var(--bg-subtle);
+  background-color: #FFFDFB;
+  transform: translateY(-1px);
+  box-shadow: 0 3px 8px rgba(17, 24, 39, 0.04);
 }
 
 .home-type-card.selected {
   border: 1.5px solid var(--mk-orange);
   background-color: var(--mk-orange-light);
+  box-shadow: 0 2px 8px rgba(243, 112, 33, 0.1);
+}
+
+.home-type-card.auto-matched {
+  border: 1.5px dashed var(--mk-orange);
+  background-color: #FFFBF7;
 }
 
 /* 홈 화면 하단 소재 발굴 · 작업함 3탭 네비게이션 */
@@ -480,9 +489,16 @@ body {
 /* 좌·우 2단 통합 편집 레이아웃 */
 .studio-split-layout {
   display: grid;
-  grid-template-columns: 390px 1fr;
-  gap: 20px;
+  grid-template-columns: 345px minmax(0, 1fr) 335px;
+  gap: 18px;
   align-items: start;
+}
+
+@media (max-width: 1280px) {
+  .studio-split-layout {
+    grid-template-columns: 320px minmax(0, 1fr) 300px;
+    gap: 14px;
+  }
 }
 
 @media (max-width: 1024px) {
@@ -492,7 +508,8 @@ body {
 }
 
 /* 상단바(58px) + 에디터 고정바(60px) 아래에 정확히 고정되어 절대 겹치지 않도록 top: 126px 설정 */
-.left-panel-sticky {
+.left-panel-sticky,
+.right-panel-sticky {
   position: sticky;
   top: 126px;
   max-height: calc(100vh - 140px);
@@ -501,11 +518,13 @@ body {
   scrollbar-color: #D4D4D4 transparent;
 }
 
-.left-panel-sticky::-webkit-scrollbar {
+.left-panel-sticky::-webkit-scrollbar,
+.right-panel-sticky::-webkit-scrollbar {
   width: 5px;
 }
 
-.left-panel-sticky::-webkit-scrollbar-thumb {
+.left-panel-sticky::-webkit-scrollbar-thumb,
+.right-panel-sticky::-webkit-scrollbar-thumb {
   background-color: #D4D4D4;
   border-radius: 99px;
 }
