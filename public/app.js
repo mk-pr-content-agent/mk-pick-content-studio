@@ -280,8 +280,52 @@
     }
   }
 
-  async function callPerplexityDirectFromBrowser(apiKey, systemPrompt, userPrompt, recencyFilter = 'month', callType = 'draft') {
-    const maxOutTokens = callType === 'trend' ? 6500 : 8192;
+  function isRealArticleUrl(u) {
+    if (!u || typeof u !== 'string') return false;
+    const s = u.trim();
+    if (!/^https?:\/\//i.test(s)) return false;
+    if (s.includes('news.google.com/search') || s.includes('google.com/search') || s.includes('search.naver.com/search')) {
+      return false;
+    }
+    return true;
+  }
+
+  function matchBestSearchResult(rf, searchResults = [], usedUrls = new Set()) {
+    if (!Array.isArray(searchResults) || searchResults.length === 0) return null;
+    const targetText = `${rf?.sourceTitle || ''} ${rf?.fact || ''}`.toLowerCase();
+    const tokens = targetText
+      .replace(/[^\w가-힣\s]/g, ' ')
+      .split(/\s+/)
+      .filter(w => w.length >= 2 && !['관련', '보도', '참고', '팩트', '최근', '기준', '통해', '밝혔습니다', '있습니다'].includes(w));
+
+    let bestItem = null;
+    let bestScore = -1;
+    for (const sr of searchResults) {
+      if (!sr || !isRealArticleUrl(sr.url)) continue;
+      const hay = `${sr.title || ''} ${sr.snippet || ''}`.toLowerCase();
+      let score = usedUrls.has(sr.url) ? -3 : 0;
+      for (const tk of tokens) {
+        if (hay.includes(tk)) score += 2;
+      }
+      if (score > bestScore) {
+        bestScore = score;
+        bestItem = sr;
+      }
+    }
+    if (bestItem) {
+      usedUrls.add(bestItem.url);
+      return bestItem;
+    }
+    const unused = searchResults.find(sr => sr && isRealArticleUrl(sr.url) && !usedUrls.has(sr.url));
+    if (unused) {
+      usedUrls.add(unused.url);
+      return unused;
+    }
+    return searchResults[0] || null;
+  }
+
+  async function callPerplexityDirectFromBrowser(apiKey, systemPrompt, userPrompt, recencyFilter = 'month', callType = 'draft', maxTokensOverride = 0) {
+    const maxOutTokens = maxTokensOverride || (callType === 'trend' ? 6500 : 8192);
     const res = await fetch('https://api.perplexity.ai/v1/responses', {
       method: 'POST',
       headers: {
@@ -290,6 +334,7 @@
       },
       body: JSON.stringify({
         model: DEFAULT_PPLX_MODEL,
+        tools: [{ type: 'web_search' }],
         instructions: systemPrompt,
         input: userPrompt,
         max_output_tokens: maxOutTokens
@@ -304,11 +349,13 @@
     const data = await res.json();
     recordClientPerplexityUsage(data?.usage, callType);
 
+    const rawSearchResults = [];
     let content = '';
-    if (typeof data?.output_text === 'string' && data.output_text.trim()) {
-      content = data.output_text;
-    } else if (Array.isArray(data?.output)) {
+    if (Array.isArray(data?.output)) {
       for (const item of data.output) {
+        if (Array.isArray(item?.results)) {
+          rawSearchResults.push(...item.results);
+        }
         if (Array.isArray(item?.content)) {
           for (const block of item.content) {
             if (typeof block?.text === 'string') {
@@ -317,13 +364,89 @@
           }
         }
       }
-    } else {
+    }
+    if (!content && typeof data?.output_text === 'string' && data.output_text.trim()) {
+      content = data.output_text;
+    } else if (!content) {
       content = data?.choices?.[0]?.message?.content || '';
     }
 
-    const citations = Array.isArray(data?.citations) ? data.citations : [];
+    const seenUrls = new Set();
+    const searchResults = rawSearchResults
+      .filter(r => r && isRealArticleUrl(r.url))
+      .filter(r => {
+        const u = r.url.trim();
+        if (seenUrls.has(u)) return false;
+        seenUrls.add(u);
+        return true;
+      })
+      .sort((a, b) => String(b.last_updated || b.date || '').localeCompare(String(a.last_updated || a.date || '')));
+
+    const citations = [
+      ...searchResults.map(r => r.url.trim()),
+      ...(Array.isArray(data?.citations) ? data.citations.filter(isRealArticleUrl) : [])
+    ].filter((u, idx, arr) => arr.indexOf(u) === idx);
+
     const parsed = stripCitationBracketsClient(safeParseClientJson(content));
-    return { parsed, citations };
+    return { parsed, citations, searchResults };
+  }
+
+  // 왼쪽 [📰 최신 뉴스 문장만 메모장에 더 불러오기] 전용 고속 실시간 뉴스·원문 링크 수집 함수
+  async function fetchClientLatestNewsMemos({ apiKey, keyword: rawKeyword, company: rawCompany }) {
+    const keyword = cleanTrendTopicKeyword ? cleanTrendTopicKeyword(rawKeyword) : String(rawKeyword || '').trim();
+    const company = extractBrandFromTopic ? extractBrandFromTopic(keyword, rawCompany) : String(rawCompany || '').trim();
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const sys = `당신은 매일경제 디지털뉴스룸(MK Pick) 실시간 뉴스 취재 데스크입니다.
+반드시 web_search 도구를 실행하여 오늘(${todayStr}) 기준으로 '${keyword}'${company ? ` (${company})` : ''} 관련 가장 최신 보도된 한국 언론 기사들을 검색하세요.
+과거 초기 기사가 아니라 **가장 최근(오늘·최근 24시간~7일 이내 최신순)** 보도된 후속 기사·최신 조회수·신제품/프로모션 근황을 우선 추출하고, 각 팩트마다 웹 검색 결과(web_search)에 있는 **실제 개별 뉴스 기사의 정확한 원문 URL(sourceUrl)**을 1:1로 매칭해 순수 JSON만 출력하세요.`;
+
+    const usr = `검색 키워드: ${keyword}${company ? ` / 관련 기업: ${company}` : ''} (기준일: ${todayStr})
+웹 검색을 통해 가장 최근에 보도된 최신 뉴스 기사 6건을 최신순으로 선정하여 아래 JSON 형식으로만 출력하세요:
+{
+  "researchFacts": [
+    {
+      "category": "최신 보도 핵심 팩트",
+      "sourceTitle": "[언론사명 · YYYY-MM-DD] 실제 최신 보도 기사 제목",
+      "sourceUrl": "웹 검색 결과에 있는 해당 기사의 실제 원문 URL (https://... 절대 google.com/search 검색창 주소 금지)",
+      "pubDate": "YYYY-MM-DD",
+      "fact": "최신 수치·조회수·출시 메뉴·근황이 포함된 매경 경어체(~합니다/습니다) 취재 팩트 문장"
+    }
+  ]
+}`;
+    const { parsed, searchResults } = await callPerplexityDirectFromBrowser(apiKey, sys, usr, 'week', 'draft', 2500);
+    const factsArr = Array.isArray(parsed?.researchFacts) ? parsed.researchFacts : [];
+    const usedUrls = new Set();
+    const newSources = [];
+    const newResearchItems = [];
+    const ts = Date.now();
+
+    factsArr.forEach((rf, i) => {
+      const matchedSr = matchBestSearchResult(rf, searchResults, usedUrls);
+      const directUrl = isRealArticleUrl(rf.sourceUrl)
+        ? rf.sourceUrl.trim()
+        : (matchedSr?.url || `https://search.naver.com/search.naver?where=news&sort=1&query=${encodeURIComponent(keyword)}`);
+      if (isRealArticleUrl(directUrl)) usedUrls.add(directUrl);
+      const dateTag = rf.pubDate || matchedSr?.date || todayStr;
+      const srcTitle = rf.sourceTitle || (matchedSr?.title ? `[최신 보도 · ${dateTag}] ${matchedSr.title}` : `[최신 보도 · ${dateTag}] ${keyword} 관련 기사`);
+      const srcId = `src-memo-${ts}-${i + 1}`;
+      newSources.push({
+        id: srcId,
+        url: directUrl,
+        title: srcTitle,
+        method: `실시간 보도 (${dateTag})`,
+        reliability: '높음',
+        excluded: false
+      });
+      newResearchItems.push({
+        id: `ri-memo-${ts}-${i + 1}`,
+        category: rf.category || `최신 보도 · ${dateTag}`,
+        fact: rf.fact,
+        rawReference: srcTitle,
+        sourceIds: [srcId]
+      });
+    });
+
+    return { newSources, newResearchItems, count: newResearchItems.length };
   }
 
   async function fetchClientPerplexityTrends(apiKey) {
@@ -371,7 +494,9 @@
       ? inspectTopicFactVerification(keyword, company, 1)
       : { verdict: 'VERIFIED_FACT', isWarning: false, badgeLabel: '✓ 공식 언론 보도 및 실제 출시·트렌드 팩트 확인됨', summary: '' };
 
-    const sys = `당신은 매일경제 MK Pick(GEO·AEO 최적화 매거진형 심층 기사) 수석 에디터이자 팩트체크 데스크입니다.
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const sys = `당신은 매일경제 MK Pick(GEO·AEO 최적화 매거진형 심층 기사) 수석 에디터이자 실시간 뉴스 팩트체크 데스크입니다.
+반드시 web_search 도구를 실행하여 오늘(${todayStr}) 기준으로 '${keyword}' 관련 **가장 최신 보도된 한국 뉴스 기사들(오늘·최근 24시간~7일 이내 최신순)**을 검색하고, 과거 초기 보도에 머물지 말고 **가장 최근의 후속 보도·최신 조회수/판매량 수치·실제 출시 메뉴/광고 근황**까지 기사 본문과 취재 팩트 메모장(researchFacts)에 100% 반영하세요!
 타 언론사 기사의 문장을 절대 그대로 베끼지 말고, 수치·브랜드명·성분·출시일 등 핵심 팩트만 추출하여 모든 본문과 답변을 매일경제 고유의 정중하고 생동감 있는 "~합니다/습니다" 체로 작성하세요.
 [절대 준수 작성 원칙]
 0) [가장 중요 · 0순위 원칙] 실제 공식 출시·언론 보도 여부 팩트체크 및 가상(AI 생성) 밈·루머 엄격 판별 (절대 준수!):
@@ -388,13 +513,14 @@
    - 입력된 키워드에 유튜버의 감탄사·수식어(예: '과즙 넘치는', '과즙미 가득한', '먹어봄', '미친 가성비', '다이소깡' 등)나 오탈자(예: '찹살떡', '찹살덕' → '찹쌀떡')가 포함되어 있더라도, 기사 제목·본문·요약표·FAQ에서는 절대 유튜버의 수식어나 오탈자를 그대로 반복하지 마세요!
    - 반드시 언론 보도와 공식 발표로 검증된 **실제 핵심 브랜드·기업**(예: '이디야커피', '다이소', '올리브영', '더현대서울 한정선' 등)과 **정확한 공식 제품명·트렌드 배경**을 중심으로 전문적인 매일경제 기사를 작성하세요.
 3) 복수 키워드·아이템 맞춤형 전개:
-   - 사용자가 쉼표(,)로 여러 키워드(예: 대왕패치, 환절기, 기초템 등)를 입력한 경우, 1단락에서 전체 주제를 아우르는 트렌드 배경·소비자 고민을 짚어주고, 이어지는 단락들에서 각 키워드·아이템별 핵심 특징, 인기 이유, 주요 브랜드/제품 사례를 하나씩 명확하고 실용적인 소제목으로 풀어내세요. 마지막 단락에서는 올바른 선택 기준이나 활용 팁을 제시하세요.
-4) 5열 비교 요약표(summaryTable), 핵심 용어 사전(glossary 5개), FAQ ${faqCount}문항, 팬아웃(Query Fan-out) 연관 추천 질문(fanoutQuestions 6개), 마무리 총평 문단(closingParagraph) + 한 줄 요약(oneLineSummary)을 포함한 순수 JSON 객체만 출력하세요.
+   - 사용자가 쉼표(,)로 여러 키워드(예: 존박, 맥도날드 / 대왕패치, 환절기, 기초템 등)를 입력한 경우, 1단락에서 전체 주제를 아우르는 최신 트렌드 배경·화제 이유를 짚어주고, 이어지는 단락들에서 최신 보도된 핵심 이슈, 실제 출시 메뉴·제품 특징, 후속 반응 및 활용 포인트를 하나씩 명확하고 실용적인 소제목으로 풀어내세요.
+4) 취재 팩트 메모장(researchFacts 6건) 작성 시 **실제 개별 기사 원문 URL(sourceUrl)** 필수 포함:
+   - 반드시 웹 검색(web_search) 결과에서 확인된 **가장 최근 보도된 실제 뉴스 기사 6건(최신순)**을 기반으로 작성하고, 각 항목의 \`sourceUrl\`에는 검색 결과에 나온 **해당 개별 기사의 정확한 원문 링크(https://...)**를 그대로 넣으세요. (절대로 google.com/search 같은 검색 결과 페이지 주소를 넣지 마세요!)
 5) 팬아웃 추천 질문(fanoutQuestions) 작성 시 절대 주의:
-   - 반드시 현재 키워드('${keyword}'${company ? `, '${company}'` : ''})의 실제 품목·서비스·특징(예: 식음료·신메뉴면 맛·토핑·가격·칼로리·판매매장·배달여부·꿀조합, 화장품이면 성분·피부타입·사용순서·용량 등)에 100% 맞춘 구체적인 심화 질문 6개를 작성하세요.
-   - 주제와 무관한 엉뚱한 키워드(예: 다이소 뷰티, 팝업 주차 할인, 사전 예약 등)를 절대 섞지 마세요.`;
+   - 반드시 현재 키워드('${keyword}'${company ? `, '${company}'` : ''})의 실제 품목·서비스·특징에 100% 맞춘 구체적인 심화 질문 6개를 작성하세요. 주제와 무관한 엉뚱한 키워드를 절대 섞지 마세요.`;
 
     const usr = `[작성 요청 정보]
+- 기준 일자: ${todayStr} (가장 최근 보도된 최신 뉴스·후속 보도 최우선 반영!)
 - 키워드/주제: ${keyword}
 - 타깃 기업/브랜드(선택): ${company || '관련 주요 브랜드·제품'}
 - 참고 URL: ${url || '없음'}
@@ -403,7 +529,7 @@
 - 유형별 필수 구성 지침: ${typeInstructions[typeId] || typeInstructions[4]}
 - 사전 팩트체크 시스템 진단(${preFactCheck.verdict}): ${preFactCheck.summary}
 
-아래 JSON 스키마에 맞춰 주제('${keyword}')의 실제 공식 출시·언론 보도 진위를 먼저 검증(factVerification)한 뒤, 한국어로 작성하세요:
+아래 JSON 스키마에 맞춰 주제('${keyword}')의 실제 공식 출시·언론 보도 진위를 먼저 검증(factVerification)하고, 가장 최신 뉴스 팩트를 반영해 한국어로 작성하세요:
 {
   "factVerification": {
     "verdict": "VERIFIED_FACT(공식 출시·언론 보도 확인) | AI_MEME_OR_VIRTUAL(가상·AI 생성 밈/정식 미출시) | UNVERIFIED_VIRAL(공식 보도 미확인 주의) 중 택 1",
@@ -421,11 +547,12 @@
     {"id": "tc-5", "title": "\\"큰따옴표 인용구\\"…설명형 제목 5", "totalScore": 85}
   ],
   "researchFacts": [
-    {"category": "브랜드·출시 핵심 팩트", "sourceTitle": "[참고 보도 · 언론/공식자료] 실제 보도 또는 공식 출시 이슈 제목 1", "fact": "구체적인 브랜드명·출시 배경·수치가 포함된 ~합니다 체 취재 팩트 문장 1"},
-    {"category": "제품·메뉴 핵심 특징", "sourceTitle": "[참고 보도 · 업계 동향] 주요 특징·성분·원재료 관련 보도 제목 2", "fact": "구체적인 제품 특징·원재료·차별점이 포함된 ~합니다 체 취재 팩트 문장 2"},
-    {"category": "유통·매장 판매 동향", "sourceTitle": "[참고 보도 · 유통가] 백화점·매장·온라인 판매처 및 웨이팅 동향 제목 3", "fact": "주요 매장 위치·판매 채널·오픈런/품절 동향이 포함된 ~합니다 체 취재 팩트 문장 3"},
-    {"category": "소비자·SNS 반응", "sourceTitle": "[참고 보도 · 트렌드] 2030 소비자 및 숏폼·SNS 화제성 관련 제목 4", "fact": "SNS·유튜브 쇼츠 리뷰 확산 이유와 소비자 반응이 포함된 ~합니다 체 취재 팩트 문장 4"},
-    {"category": "가격·구성 및 구매 팁", "sourceTitle": "[참고 보도 · 구매 가이드] 가격대·세트 구성·프로모션 정보 제목 5", "fact": "가격·용량·선물 패키지·구매 시 참고할 점이 포함된 ~합니다 체 취재 팩트 문장 5"}
+    {"category": "최신 보도 핵심 팩트", "sourceTitle": "[언론사명 · YYYY-MM-DD] 가장 최근 보도된 실제 뉴스 제목 1", "sourceUrl": "웹 검색 결과에 있는 해당 기사의 실제 원문 URL (https://...)", "pubDate": "YYYY-MM-DD", "fact": "가장 최신 수치(조회수, 출시일 등)와 근황이 포함된 ~합니다 체 취재 팩트 문장 1"},
+    {"category": "후속 반응 · 최신 근황", "sourceTitle": "[언론사명 · YYYY-MM-DD] 최신 후속 보도 제목 2", "sourceUrl": "웹 검색 결과에 있는 해당 기사의 실제 원문 URL (https://...)", "pubDate": "YYYY-MM-DD", "fact": "최신 후속 반응·인터뷰·비하인드가 포함된 ~합니다 체 취재 팩트 문장 2"},
+    {"category": "브랜드 · 신메뉴/제품 특징", "sourceTitle": "[언론사명 · YYYY-MM-DD] 공식 출시 메뉴·제품 특징 보도 제목 3", "sourceUrl": "웹 검색 결과에 있는 해당 기사의 실제 원문 URL (https://...)", "pubDate": "YYYY-MM-DD", "fact": "구체적인 제품·세트 구성·원재료·차별점이 포함된 ~합니다 체 취재 팩트 문장 3"},
+    {"category": "소비자 · SNS 확산 배경", "sourceTitle": "[언론사명 · YYYY-MM-DD] 2030 소비자 및 숏폼 화제성 보도 제목 4", "sourceUrl": "웹 검색 결과에 있는 해당 기사의 실제 원문 URL (https://...)", "pubDate": "YYYY-MM-DD", "fact": "SNS·유튜브 쇼츠 확산 이유와 소비자 반응이 포함된 ~합니다 체 취재 팩트 문장 4"},
+    {"category": "유통 · 프로모션 동향", "sourceTitle": "[언론사명 · YYYY-MM-DD] 매장·판매처·광고 협업 보도 제목 5", "sourceUrl": "웹 검색 결과에 있는 해당 기사의 실제 원문 URL (https://...)", "pubDate": "YYYY-MM-DD", "fact": "판매 채널·광고 협업·프로모션 동향이 포함된 ~합니다 체 취재 팩트 문장 5"},
+    {"category": "가격 · 구성 및 이용 팁", "sourceTitle": "[언론사명 · YYYY-MM-DD] 가격·구성·구매 가이드 보도 제목 6", "sourceUrl": "웹 검색 결과에 있는 해당 기사의 실제 원문 URL (https://...)", "pubDate": "YYYY-MM-DD", "fact": "가격·구성·이용 시 참고할 점이 포함된 ~합니다 체 취재 팩트 문장 6"}
   ],
   "subtitle": "기사 부제 2줄 (줄바꿈 \\n 사용)",
   "aiFactSummary": [
@@ -472,48 +599,58 @@
   "oneLineSummary": "한 줄 요약! “핵심 통찰 인용구” 독자가 꼭 기억해야 할 핵심 메시지입니다."
 }`;
 
-    const { parsed, citations } = await callPerplexityDirectFromBrowser(apiKey, sys, usr, 'month', 'draft');
+    const { parsed, citations, searchResults } = await callPerplexityDirectFromBrowser(apiKey, sys, usr, 'month', 'draft');
     const mergedSources = [];
+    const usedSrUrls = new Set();
     const factsArr = Array.isArray(parsed.researchFacts) ? parsed.researchFacts : [];
-    factsArr.forEach((rf, i) => {
-      const citUrl = (typeof citations[i] === 'string' && citations[i])
-        ? citations[i]
-        : `https://news.google.com/search?q=${encodeURIComponent(keyword + (company ? ' ' + company.split(',')[0] : ''))}&hl=ko&gl=KR&ceid=KR:ko`;
-      const srcTitle = rf.sourceTitle || `[Perplexity 실시간 검증 출처 #${i + 1}] ${keyword} 관련 보도`;
+    const enrichedFacts = factsArr.map((rf, i) => {
+      const matchedSr = matchBestSearchResult(rf, searchResults, usedSrUrls);
+      const directUrl = isRealArticleUrl(rf.sourceUrl)
+        ? rf.sourceUrl.trim()
+        : (matchedSr?.url || (isRealArticleUrl(citations[i]) ? citations[i] : `https://search.naver.com/search.naver?where=news&sort=1&query=${encodeURIComponent(keyword)}`));
+      if (isRealArticleUrl(directUrl)) usedSrUrls.add(directUrl);
+      const pubDate = rf.pubDate || matchedSr?.date || todayStr;
+      const srcTitle = rf.sourceTitle || (matchedSr?.title ? `[최신 보도 · ${pubDate}] ${matchedSr.title}` : `[Perplexity 실시간 검증 출처 #${i + 1}] ${keyword} 관련 보도`);
+      const srcId = `src-pplx-${i + 1}`;
       mergedSources.push({
-        id: `src-pplx-${i + 1}`,
-        url: citUrl,
+        id: srcId,
+        url: directUrl,
         title: srcTitle,
-        method: 'Perplexity 실시간 검색',
+        method: `실시간 보도 (${pubDate})`,
+        reliability: '높음',
+        excluded: false
+      });
+      return {
+        id: `ri-pplx-${i + 1}`,
+        category: rf.category || `최신 보도 · ${pubDate}`,
+        fact: rf.fact,
+        rawReference: srcTitle,
+        sourceUrl: directUrl,
+        sourceIds: [srcId]
+      };
+    });
+
+    (searchResults || []).slice(0, 8).forEach(sr => {
+      if (mergedSources.length >= 8) return;
+      if (!sr || !isRealArticleUrl(sr.url) || mergedSources.some(s => s.url === sr.url)) return;
+      const num = mergedSources.length + 1;
+      const dateStr = sr.date || todayStr;
+      mergedSources.push({
+        id: `src-pplx-${num}`,
+        url: sr.url,
+        title: sr.title ? `[실시간 보도 · ${dateStr}] ${sr.title}` : `[Perplexity 실시간 검증 출처 #${num}] ${sr.url}`,
+        method: `실시간 보도 (${dateStr})`,
         reliability: '높음',
         excluded: false
       });
     });
-    citations.slice(factsArr.length, 6).forEach((citUrl, idx) => {
-      if (typeof citUrl === 'string' && !mergedSources.some(s => s.url === citUrl)) {
-        const num = mergedSources.length + 1;
-        mergedSources.push({
-          id: `src-pplx-${num}`,
-          url: citUrl,
-          title: `[Perplexity 실시간 검증 출처 #${num}] ${citUrl}`,
-          method: 'Perplexity 실시간 검색',
-          reliability: '높음',
-          excluded: false
-        });
-      }
-    });
+
     if (mergedSources.length === 0 && Array.isArray(baseScenario.sources)) {
       mergedSources.push(...baseScenario.sources);
     }
 
-    const researchItems = factsArr.length > 0
-      ? factsArr.map((rf, i) => ({
-          id: `ri-pplx-${i + 1}`,
-          category: rf.category || `핵심 취재 팩트 #${i + 1}`,
-          fact: rf.fact,
-          rawReference: rf.sourceTitle || 'Perplexity 실시간 웹 검색 및 매경 문체 재가공',
-          sourceIds: [mergedSources[i % Math.max(1, mergedSources.length)]?.id].filter(Boolean)
-        }))
+    const researchItems = enrichedFacts.length > 0
+      ? enrichedFacts
       : baseScenario.researchItems;
 
     const normalizeNewlines = str => String(str || '').replace(/\\n/g, '\n');
@@ -2585,8 +2722,15 @@
                   <div>
                     ${(w.researchItems || []).map((item, idx) => {
                       const linkedSource = (w.sources || []).find(s => (item.sourceIds || []).includes(s.id));
+                      const directMemoUrl = item.sourceUrl || linkedSource?.url || '';
+                      const refTitle = (linkedSource?.title || item.rawReference || '').replace(/^\[Perplexity 실시간 검증 출처 #\d+\]\s*/i, '').trim();
                       return `
                         <div class="clean-list-row">
+                          ${refTitle && !refTitle.startsWith('http') ? `
+                            <div style="font-size: 11px; font-weight: 700; color: var(--text-muted); margin-bottom: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(refTitle)}">
+                              📰 ${escapeHtml(refTitle)}
+                            </div>
+                          ` : ''}
                           <div style="font-size: 12.5px; color: var(--text-primary); line-height: 1.55; margin-bottom: 6px;">
                             ${escapeHtml(item.fact)}
                           </div>
@@ -2595,9 +2739,9 @@
                               <span style="font-size: 11px; font-weight: 700; color: var(--mk-orange); background-color: var(--mk-orange-light); padding: 1px 6px; border-radius: 4px;">
                                 ${escapeHtml(item.category || `팩트 ${idx + 1}`)}
                               </span>
-                              ${linkedSource ? `
-                                <a href="${escapeHtml(linkedSource.url)}" target="_blank" rel="noopener noreferrer" style="font-size: 11px; color: var(--text-secondary); text-decoration: underline;">
-                                  출처 원문 ↗
+                              ${directMemoUrl ? `
+                                <a href="${escapeHtml(directMemoUrl)}" target="_blank" rel="noopener noreferrer" style="font-size: 11px; font-weight: 700; color: var(--mk-orange); text-decoration: underline;" title="${escapeHtml(directMemoUrl)}">
+                                  원문 기사 ↗
                                 </a>
                               ` : ''}
                             </div>
@@ -3492,6 +3636,26 @@
       } catch (err) {
         // 정적 배포(GitHub Pages) 또는 폴백: 브라우저에서 직접 시나리오 생성/갱신
         try {
+          const clientKey = getClientPerplexityKey();
+          if (!rebuildDraft && clientKey) {
+            const memoRes = await fetchClientLatestNewsMemos({
+              apiKey: clientKey,
+              keyword: kw,
+              company: comp
+            });
+            await loadConfig();
+            const existingUrls = new Set((w.sources || []).map(s => s.url));
+            const dedupSources = (memoRes.newSources || []).filter(s => !existingUrls.has(s.url));
+            w.sources = [...dedupSources, ...(w.sources || [])];
+            w.researchItems = [...(memoRes.newResearchItems || []), ...(w.researchItems || [])];
+            state.isRefreshingInEditor = false;
+            const elapsed = stopEditorTimer();
+            saveCurrentWork(true);
+            showToast(`✓ '${kw}' 가장 최신 보도 기사 ${memoRes.count || 0}건과 원문 링크를 취재 메모장에 추가했습니다! (${elapsed}초 소요)`);
+            render(true);
+            return;
+          }
+
           let baseScen = (buildDynamicScenario || buildPresetScenario)({
             keyword: kw,
             company: comp,
@@ -3500,7 +3664,6 @@
             typeId: nextTypeId,
             selectedType: nextTypeId
           });
-          const clientKey = getClientPerplexityKey();
           if (clientKey) {
             try {
               baseScen = await buildClientPerplexityEnhancedScenario({
@@ -3528,6 +3691,7 @@
             w.draftSections = baseScen.draftSections;
             w.summaryBlocks = baseScen.summaryBlocks;
             w.factChecks = baseScen.factChecks;
+            w.factVerification = baseScen.factVerification;
           } else {
             w.sources = [...(baseScen.sources || []), ...(w.sources || [])];
             w.researchItems = [...(baseScen.researchItems || []), ...(w.researchItems || [])];
