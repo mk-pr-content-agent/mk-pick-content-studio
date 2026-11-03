@@ -2974,7 +2974,7 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
               }).join('')}
             </div>
 
-            <!-- 선택된 월의 핵심 테마 및 업종별 큐레이션 요약 -->
+            <!-- 선택된 월의 핵심 테마 요약 -->
             <div class="flex-between mb-12" style="padding: 10px 14px; background-color: var(--bg-subtle); border-radius: var(--radius-general); flex-wrap: wrap; gap: 8px;">
               <div>
                 <span style="font-size: 12.5px; font-weight: 800; color: var(--mk-orange); margin-right: 8px;">2026년 ${calData.month}월 핵심 테마</span>
@@ -2997,52 +2997,6 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
                 }).join('')}
               </div>
             </div>
-
-            ${calData.curation ? (() => {
-              const cEat = calData.curation.EAT || calData.curation.eat || '';
-              const cBuy = calData.curation.BUY || calData.curation.buy || '';
-              const cDo = calData.curation.DO || calData.curation.do || '';
-              const cPlay = calData.curation.PLAY || calData.curation.play || '';
-              const renderCurationChips = (rawStr, defaultT = 4) => {
-                const items = String(rawStr || '').split(/\s*·\s*/).map(s => s.trim()).filter(Boolean);
-                if (items.length === 0) return '<span class="text-muted">-</span>';
-                return items.map(it => {
-                  const tId = detectBestContentType(it, '', '', defaultT);
-                  return `
-                    <button
-                      type="button"
-                      data-use-cal-kw="${escapeHtml(it)}"
-                      data-use-cal-type="${tId}"
-                      style="display: inline-flex; align-items: center; gap: 3px; font-size: 11.5px; font-weight: 600; color: var(--text-primary); background-color: var(--bg-subtle); border: 1px solid #E5E7EB; padding: 3px 7px; border-radius: 5px; cursor: pointer; font-family: inherit; text-align: left; margin: 2px 3px 2px 0;"
-                      title="클릭 시 '${escapeHtml(it)}' 단일 주제로 최신 뉴스 기반 초안을 작성합니다"
-                    >
-                      <span>${escapeHtml(it)}</span>
-                      <span style="color: var(--mk-orange); font-weight: 800; font-size: 10.5px;">→</span>
-                    </button>
-                  `;
-                }).join('');
-              };
-              return `
-                <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 14px;">
-                  <div style="padding: 9px 12px; border: var(--border-thin); border-radius: var(--radius-general); background-color: var(--white);">
-                    <div style="font-size: 11px; font-weight: 800; color: var(--mk-orange); margin-bottom: 4px;">🍽️ EAT · 식음료/외식 (개별 클릭)</div>
-                    <div style="line-height: 1.4;">${renderCurationChips(cEat, 4)}</div>
-                  </div>
-                  <div style="padding: 9px 12px; border: var(--border-thin); border-radius: var(--radius-general); background-color: var(--white);">
-                    <div style="font-size: 11px; font-weight: 800; color: var(--mk-orange); margin-bottom: 4px;">🛍️ BUY · 가전/패션/쇼핑 (개별 클릭)</div>
-                    <div style="line-height: 1.4;">${renderCurationChips(cBuy, 4)}</div>
-                  </div>
-                  <div style="padding: 9px 12px; border: var(--border-thin); border-radius: var(--radius-general); background-color: var(--white);">
-                    <div style="font-size: 11px; font-weight: 800; color: var(--mk-orange); margin-bottom: 4px;">📚 DO · 교육/생활서비스 (개별 클릭)</div>
-                    <div style="line-height: 1.4;">${renderCurationChips(cDo, 3)}</div>
-                  </div>
-                  <div style="padding: 9px 12px; border: var(--border-thin); border-radius: var(--radius-general); background-color: var(--white);">
-                    <div style="font-size: 11px; font-weight: 800; color: var(--mk-orange); margin-bottom: 4px;">🎬 PLAY · 여가/레저/콘텐츠 (개별 클릭)</div>
-                    <div style="line-height: 1.4;">${renderCurationChips(cPlay, 3)}</div>
-                  </div>
-                </div>
-              `;
-            })() : ''}
 
             <div class="trend-clean-grid">
               ${(calData.events || []).map(ev => {
