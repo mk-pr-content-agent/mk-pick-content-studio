@@ -1994,7 +1994,7 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
       const mergedMap = new Map();
       [...localWorks, ...serverWorks].forEach(w => {
         if (w && w.id && !mergedMap.has(w.id)) {
-          mergedMap.set(w.id, w);
+          mergedMap.set(w.id, sanitizePoisonedWork(w));
         }
       });
       state.works = mergedMap.size > 0 ? Array.from(mergedMap.values()) : (getInitialWorks ? getInitialWorks() : []);
@@ -2010,7 +2010,7 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
           if (uiState.currentWorkId) {
             const foundWork = state.works.find(w => w.id === uiState.currentWorkId);
             if (foundWork) {
-              state.currentWork = foundWork;
+              state.currentWork = sanitizePoisonedWork(foundWork);
               if (uiState.screen === 'editor') state.screen = 'editor';
             }
           }
@@ -2028,7 +2028,97 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
       state.works = getInitialWorks ? getInitialWorks() : [];
     }
     render();
-    loadTrends().then(() => render(true));
+    loadTrends().then(() => {
+      // 트렌드 스냅샷 로드 완료 후 기존 오염된 로컬 초안이 있으면 실제 뉴스 팩트까지 반영하여 한 번 더 자동 복구
+      let anyRepaired = false;
+      state.works = (state.works || []).map(w => {
+        const beforeStr = JSON.stringify(w.summaryBlocks?.summaryTable || {});
+        const fixed = sanitizePoisonedWork(w);
+        if (JSON.stringify(fixed.summaryBlocks?.summaryTable || {}) !== beforeStr) anyRepaired = true;
+        return fixed;
+      });
+      if (state.currentWork) {
+        state.currentWork = sanitizePoisonedWork(state.currentWork);
+      }
+      if (anyRepaired) {
+        try {
+          localStorage.setItem(CLIENT_WORKS_STORAGE_KEY, JSON.stringify(state.works.slice(0, 30)));
+        } catch (e) {}
+      }
+      render(true);
+    });
+  }
+
+  // 실시간 트렌드 레이더(5개 탭)에서 키워드와 일치하는 실제 언론 보도 항목을 추출하는 헬퍼
+  function extractMatchingTrendNewsItems(keyword = '', company = '') {
+    const kw = String(keyword || '').trim();
+    if (!kw) return [];
+    const radar = state.trendRadar || {};
+    const allItems = [
+      ...(radar.brandPromoTrends || []),
+      ...(radar.shortFormTrends || []),
+      ...(radar.portalRetailTrends || []),
+      ...(radar.newsletterTrends || []),
+      ...(radar.googleTrends || [])
+    ];
+    const kwTokens = kw.split(/[\s,·/]+/).filter(t => t.length >= 2);
+    const matched = allItems.filter(it => {
+      if (!it || !it.keyword) return false;
+      if (it.keyword === kw || it.keyword.includes(kw) || kw.includes(it.keyword)) return true;
+      const hitCount = kwTokens.filter(tok => (it.keyword + ' ' + (it.desc || '')).includes(tok)).length;
+      return kwTokens.length >= 2 && hitCount >= Math.min(2, kwTokens.length);
+    });
+    return matched.slice(0, 5).map(it => ({
+      title: it.desc || it.keyword,
+      source: it.source || '언론 보도',
+      pubDateShort: it.pubDateShort || '최신 보도',
+      url: it.url || `https://search.naver.com/search.naver?where=news&query=${encodeURIComponent(kw)}`
+    }));
+  }
+
+  // 이전 버전의 화장품·올리브영 하드코딩 템플릿이나 undefined... 버그로 오염되어 브라우저 localStorage에 남아 있는 기사를 즉시 자동 치료하는 함수
+  function sanitizePoisonedWork(w) {
+    if (!w || !w.keyword) return w;
+    const kw = String(w.keyword || '');
+    const comp = String(w.inputCompany || '');
+    const isGenuineBeauty = /(?:뷰티|화장품|스킨케어|패치|앰플|세럼|크림|마스크팩|올리브영|클렌징|선크림|메이크업|피부|보습|장벽)/.test(`${kw} ${comp}`);
+    if (isGenuineBeauty) return w;
+
+    const serialized = JSON.stringify({
+      draftSections: w.draftSections || [],
+      summaryTable: w.summaryBlocks?.summaryTable || {},
+      faqs: w.summaryBlocks?.faqs || [],
+      oneLineSummary: w.summaryBlocks?.oneLineSummary || ''
+    });
+
+    const hasCosmeticsPoison = /세라마이드|판테놀|병풀추출물|밀착력·지속력|헬스앤뷰티 스토어|기초 정돈 후|국소 부위만 케어하던|고민 부위·상황에 맞춘 단계별 루틴|고민 부위 집중 관리|undefined\.\.\./.test(serialized);
+    if (!hasCosmeticsPoison) return w;
+
+    if (typeof buildDynamicScenario === 'function') {
+      const matchedNews = extractMatchingTrendNewsItems(kw, comp);
+      const cleanScen = buildDynamicScenario({
+        keyword: kw,
+        company: comp,
+        subKeywords: w.inputSubKeywords || '',
+        direction: w.inputDirection || '',
+        url: w.inputUrl || '',
+        rawText: w.inputRawText || '',
+        typeId: w.typeId || 4,
+        selectedType: w.typeId || 4,
+        newsItems: matchedNews
+      });
+      w.titleCandidates = cleanScen.titleCandidates;
+      w.title = cleanScen.titleCandidates?.[0]?.title || w.title;
+      if (matchedNews.length > 0 || (w.sources || []).length <= 1) {
+        w.sources = cleanScen.sources;
+        w.researchItems = cleanScen.researchItems;
+      }
+      w.draftSections = cleanScen.draftSections;
+      w.summaryBlocks = cleanScen.summaryBlocks;
+      w.factChecks = cleanScen.factChecks;
+      w.factVerification = cleanScen.factVerification || w.factVerification;
+    }
+    return w;
   }
 
   function openUserGuideModal() {
@@ -2517,6 +2607,7 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
       render(false);
     } catch (err) {
       // GitHub Pages 등 정적 호스팅 환경: 브라우저에서 Perplexity API를 직접 호출해 실시간 초안 생성
+      const matchedTrendNews = extractMatchingTrendNewsItems(keyword, company);
       let fallbackScenario = (buildDynamicScenario || buildPresetScenario)({
         keyword,
         company,
@@ -2525,7 +2616,8 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
         url: state.homeInput.url || '',
         rawText: state.homeInput.rawText || '',
         typeId: matchedType,
-        selectedType: matchedType
+        selectedType: matchedType,
+        newsItems: matchedTrendNews
       });
       const clientKey = getClientPerplexityKey();
       if (clientKey) {
@@ -3471,6 +3563,7 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
       state.screen = 'home';
       return render();
     }
+    sanitizePoisonedWork(w);
 
     const tInfo = CONTENT_TYPES[w.typeId] || CONTENT_TYPES[2];
     const sb = w.summaryBlocks || {};
@@ -4836,6 +4929,7 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
             return;
           }
 
+          const matchedTrendNews = extractMatchingTrendNewsItems(kw, comp);
           let baseScen = (buildDynamicScenario || buildPresetScenario)({
             keyword: kw,
             company: comp,
@@ -4844,7 +4938,8 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
             url: w.inputUrl || '',
             rawText: w.inputRawText || '',
             typeId: nextTypeId,
-            selectedType: nextTypeId
+            selectedType: nextTypeId,
+            newsItems: matchedTrendNews
           });
           if (clientKey) {
             try {
