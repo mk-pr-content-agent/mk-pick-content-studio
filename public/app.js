@@ -399,16 +399,61 @@
     return out;
   }
 
+  // 토큰 한도 도달 등으로 마지막 괄호가 살짝 잘린 JSON 문자열도 버리지 않고 자동으로 닫아 100% 복구하는 함수
+  function closeTruncatedJsonStructure(rawJsonStr = '') {
+    let s = String(rawJsonStr || '').trim();
+    const startIdx = s.indexOf('{');
+    if (startIdx === -1) return s;
+    s = s.slice(startIdx);
+
+    // 끝에 걸친 불완전한 key 또는 쉼표 정리
+    s = s.replace(/,\s*"[^"]*$/, '');
+    s = s.replace(/,\s*$/, '');
+
+    let inStr = false;
+    let esc = false;
+    const stack = [];
+    for (let i = 0; i < s.length; i++) {
+      const ch = s[i];
+      if (esc) {
+        esc = false;
+        continue;
+      }
+      if (ch === '\\') {
+        esc = true;
+        continue;
+      }
+      if (ch === '"') {
+        inStr = !inStr;
+        continue;
+      }
+      if (!inStr) {
+        if (ch === '{') stack.push('}');
+        else if (ch === '[') stack.push(']');
+        else if ((ch === '}' || ch === ']') && stack.length > 0 && stack[stack.length - 1] === ch) {
+          stack.pop();
+        }
+      }
+    }
+    if (inStr) s += '"';
+    s = s.replace(/:\s*$/, ': ""').replace(/,\s*$/, '');
+    while (stack.length > 0) {
+      s += stack.pop();
+    }
+    return s;
+  }
+
   function safeParseClientJson(rawText = '') {
     const cleaned = String(rawText || '')
       .replace(/```json/gi, '')
       .replace(/```/g, '')
       .trim();
-    const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
+    const firstBrace = cleaned.indexOf('{');
+    if (firstBrace === -1) {
       throw new Error('Perplexity 응답에서 JSON을 추출하지 못했습니다.');
     }
-    let candidate = jsonMatch[0];
+    const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
+    const candidate = jsonMatch ? jsonMatch[0] : cleaned.slice(firstBrace);
     try {
       return JSON.parse(candidate);
     } catch (firstErr) {
@@ -416,10 +461,18 @@
         const repairedQuotes = repairUnescapedQuotesClient(candidate).replace(/,\s*([\]}])/g, '$1');
         return JSON.parse(repairedQuotes);
       } catch (secondErr) {
-        const repaired = repairUnescapedQuotesClient(candidate)
-          .replace(/,\s*([\]}])/g, '$1')
-          .replace(/[\u0000-\u0019]+/g, ' ');
-        return JSON.parse(repaired);
+        try {
+          const repaired = repairUnescapedQuotesClient(candidate)
+            .replace(/,\s*([\]}])/g, '$1')
+            .replace(/[\u0000-\u0019]+/g, ' ');
+          return JSON.parse(repaired);
+        } catch (thirdErr) {
+          // 만약 출력이 길어 끝부분 괄호가 잘렸다면 자동 괄호 닫기 복구 실행
+          const closedRaw = closeTruncatedJsonStructure(repairUnescapedQuotesClient(cleaned.slice(firstBrace)))
+            .replace(/,\s*([\]}])/g, '$1')
+            .replace(/[\u0000-\u0019]+/g, ' ');
+          return JSON.parse(closedRaw);
+        }
       }
     }
   }
@@ -548,7 +601,7 @@
     const selectedModel = preferredModel || getSelectedWriterModel() || DEFAULT_PPLX_MODEL;
     const isSonarDirect = selectedModel === 'sonar-pro' || callType === 'trend' || maxTokensOverride === 2500;
 
-    // 1) 트렌드 수집 / 최신 뉴스 메모 추가 / Sonar-Pro 직접 선택 시: 초고속 sonar-pro 단일 호출
+    // 1) 트렌드 수집 / 최신 뉴스 메모 추가 / Sonar-Pro 직접 선택 시: 초고속 sonar-pro 단일 호출 (충분한 대기 시간 120초 보장)
     if (isSonarDirect) {
       const res = await fetchWithTimeout('https://api.perplexity.ai/chat/completions', {
         method: 'POST',
@@ -562,10 +615,10 @@
             { role: 'system', content: systemPrompt },
             { role: 'user', content: userPrompt }
           ],
-          max_tokens: maxTokensOverride || (callType === 'trend' ? 6500 : 6000),
+          max_tokens: maxTokensOverride || (callType === 'trend' ? 6500 : 8000),
           temperature: 0.2
         })
-      }, 45000, 'Perplexity Sonar-Pro');
+      }, 120000, 'Perplexity Sonar-Pro');
       if (!res.ok) {
         const errText = await res.text().catch(() => '');
         throw new Error(`Perplexity(sonar-pro) 호출 실패 (${res.status}): ${errText.slice(0, 100)}`);
@@ -584,9 +637,9 @@
       return { parsed, citations, searchResults, activeModel: 'sonar-pro', fallbackFromModel: '', fallbackReason: '' };
     }
 
-    // 2) [2단계 하이브리드 파이프라인]
-    //    - Stage 1 (약 3~4초, 최대 10초 제한): Perplexity(sonar-pro)가 메인 키워드·서브 키워드·기획 방향에 맞는 실시간 최신 뉴스 팩트 6건과 실제 원문 URL을 고속 수집
-    //    - Stage 2 (약 15~22초, 모델당 최대 28초 스마트 타임아웃): 선택된 집필 AI가 중복 웹 검색 대기 없이 오직 MK Pick 매거진 원고 집필에만 집중!
+    // 2) [무중단 2단계 하이브리드 파이프라인]
+    //    - Stage 1: Perplexity(sonar-pro)가 메인 키워드·서브 키워드·기획 방향에 맞는 실시간 최신 뉴스 팩트 6건과 실제 원문 URL을 수집 (최대 30초 여유)
+    //    - Stage 2: 선택된 집필 AI가 중단 없이 끝까지 완주하도록 180초(3분) 여유 시간 및 10,000 출력 토큰 보장 + 다중 AI 자동 릴레이!
     let stage1FactsText = '';
     let stage1SearchResults = [];
     let stage1Citations = [];
@@ -608,13 +661,13 @@
               },
               {
                 role: 'user',
-                content: userPrompt.slice(0, 900)
+                content: userPrompt.slice(0, 950)
               }
             ],
             max_tokens: 950,
             temperature: 0.1
           })
-        }, 11000, '1단계 실시간 뉴스 검색(Sonar-Pro)');
+        }, 30000, '1단계 실시간 뉴스 검색(Sonar-Pro)');
         if (s1Res.ok) {
           const s1Data = await s1Res.json();
           recordClientPerplexityUsage(s1Data?.usage, 'trend');
@@ -637,7 +690,7 @@
       : userPrompt;
 
     const modelsToTry = selectedModel === 'google/gemini-4-argon'
-      ? ['google/gemini-4-argon']
+      ? ['google/gemini-4-argon', 'openai/gpt-5-mini']
       : [selectedModel, 'google/gemini-4-argon'];
     let lastError = null;
     let firstFailedModel = '';
@@ -646,14 +699,13 @@
     for (const modelName of modelsToTry) {
       try {
         const isGpt5 = modelName.startsWith('openai/gpt-5');
-        const maxOutTokens = maxTokensOverride || (isGpt5 ? 10000 : 5000);
+        const maxOutTokens = maxTokensOverride || (isGpt5 ? 14000 : 9000);
         const bodyPayload = {
           model: modelName,
           instructions: systemPrompt,
           input: enrichedUserPrompt,
           max_output_tokens: maxOutTokens
         };
-        // Stage 1이 실패했을 때만 Stage 2에서 web_search 도구 활성화 (중복 검색 루프 타임아웃 원천 방지!)
         if (!stage1FactsText && maxTokensOverride !== 6000) {
           bodyPayload.tools = [{ type: 'web_search' }];
         }
@@ -665,7 +717,7 @@
             'Content-Type': 'application/json'
           },
           body: JSON.stringify(bodyPayload)
-        }, 75000, `2단계 집필 모델(${getWriterModelShortLabel(modelName)})`);
+        }, 180000, `2단계 집필 모델(${getWriterModelShortLabel(modelName)})`);
 
         if (!res.ok) {
           const errText = await res.text().catch(() => '');
@@ -732,49 +784,52 @@
       }
     }
 
-    try {
-      // 최종 안전 폴백: Perplexity 실시간 뉴스·인용 특화 모델(sonar-pro)로 자동 재시도하여 템플릿 폴백 원천 차단
-      const fbRes = await fetchWithTimeout('https://api.perplexity.ai/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${apiKey.trim()}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          model: 'sonar-pro',
-          messages: [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: enrichedUserPrompt }
-          ],
-          max_tokens: 5500,
-          temperature: 0.2
-        })
-      }, 45000, '백업 Sonar-Pro 집필');
-      if (!fbRes.ok) throw lastError || new Error('Perplexity sonar-pro fallback failed');
-      const fbData = await fbRes.json();
-      recordClientPerplexityUsage(fbData?.usage, callType);
-      const fbContent = fbData?.choices?.[0]?.message?.content || '';
-      const fbSearchResults = [
-        ...stage1SearchResults,
-        ...(Array.isArray(fbData?.search_results) ? fbData.search_results.filter(r => r && isRealArticleUrl(r.url)) : [])
-      ];
-      const fbCitations = [
-        ...stage1Citations,
-        ...fbSearchResults.map(r => r.url.trim()),
-        ...(Array.isArray(fbData?.citations) ? fbData.citations.filter(isRealArticleUrl) : [])
-      ].filter((u, idx, arr) => arr.indexOf(u) === idx);
-      const parsed = stripCitationBracketsClient(safeParseClientJson(fbContent));
-      return {
-        parsed,
-        citations: fbCitations,
-        searchResults: fbSearchResults,
-        activeModel: 'sonar-pro',
-        fallbackFromModel: selectedModel,
-        fallbackReason: firstFailedReason || (lastError ? lastError.message : '선택 모델 응답 지연')
-      };
-    } catch (fbErr) {
-      throw lastError || fbErr;
+    // 3차·4차 안전망: Perplexity Sonar-Pro -> Sonar 순서로 최대 120초까지 끝까지 완주하여 오프라인 폴백 원천 차단
+    for (const sonarBackupModel of ['sonar-pro', 'sonar']) {
+      try {
+        const fbRes = await fetchWithTimeout('https://api.perplexity.ai/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${apiKey.trim()}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            model: sonarBackupModel,
+            messages: [
+              { role: 'system', content: systemPrompt },
+              { role: 'user', content: enrichedUserPrompt }
+            ],
+            max_tokens: 8000,
+            temperature: 0.2
+          })
+        }, 120000, `백업 ${sonarBackupModel} 집필`);
+        if (!fbRes.ok) continue;
+        const fbData = await fbRes.json();
+        recordClientPerplexityUsage(fbData?.usage, callType);
+        const fbContent = fbData?.choices?.[0]?.message?.content || '';
+        const fbSearchResults = [
+          ...stage1SearchResults,
+          ...(Array.isArray(fbData?.search_results) ? fbData.search_results.filter(r => r && isRealArticleUrl(r.url)) : [])
+        ];
+        const fbCitations = [
+          ...stage1Citations,
+          ...fbSearchResults.map(r => r.url.trim()),
+          ...(Array.isArray(fbData?.citations) ? fbData.citations.filter(isRealArticleUrl) : [])
+        ].filter((u, idx, arr) => arr.indexOf(u) === idx);
+        const parsed = stripCitationBracketsClient(safeParseClientJson(fbContent));
+        return {
+          parsed,
+          citations: fbCitations,
+          searchResults: fbSearchResults,
+          activeModel: 'sonar-pro',
+          fallbackFromModel: selectedModel,
+          fallbackReason: firstFailedReason || (lastError ? lastError.message : '선택 모델 응답 지연')
+        };
+      } catch (fbErr) {
+        lastError = fbErr;
+      }
     }
+    throw lastError || new Error('모든 AI 모델 호출이 실패했습니다.');
   }
 
   // 왼쪽 [📰 최신 뉴스 문장만 메모장에 더 불러오기] 전용 고속 실시간 뉴스·원문 링크 수집 함수
@@ -2724,29 +2779,32 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
   }
 
   let draftTimerId = null;
-  const ESTIMATED_DRAFT_TOTAL_SEC = 18;
 
   function formatDraftRemainingInfo(elapsedSec) {
-    const remain = Math.max(0, Math.ceil(ESTIMATED_DRAFT_TOTAL_SEC - elapsedSec));
-    const pct = elapsedSec < ESTIMATED_DRAFT_TOTAL_SEC
-      ? Math.min(92, Math.round((elapsedSec / ESTIMATED_DRAFT_TOTAL_SEC) * 90) + 5)
-      : Math.min(98, 92 + Math.floor((elapsedSec - ESTIMATED_DRAFT_TOTAL_SEC) / 2));
+    const selectedModel = getSelectedWriterModel();
+    const estimatedTotalSec = selectedModel === 'sonar-pro' ? 14 : 38;
+    const remain = Math.max(0, Math.ceil(estimatedTotalSec - elapsedSec));
+    const pct = elapsedSec < estimatedTotalSec
+      ? Math.min(92, Math.round((elapsedSec / estimatedTotalSec) * 90) + 5)
+      : Math.min(98, 92 + Math.floor((elapsedSec - estimatedTotalSec) / 3));
 
     const writerLabel = getWriterModelShortLabel();
-    let stageText = '1/3단계 [Perplexity(sonar-pro) 수집] · 실시간 한국 언론 뉴스·원문 출처 및 트렌드 팩트 수집 중...';
-    if (elapsedSec >= 3.5 && elapsedSec < 12.0) {
-      stageText = `2/3단계 [${writerLabel} 집필] · 수집된 팩트와 기획 의도에 맞춰 MK Pick 매거진 본문 4단락 집필 중...`;
-    } else if (elapsedSec >= 12.0) {
-      stageText = `3/3단계 [${writerLabel} 검수] · 본문 맞춤 비교 요약표 · 핵심 용어사전 · FAQ 및 팩트체크 구성 중...`;
+    let stageText = '1/4단계 [Perplexity(sonar-pro) 수집] · 메인·서브 키워드 및 기획 방향 맞춤 실시간 뉴스·원문 출처 수집 중...';
+    if (elapsedSec >= 4.0 && elapsedSec < 18.0) {
+      stageText = `2/4단계 [${writerLabel} 심층 집필] · 수집된 팩트와 기획 의도에 맞춰 MK Pick 매거진 본문 1~4단락 작성 중...`;
+    } else if (elapsedSec >= 18.0 && elapsedSec < 32.0) {
+      stageText = `3/4단계 [${writerLabel} 구조화] · 본문 맞춤형 비교 요약표 · 핵심 용어사전 · 문맥순 FAQ 작성 중...`;
+    } else if (elapsedSec >= 32.0) {
+      stageText = `4/4단계 [${writerLabel} 최종 완성] · 끊김 없이 완성도 높은 원고를 마무리하고 있습니다 (잠시만 기다려 주세요)...`;
     }
 
     const timeBadgeText = remain > 0
       ? `${elapsedSec.toFixed(1)}초 경과 · 완료까지 약 ${remain}초 남음`
-      : `${elapsedSec.toFixed(1)}초 경과 · 마무리 정리 중 (곧 완료됩니다)`;
+      : `${elapsedSec.toFixed(1)}초 경과 · 무중단 최종 마무리 중 (곧 완료됩니다)`;
 
     const shortBtnText = remain > 0
       ? `⏳ 생성 중 (${elapsedSec.toFixed(1)}초 / 약 ${remain}초 남음)`
-      : `⏳ 마무리 중 (${elapsedSec.toFixed(1)}초 경과)`;
+      : `⏳ 최종 마무리 중 (${elapsedSec.toFixed(1)}초 경과)`;
 
     return { remain, pct, stageText, timeBadgeText, shortBtnText };
   }

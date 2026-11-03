@@ -340,17 +340,47 @@ function repairUnescapedQuotesInJson(raw = '') {
   return out;
 }
 
-// JSON 문자열 파싱 안전 헬퍼 (코드블록 제거, 트레일링 콤마 교정, 내부 따옴표 자동 복구 등)
+function closeTruncatedJsonStructureServer(rawJsonStr = '') {
+  let s = String(rawJsonStr || '').trim();
+  const startIdx = s.indexOf('{');
+  if (startIdx === -1) return s;
+  s = s.slice(startIdx);
+  s = s.replace(/,\s*"[^"]*$/, '');
+  s = s.replace(/,\s*$/, '');
+  let inStr = false;
+  let esc = false;
+  const stack = [];
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+    if (esc) { esc = false; continue; }
+    if (ch === '\\') { esc = true; continue; }
+    if (ch === '"') { inStr = !inStr; continue; }
+    if (!inStr) {
+      if (ch === '{') stack.push('}');
+      else if (ch === '[') stack.push(']');
+      else if ((ch === '}' || ch === ']') && stack.length > 0 && stack[stack.length - 1] === ch) {
+        stack.pop();
+      }
+    }
+  }
+  if (inStr) s += '"';
+  s = s.replace(/:\s*$/, ': ""').replace(/,\s*$/, '');
+  while (stack.length > 0) s += stack.pop();
+  return s;
+}
+
+// JSON 문자열 파싱 안전 헬퍼 (코드블록 제거, 트레일링 콤마 교정, 내부 따옴표 자동 복구, 잘린 괄호 자동 닫기 복구 등)
 function safeParseJsonFromText(rawText = '') {
   const cleaned = String(rawText || '')
     .replace(/```json/gi, '')
     .replace(/```/g, '')
     .trim();
-  const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) {
+  const firstBrace = cleaned.indexOf('{');
+  if (firstBrace === -1) {
     throw new Error('Perplexity 응답에서 JSON 구조를 추출하지 못했습니다.');
   }
-  let candidate = jsonMatch[0];
+  const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
+  const candidate = jsonMatch ? jsonMatch[0] : cleaned.slice(firstBrace);
   try {
     return JSON.parse(candidate);
   } catch (firstErr) {
@@ -358,10 +388,17 @@ function safeParseJsonFromText(rawText = '') {
       const repairedQuotes = repairUnescapedQuotesInJson(candidate).replace(/,\s*([\]}])/g, '$1');
       return JSON.parse(repairedQuotes);
     } catch (secondErr) {
-      const repaired = repairUnescapedQuotesInJson(candidate)
-        .replace(/,\s*([\]}])/g, '$1')
-        .replace(/[\u0000-\u0019]+/g, ' ');
-      return JSON.parse(repaired);
+      try {
+        const repaired = repairUnescapedQuotesInJson(candidate)
+          .replace(/,\s*([\]}])/g, '$1')
+          .replace(/[\u0000-\u0019]+/g, ' ');
+        return JSON.parse(repaired);
+      } catch (thirdErr) {
+        const closedRaw = closeTruncatedJsonStructureServer(repairUnescapedQuotesInJson(cleaned.slice(firstBrace)))
+          .replace(/,\s*([\]}])/g, '$1')
+          .replace(/[\u0000-\u0019]+/g, ' ');
+        return JSON.parse(closedRaw);
+      }
     }
   }
 }
