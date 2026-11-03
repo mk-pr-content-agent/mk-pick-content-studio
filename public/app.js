@@ -2279,6 +2279,7 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
       } catch (e) {}
 
       // 새로고침(F5) 직전에 보고 있던 화면(편집 중이던 기사 등) 복원
+      let autoRetryFailedWork = null;
       try {
         const uiRaw = localStorage.getItem(CLIENT_UI_STATE_KEY);
         if (uiRaw) {
@@ -2288,6 +2289,10 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
             if (foundWork) {
               state.currentWork = sanitizePoisonedWork(foundWork);
               if (uiState.screen === 'editor') state.screen = 'editor';
+              // 이전 버전(28초 타임아웃 등)에서 실패해 localStorage에 저장되어 있던 임시 골격 기사가 열려 있다면 자동으로 AI 재집필 실행!
+              if (state.currentWork.usedPerplexity === false && getClientPerplexityKey()) {
+                autoRetryFailedWork = state.currentWork;
+              }
             }
           }
           if (Array.isArray(uiState.homeMainTabOrder) && uiState.homeMainTabOrder.length === DEFAULT_MAIN_TAB_ORDER.length && DEFAULT_MAIN_TAB_ORDER.every(k => uiState.homeMainTabOrder.includes(k))) {
@@ -2300,10 +2305,24 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
           if (uiState.trendTab) state.trendTab = uiState.trendTab;
         }
       } catch (e) {}
+      render();
+      if (autoRetryFailedWork) {
+        // 이전 실패 기록을 지우고 무중단 240초 파이프라인으로 자동 재작성
+        const targetW = autoRetryFailedWork;
+        state.works = state.works.filter(item => item.id !== targetW.id);
+        startWorkWithKeyword(
+          targetW.keyword,
+          targetW.inputCompany || '',
+          targetW.typeId || 2,
+          false,
+          targetW.inputSubKeywords || '',
+          targetW.inputDirection || ''
+        );
+      }
     } catch (err) {
       state.works = getInitialWorks ? getInitialWorks() : [];
+      render();
     }
-    render();
     loadTrends().then(() => {
       // 트렌드 스냅샷 로드 완료 후 기존 오염된 로컬 초안이 있으면 실제 뉴스 팩트까지 반영하여 한 번 더 자동 복구
       let anyRepaired = false;
