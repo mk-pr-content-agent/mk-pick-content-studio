@@ -1765,6 +1765,9 @@
       </div>
 
       <!-- 2. 하단 통합 소재 발굴 & 작업 보관함 카드 (3개 탭으로 분리해 한 번에 하나씩만 깔끔하게 표시!) -->
+      <div style="margin: 24px 0 10px 4px;">
+        <h2 style="font-size: 19px; font-weight: 800; color: var(--text-primary); letter-spacing: -0.3px;">기사 아이디어가 떠오르지 않는다면?</h2>
+      </div>
       <div class="card" style="padding: 0; overflow: hidden;">
         <div class="home-main-tab-bar">
           <div class="home-main-tabs" id="homeMainTabsContainer">
