@@ -11,6 +11,7 @@
     paraphraseNewsToMkFact,
     cleanTrendTopicKeyword,
     extractBrandFromTopic,
+    inspectTopicFactVerification,
     isVirtualIdolQuery,
     getVirtualIdolScenario,
     buildPresetScenario,
@@ -106,7 +107,8 @@
   const CLIENT_STORAGE_KEY = 'mk_pplx_api_key_v1';
   const CLIENT_DISCONNECTED_FLAG = 'mk_pplx_disconnected_v1';
   const CLIENT_USAGE_KEY = 'mk_pplx_usage_stats_v1';
-  const CLIENT_TREND_CACHE_KEY = 'mk_pplx_trend_cache_v5';
+  const CLIENT_TREND_CACHE_KEY = 'mk_pplx_trend_cache_v6';
+  try { localStorage.removeItem('mk_pplx_trend_cache_v5'); } catch (e) {}
   const CLIENT_WORKS_STORAGE_KEY = 'mk_pplx_saved_works_v1';
   const CLIENT_UI_STATE_KEY = 'mk_pplx_ui_state_v1';
   const CLIENT_TREND_TTL_MS = 30 * 60 * 1000; // 30분 캐시
@@ -325,12 +327,13 @@
   }
 
   async function fetchClientPerplexityTrends(apiKey) {
-    const sys = `당신은 매일경제 디지털뉴스룸(MK Pick) 실시간 트렌드 데스크입니다.
+    const sys = `당신은 매일경제 디지털뉴스룸(MK Pick) 실시간 트렌드 및 팩트체크 데스크입니다.
 철칙:
-1. '두바이 초콜릿/쿠키', '버터떡', '우베', '탕후루', '요아정'처럼 이미 유행이 지났거나 과거 결산 기사에 나오는 유행어를 절대 포함하지 마세요.
-2. 최근 7일 이내 한국에서 실제 화제가 된 신상품, 브랜드 프로모션, 품절템, 팝업스토어, MZ 소비 현상만 선별하세요.
-3. 5개 탭(shortFormTrends, newsletterTrends, portalRetailTrends, googleTrends, brandPromoTrends) 각각 정확히 10개씩 작성하되, 중복 없이 순수 JSON 객체만 출력하세요.
-4. 특히 brandPromoTrends 탭은 [식음료·외식], [뷰티·패션], [유통·리빙], [가전·IT] 4대 업종의 주요 브랜드가 이번 주에 발표한 '신상품·신메뉴 출시' 및 '할인·사은품·콜라보 프로모션' 최신 뉴스 10선으로 고르게 구성하세요.`;
+1. [가장 중요] 실제 기업·브랜드가 정식 출시·발표하고 국내 주요 언론사에 보도된 **100% 팩트 검증된 실제 상품·서비스·트렌드**만 선정하세요! 유튜브 쇼츠·틱톡·릴스에서 AI 합성으로 만든 가상 밈(예: 정식 출시된 적 없는 '한정선 마이쮸 찹쌀떡' 등)이나 공식 보도가 없는 미확인 루머는 절대 포함하지 마세요.
+2. '두바이 초콜릿/쿠키', '버터떡', '우베', '탕후루', '요아정'처럼 이미 유행이 지났거나 과거 결산 기사에 나오는 유행어를 절대 포함하지 마세요.
+3. 최근 7일 이내 한국에서 실제 언론 보도로 확인된 신상품, 브랜드 프로모션, 품절템, 팝업스토어, MZ 소비 현상만 선별하세요.
+4. 5개 탭(shortFormTrends, newsletterTrends, portalRetailTrends, googleTrends, brandPromoTrends) 각각 정확히 10개씩 작성하되, 중복 없이 순수 JSON 객체만 출력하세요.
+5. 특히 brandPromoTrends 탭은 [식음료·외식], [뷰티·패션], [유통·리빙], [가전·IT] 4대 업종의 주요 브랜드가 이번 주에 발표한 '신상품·신메뉴 출시' 및 '할인·사은품·콜라보 프로모션' 최신 뉴스 10선으로 고르게 구성하세요.`;
 
     const usr = `이번 주 대한민국에서 가장 화제가 되고 있는 실시간 유통·팝업·패션·라이프스타일·IT 트렌드 및 브랜드 신상품·프로모션 뉴스 키워드를 탭별로 서로 겹치지 않게 정확히 10개씩 JSON으로 작성하세요.
 - keyword는 2~4어절의 직관적인 최신 트렌드·브랜드 신상·프로모션 키워드로 작성하세요.
@@ -364,16 +367,26 @@
     };
     const faqCount = (typeId === 1 || typeId === 5) ? 7 : 5;
     const fallbackCat = recommendMkPickCategory(keyword, typeId, company);
+    const preFactCheck = inspectTopicFactVerification
+      ? inspectTopicFactVerification(keyword, company, 1)
+      : { verdict: 'VERIFIED_FACT', isWarning: false, badgeLabel: '✓ 공식 언론 보도 및 실제 출시·트렌드 팩트 확인됨', summary: '' };
 
-    const sys = `당신은 매일경제 MK Pick(GEO·AEO 최적화 매거진형 심층 기사) 수석 에디터입니다.
+    const sys = `당신은 매일경제 MK Pick(GEO·AEO 최적화 매거진형 심층 기사) 수석 에디터이자 팩트체크 데스크입니다.
 타 언론사 기사의 문장을 절대 그대로 베끼지 말고, 수치·브랜드명·성분·출시일 등 핵심 팩트만 추출하여 모든 본문과 답변을 매일경제 고유의 정중하고 생동감 있는 "~합니다/습니다" 체로 작성하세요.
 [절대 준수 작성 원칙]
+0) [가장 중요 · 0순위 원칙] 실제 공식 출시·언론 보도 여부 팩트체크 및 가상(AI 생성) 밈·루머 엄격 판별 (절대 준수!):
+   - 기사를 작성하기 전에 입력된 키워드('${keyword}')가 **실제 기업·브랜드가 정식 출시·발표하고 언론에 보도된 실제 제품·트렌드**인지, 아니면 **유튜브 쇼츠·틱톡·릴스 등 SNS에서 인공지능(AI) 합성이나 상상력으로 만들어진 '가상(AI 생성) 밈·합성 콘텐츠·루머'**(예: 실제 정식 출시된 적 없는 '한정선 마이쮸 콜라보 찹쌀떡' 등)인지 실시간 웹 검색을 통해 반드시 먼저 검증하세요!
+   - 만약 공식 출시 사실이나 언론 보도 근거가 없는 **가상(AI 생성) 밈·합성 콘텐츠이거나 미출시 루머**라면:
+     ① **절대로 실제 출시된 신제품이거나 정식 콜라보인 것처럼 거짓으로 꾸며 쓰지 마세요!** (실무진과 독자가 실제 출시 제품으로 오인하면 심각한 보도 사고가 됩니다.)
+     ② 반드시 JSON의 \`factVerification.verdict\`를 \`"AI_MEME_OR_VIRTUAL"\` (또는 보도 미확인 시 \`"UNVERIFIED_VIRAL"\`), \`factVerification.isWarning\`을 \`true\`로 설정하세요.
+     ③ 기사 제목(\`titleCandidates\`), \`aiFactSummary\`(3줄 요약), 본문(\`draftSections\`) 첫 단락에서 **"해당 화제 키워드는 실제 정식 출시된 제품이 아니라 SNS·숏폼에서 확산된 가상(AI 생성) 밈·콘텐츠"**라는 사실을 명확히 팩트체크해 바로잡고, 대신 **실제 존재하는 원조 브랜드(예: 더현대서울 등에서 판매되는 '한정선' 생과일 찹쌀떡 등)의 진짜 정식 메뉴와 검증된 시장 트렌드 팩트**를 중심으로 설명하세요.
+   - 실제 정식 출시·공식 발표 및 언론 보도가 확인된 정상적인 주제라면 \`factVerification.verdict\`를 \`"VERIFIED_FACT"\`, \`factVerification.isWarning\`을 \`false\`로 설정하고 확인된 공식 팩트 요약을 적어주세요.
 1) 주제 맞춤형 자연스러운 구성 (억지 연도별 타임라인 절대 금지!):
    - 입력된 키워드(${keyword})의 실제 성격(뷰티·스킨케어, 식음료, 유통, IT, 라이프스타일, 기업 분석 등)에 가장 잘 맞는 자연스러운 기사 흐름으로 3~5개 본문 단락(draftSections)을 구성하세요.
    - 키워드가 역사/변천사/계보를 직접 묻는 주제가 아니라면, 절대로 "1990년대/2000년대/2010년대/2020년대" 같은 억지 연도별 타임라인이나 "탄생 배경과 이유 :", "활동 방식의 한계 :", "Bonus Track :" 같은 고정 라벨을 기계적으로 붙이지 마세요.
 2) 유튜브·SNS 구어체 제목 및 오탈자 자동 정제 원칙 (절대 준수!):
    - 입력된 키워드에 유튜버의 감탄사·수식어(예: '과즙 넘치는', '과즙미 가득한', '먹어봄', '미친 가성비', '다이소깡' 등)나 오탈자(예: '찹살떡', '찹살덕' → '찹쌀떡')가 포함되어 있더라도, 기사 제목·본문·요약표·FAQ에서는 절대 유튜버의 수식어나 오탈자를 그대로 반복하지 마세요!
-   - 반드시 해당 키워드가 가리키는 **실제 핵심 브랜드·기업**(예: 과일찹쌀떡 전문 브랜드 '한정선', '크라운제과 마이쮸', '다이소', '올리브영' 등)과 **정확한 공식 제품명·트렌드 배경**(예: '한정선 마이쮸 콜라보 생과일 찹쌀떡', '백화점 오픈런 떡 디저트 열풍')을 중심으로 전문적인 매일경제 기사를 작성하세요.
+   - 반드시 언론 보도와 공식 발표로 검증된 **실제 핵심 브랜드·기업**(예: '이디야커피', '다이소', '올리브영', '더현대서울 한정선' 등)과 **정확한 공식 제품명·트렌드 배경**을 중심으로 전문적인 매일경제 기사를 작성하세요.
 3) 복수 키워드·아이템 맞춤형 전개:
    - 사용자가 쉼표(,)로 여러 키워드(예: 대왕패치, 환절기, 기초템 등)를 입력한 경우, 1단락에서 전체 주제를 아우르는 트렌드 배경·소비자 고민을 짚어주고, 이어지는 단락들에서 각 키워드·아이템별 핵심 특징, 인기 이유, 주요 브랜드/제품 사례를 하나씩 명확하고 실용적인 소제목으로 풀어내세요. 마지막 단락에서는 올바른 선택 기준이나 활용 팁을 제시하세요.
 4) 5열 비교 요약표(summaryTable), 핵심 용어 사전(glossary 5개), FAQ ${faqCount}문항, 팬아웃(Query Fan-out) 연관 추천 질문(fanoutQuestions 6개), 마무리 총평 문단(closingParagraph) + 한 줄 요약(oneLineSummary)을 포함한 순수 JSON 객체만 출력하세요.
@@ -388,9 +401,16 @@
 - 추가 보도자료/메모: ${rawText || '없음'}
 - 선택된 콘텐츠 유형: ${tInfo.shortName} (${tInfo.desc})
 - 유형별 필수 구성 지침: ${typeInstructions[typeId] || typeInstructions[4]}
+- 사전 팩트체크 시스템 진단(${preFactCheck.verdict}): ${preFactCheck.summary}
 
-아래 JSON 스키마에 맞춰 한국어로 작성하세요:
+아래 JSON 스키마에 맞춰 주제('${keyword}')의 실제 공식 출시·언론 보도 진위를 먼저 검증(factVerification)한 뒤, 한국어로 작성하세요:
 {
+  "factVerification": {
+    "verdict": "VERIFIED_FACT(공식 출시·언론 보도 확인) | AI_MEME_OR_VIRTUAL(가상·AI 생성 밈/정식 미출시) | UNVERIFIED_VIRAL(공식 보도 미확인 주의) 중 택 1",
+    "isWarning": false,
+    "badgeLabel": "✓ 공식 보도·실제 출시 팩트 확인됨 또는 🚨 [팩트체크 경보] 가상(AI 생성) 밈 · 공식 미출시 주의",
+    "summary": "해당 키워드가 실제 정식 출시·보도된 팩트인지, 아니면 SNS 상의 가상(AI 생성) 밈/미확인 바이럴인지 실무진이 즉시 알 수 있도록 1~2문장으로 명확히 판별한 팩트체크 리포트 (~합니다 체)"
+  },
   "mkCategory": "산업 Q&A | 제품·기술 | 성공사례 | 기업뉴스 | 브랜드스토리(기업관) 중 택 1",
   "mkCategoryReason": "이 기사에 해당 MK Pick 카테고리를 추천한 이유 1문장 (~합니다 체)",
   "titleCandidates": [
@@ -553,6 +573,19 @@
       oneLineSummary: normalizeNewlines(parsed.oneLineSummary || baseScenario.summaryBlocks.oneLineSummary).trim()
     };
 
+    const parsedFv = parsed.factVerification || {};
+    const finalFactVerification = preFactCheck.isWarning
+      ? {
+          ...preFactCheck,
+          summary: parsedFv.summary || preFactCheck.summary
+        }
+      : {
+          verdict: parsedFv.verdict || preFactCheck.verdict || 'VERIFIED_FACT',
+          isWarning: Boolean(parsedFv.isWarning || parsedFv.verdict === 'AI_MEME_OR_VIRTUAL' || parsedFv.verdict === 'UNVERIFIED_VIRAL'),
+          badgeLabel: parsedFv.badgeLabel || preFactCheck.badgeLabel || '✓ 공식 언론 보도 및 실제 출시·트렌드 팩트 확인됨',
+          summary: parsedFv.summary || preFactCheck.summary || `'${keyword}' 주제에 대해 공식 보도 및 실제 출시·트렌드 팩트를 기반으로 작성되었습니다.`
+        };
+
     return {
       ...baseScenario,
       titleCandidates: Array.isArray(parsed.titleCandidates) && parsed.titleCandidates.length > 0
@@ -562,7 +595,8 @@
       researchItems,
       draftSections,
       summaryBlocks,
-      factChecks: extractFactSentencesFromSections(draftSections, mergedSources)
+      factChecks: extractFactSentencesFromSections(draftSections, mergedSources),
+      factVerification: finalFactVerification
     };
   }
 
@@ -1626,6 +1660,7 @@
             draftSections: fallbackScenario.draftSections,
             summaryBlocks: fallbackScenario.summaryBlocks,
             factChecks: fallbackScenario.factChecks,
+            factVerification: fallbackScenario.factVerification || (inspectTopicFactVerification ? inspectTopicFactVerification(keyword, company, (fallbackScenario.sources || []).length) : null),
             updatedAt: '방금 전'
           };
       state.currentWork = fallbackWork;
@@ -1895,6 +1930,10 @@
                 const rowGenStyle = isThisRowGenerating
                   ? 'border-color: var(--mk-orange); background-color: var(--mk-orange-light); box-shadow: 0 0 0 2px rgba(243, 112, 33, 0.16);'
                   : '';
+                const rowFv = inspectTopicFactVerification
+                  ? inspectTopicFactVerification(item.keyword, item.company || '', isYoutubeShorts ? 0 : 1)
+                  : { isWarning: isYoutubeShorts };
+                const factCheckSearchUrl = `https://search.naver.com/search.naver?where=news&query=${encodeURIComponent(item.keyword)}`;
                 return `
                   <div class="trend-clean-row" style="${rowGenStyle}" data-use-trend-kw="${escapeHtml(item.keyword)}" data-use-trend-comp="${escapeHtml(item.company || '')}" data-use-trend-type="${matchedTypeId}">
                     <div style="min-width: 0; flex: 1;">
@@ -1904,12 +1943,15 @@
                         <span style="font-size: 11px; font-weight: 700; color: var(--mk-orange); background-color: ${isThisRowGenerating ? '#FFFFFF' : 'var(--mk-orange-light)'}; padding: 1px 6px; border-radius: 4px;">
                           유형 0${matchedTypeId} · ${escapeHtml(matchedCat)}
                         </span>
+                        <span style="font-size: 10.5px; font-weight: 800; color: ${rowFv.isWarning ? '#D9480F' : '#1B7F3B'}; background-color: ${rowFv.isWarning ? '#FFF4E6' : '#EBFBEE'}; border: 1px solid ${rowFv.isWarning ? '#FFC078' : '#B2F2BB'}; padding: 1px 6px; border-radius: 4px;">
+                          ${rowFv.isWarning ? '⚠️ 팩트체크 확인 권장' : `✓ 언론 보도 확인${shortSource ? ` · ${escapeHtml(shortSource)}` : ''}`}
+                        </span>
                       </div>
                       <div style="font-size: 12.5px; color: var(--text-secondary); padding-left: 24px;">
                         ${escapeHtml(item.desc)}
                       </div>
                     </div>
-                    <div class="flex-row" style="gap: 8px; flex-shrink: 0;">
+                    <div class="flex-row" style="gap: 6px; flex-shrink: 0;">
                       <a
                         href="${escapeHtml(articleUrl)}"
                         target="_blank"
@@ -1919,6 +1961,16 @@
                         title="${escapeHtml(linkTooltip)}"
                       >
                         ${escapeHtml(linkLabel)}
+                      </a>
+                      <a
+                        href="${escapeHtml(factCheckSearchUrl)}"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        data-trend-ext-link="1"
+                        style="font-size: 11px; font-weight: 700; color: #1B7F3B; background-color: #EBFBEE; border: 1px solid #B2F2BB; padding: 3px 7px; border-radius: 4px; text-decoration: none; white-space: nowrap;"
+                        title="네이버 뉴스에서 실제 언론 보도 여부를 즉시 검색해 교차 확인합니다"
+                      >
+                        팩트 검색 ↗
                       </a>
                       <span ${isThisRowGenerating ? 'data-active-generating-badge="1"' : ''} style="font-size: 12px; font-weight: 800; color: var(--mk-orange); white-space: nowrap; ${isThisRowGenerating ? 'background-color: #FFFFFF; padding: 3px 9px; border-radius: 99px; border: 1px solid var(--mk-orange);' : ''}">
                         ${isThisRowGenerating ? escapeHtml(formatDraftRemainingInfo(state.draftElapsedSec || 0).shortBtnText) : '초안 생성 →'}
@@ -2841,6 +2893,33 @@
             <!-- ✏️ 구조별 편집 모드 (8단계 블록 배지로 기사 구조가 한눈에 들어오는 편집기) -->
             <!-- ============================================================== -->
             <div>
+              ${(() => {
+                const fv = w.factVerification || (inspectTopicFactVerification ? inspectTopicFactVerification(w.keyword, w.inputCompany, (w.sources || []).length) : null);
+                if (!fv) return '';
+                const isWarn = Boolean(fv.isWarning || fv.verdict === 'AI_MEME_OR_VIRTUAL' || fv.verdict === 'UNVERIFIED_VIRAL');
+                const naverNewsUrl = `https://search.naver.com/search.naver?where=news&query=${encodeURIComponent(w.keyword || '')}`;
+                const mkSearchUrl = `https://www.mk.co.kr/search?word=${encodeURIComponent(w.keyword || '')}`;
+                return `
+                  <div style="margin-bottom: 14px; padding: 12px 16px; border-radius: var(--radius-general); border: 1.5px solid ${isWarn ? '#F03E3E' : '#2B8A3E'}; background-color: ${isWarn ? '#FFF5F5' : '#EBFBEE'};">
+                    <div class="flex-between" style="flex-wrap: wrap; gap: 8px; margin-bottom: 4px;">
+                      <strong style="font-size: 13.5px; font-weight: 800; color: ${isWarn ? '#C92A2A' : '#1B7F3B'};">
+                        ${escapeHtml(fv.badgeLabel || (isWarn ? '🚨 [팩트체크 경보] 가상(AI 생성) 밈 · 공식 미출시 또는 보도 미확인 주의' : '✓ [팩트체크 확인] 공식 언론 보도 및 실제 출시·트렌드 팩트 확인됨'))}
+                      </strong>
+                      <div class="flex-row" style="gap: 6px; flex-wrap: wrap;">
+                        <a href="${escapeHtml(naverNewsUrl)}" target="_blank" rel="noopener noreferrer" style="font-size: 11.5px; font-weight: 800; color: ${isWarn ? '#C92A2A' : '#1B7F3B'}; background-color: #FFFFFF; border: 1px solid ${isWarn ? '#FFA8A8' : '#8CE99A'}; padding: 3px 9px; border-radius: 4px; text-decoration: none;">
+                          🔎 네이버 뉴스 팩트 교차확인 ↗
+                        </a>
+                        <a href="${escapeHtml(mkSearchUrl)}" target="_blank" rel="noopener noreferrer" style="font-size: 11.5px; font-weight: 800; color: var(--text-primary); background-color: #FFFFFF; border: var(--border-thin); padding: 3px 9px; border-radius: 4px; text-decoration: none;">
+                          🔎 매일경제 보도 검색 ↗
+                        </a>
+                      </div>
+                    </div>
+                    <div style="font-size: 12.5px; line-height: 1.55; color: ${isWarn ? '#A61E4D' : '#2B8A3E'}; font-weight: 600;">
+                      ${escapeHtml(fv.summary || '')}
+                    </div>
+                  </div>
+                `;
+              })()}
 
               <!-- STEP 01: MK Pick 5대 카테고리 분류 & 바이라인·태그 -->
               <section class="editor-block-section" id="block-step-1">

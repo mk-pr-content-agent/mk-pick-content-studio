@@ -12,6 +12,7 @@ const {
   paraphraseNewsToMkFact,
   cleanTrendTopicKeyword,
   extractBrandFromTopic,
+  inspectTopicFactVerification,
   isVirtualIdolQuery,
   getVirtualIdolScenario,
   buildPresetScenario,
@@ -394,16 +395,26 @@ async function buildPerplexityEnhancedScenario({ apiKey, keyword: rawKeyword, co
 
   const faqCount = (typeId === 1 || typeId === 5) ? 7 : 5;
   const fallbackCat = recommendMkPickCategory(keyword, typeId, company);
-  const sys = `당신은 매일경제 MK Pick(GEO·AEO 최적화 매거진형 심층 기사) 수석 에디터입니다.
+  const pressNewsItems = (newsItems || []).filter(n => n && n.source !== '유튜브 쇼츠');
+  const preFactCheck = inspectTopicFactVerification(keyword, company, pressNewsItems.length);
+
+  const sys = `당신은 매일경제 MK Pick(GEO·AEO 최적화 매거진형 심층 기사) 수석 에디터이자 팩트체크 데스크입니다.
 타 언론사 기사의 문장을 절대 그대로 베끼지 말고, 수치·브랜드명·성분·규격·가격 등 핵심 팩트만 추출하여 모든 본문과 답변을 매일경제 고유의 정중하고 생동감 있는 "~합니다/습니다" 체로 작성하세요.
 
 [핵심 작성 원칙 — 반드시 준수!]
+0. [가장 중요 · 0순위 원칙] 실제 공식 출시·언론 보도 여부 팩트체크 및 가상(AI 생성) 밈·루머 엄격 판별 (절대 준수!):
+   - 기사를 작성하기 전에 입력된 키워드('${keyword}')가 **실제 기업·브랜드가 정식 출시·발표하고 언론에 보도된 실제 제품·트렌드**인지, 아니면 **유튜브 쇼츠·틱톡·릴스 등 SNS에서 인공지능(AI) 합성이나 상상력으로 만들어진 '가상(AI 생성) 밈·합성 콘텐츠·루머'**(예: 실제 정식 출시된 적 없는 '한정선 마이쮸 콜라보 찹쌀떡' 등)인지 반드시 먼저 검증하세요!
+   - 만약 공식 출시 사실이나 언론 보도 근거가 없는 **가상(AI 생성) 밈·합성 콘텐츠이거나 미출시 루머**라면:
+     ① **절대로 실제 출시된 신제품이거나 정식 콜라보인 것처럼 거짓으로 꾸며 쓰지 마세요!** (실무진과 독자가 오인하면 심각한 보도 사고가 됩니다.)
+     ② 반드시 JSON의 \`factVerification.verdict\`를 \`"AI_MEME_OR_VIRTUAL"\` (또는 보도 미확인 시 \`"UNVERIFIED_VIRAL"\`), \`factVerification.isWarning\`을 \`true\`로 설정하세요.
+     ③ 기사 제목(\`titleCandidates\`), \`aiFactSummary\`(3줄 요약), 본문(\`draftSections\`) 첫 단락에서 **"해당 화제 키워드는 실제 정식 출시된 제품이 아니라 SNS·숏폼에서 확산된 가상(AI 생성) 밈·콘텐츠"**라는 사실을 명확히 팩트체크해 바로잡고, 대신 **실제 존재하는 원조 브랜드(예: 더현대서울 등에서 판매되는 '한정선' 생과일 찹쌀떡 등)의 진짜 정식 메뉴와 검증된 시장 트렌드 팩트**를 중심으로 설명하세요.
+   - 실제 정식 출시·공식 발표 및 언론 보도가 확인된 정상적인 주제라면 \`factVerification.verdict\`를 \`"VERIFIED_FACT"\`, \`factVerification.isWarning\`을 \`false\`로 설정하고 확인된 공식 팩트 요약을 적어주세요.
 1. 주제와 콘텐츠 유형(01~05)에 딱 맞는 맞춤형 본문 구성 (억지 연도별 타임라인 절대 금지!):
    - 사용자가 명시적으로 '역사/계보/변천사'를 물어본 경우가 아니라면, 절대로 '1990년대/2000년대~2010년대/2020년대'처럼 다짜고짜 연도별로 단락을 나누거나 '탄생 배경과 이유 :', '활동 방식의 한계 :', 'Bonus Track :' 같은 고정 라벨을 기계적으로 붙이지 마세요!
    - 예를 들어 사용자가 '대왕패치, 환절기, 기초템'을 입력했다면 환절기 피부 고민(속건조·열감·각질·장벽 약화)이라는 주제 흐름에 맞춰 왜 요즘 넓은 부위를 케어하는 대왕패치와 장벽·보습 기초템 루틴이 뜨는지, 각 아이템(대왕패치, 토너·로션·크림 기초템 등)과 대표 제품들은 어떤 성분·크기·특징을 가졌는지, 어떻게 조합해 쓰면 좋은지 자연스럽고 실용적인 매거진 기사로 작성해야 합니다.
 2. 유튜브·SNS 구어체 제목 및 오탈자 자동 정제 원칙 (절대 준수!):
    - 입력된 키워드에 유튜버의 감탄사·수식어(예: '과즙 넘치는', '과즙미 가득한', '먹어봄', '미친 가성비', '다이소깡' 등)나 오탈자(예: '찹살떡', '찹살덕' → '찹쌀떡')가 포함되어 있더라도, 기사 제목·본문·요약표·FAQ에서는 절대 유튜버의 수식어나 오탈자를 그대로 반복하지 마세요!
-   - 반드시 해당 키워드가 가리키는 **실제 핵심 브랜드·기업**(예: 과일찹쌀떡 전문 브랜드 '한정선', '크라운제과 마이쮸', '다이소', '올리브영' 등)과 **정확한 공식 제품명·트렌드 배경**(예: '한정선 마이쮸 콜라보 생과일 찹쌀떡', '백화점 오픈런 떡 디저트 열풍')을 중심으로 전문적인 매일경제 기사를 작성하세요.
+   - 반드시 언론 보도와 공식 발표로 검증된 **실제 핵심 브랜드·기업**(예: '이디야커피', '다이소', '올리브영', '더현대서울 한정선' 등)과 **정확한 공식 제품명·트렌드 배경**을 중심으로 전문적인 매일경제 기사를 작성하세요.
 3. 독자 공감 질문형 도입부:
    - 첫 번째 단락(draftSections[0].content)의 첫 문장은 독자가 일상이나 계절·소비 상황에서 실제로 겪을 법한 자연스러운 질문("~하신 적 없으신가요?")으로 시작하세요.
 4. 복수 키워드·소재 입력 시 자연스러운 단락 전개 (3~5개 단락):
@@ -421,11 +432,18 @@ async function buildPerplexityEnhancedScenario({ apiKey, keyword: rawKeyword, co
 - 추가 보도자료/메모: ${rawText || '없음'}
 - 선택된 콘텐츠 유형: ${tInfo.shortName} (${tInfo.desc})
 - 유형별 필수 구성 지침: ${typeInstructions[typeId] || typeInstructions[4]}
-- 실시간 참고 뉴스/쇼츠 목록:
-${newsContext || '실시간 웹 검색 결과를 바탕으로 최신 팩트 반영'}
+- 사전 팩트체크 시스템 진단(${preFactCheck.verdict}): ${preFactCheck.summary} (매칭된 언론 보도 기사 수: ${pressNewsItems.length}건)
+- 실시간 참고 언론 뉴스 목록:
+${newsContext || '매칭된 언론 보도 기사가 0건입니다! 가상(AI 생성) 밈이거나 미출시 루머일 가능성이 높으므로 반드시 실제 정식 출시 여부를 먼저 팩트체크하고, 정식 출시된 적 없는 가상 밈이라면 절대 실제 출시 제품처럼 쓰지 말고 가상 밈이라는 사실을 명시하세요!'}
 
-아래 JSON 스키마에 맞춰 주제('${keyword}')의 성격에 꼭 맞는 자연스럽고 완성도 높은 기사(본문 3~5개 단락, 맞춤형 비교표, 용어 사전 3~4개, FAQ ${faqCount}개, 마무리 요약)를 작성하세요:
+아래 JSON 스키마에 맞춰 주제('${keyword}')의 실제 출시·언론 보도 진위를 먼저 검증(factVerification)한 뒤, 사실에 기반한 완성도 높은 기사(본문 3~5개 단락, 맞춤형 비교표, 용어 사전 3~4개, FAQ ${faqCount}개, 마무리 요약)를 작성하세요:
 {
+  "factVerification": {
+    "verdict": "VERIFIED_FACT(공식 출시·언론 보도 확인) | AI_MEME_OR_VIRTUAL(가상·AI 생성 밈/정식 미출시) | UNVERIFIED_VIRAL(공식 보도 미확인 주의) 중 택 1",
+    "isWarning": false,
+    "badgeLabel": "✓ 공식 보도·실제 출시 팩트 확인됨 또는 🚨 [팩트체크 경보] 가상(AI 생성) 밈 · 공식 미출시 주의",
+    "summary": "해당 키워드가 실제 정식 출시·보도된 팩트인지, 아니면 SNS 상의 가상(AI 생성) 밈/미확인 바이럴인지 실무진이 즉시 알 수 있도록 1~2문장으로 명확히 판별한 팩트체크 리포트 (~합니다 체)"
+  },
   "mkCategory": "산업 Q&A | 제품·기술 | 성공사례 | 기업뉴스 | 브랜드스토리(기업관) 중 택 1",
   "mkCategoryReason": "이 기사에 해당 MK Pick 카테고리를 추천한 이유 1문장 (~합니다 체)",
   "titleCandidates": [
@@ -596,6 +614,19 @@ ${newsContext || '실시간 웹 검색 결과를 바탕으로 최신 팩트 반�
     ? parsed.titleCandidates
     : baseScenario.titleCandidates;
 
+  const parsedFv = parsed.factVerification || {};
+  const finalFactVerification = preFactCheck.isWarning
+    ? {
+        ...preFactCheck,
+        summary: parsedFv.summary || preFactCheck.summary
+      }
+    : {
+        verdict: parsedFv.verdict || preFactCheck.verdict || 'VERIFIED_FACT',
+        isWarning: Boolean(parsedFv.isWarning || parsedFv.verdict === 'AI_MEME_OR_VIRTUAL' || parsedFv.verdict === 'UNVERIFIED_VIRAL'),
+        badgeLabel: parsedFv.badgeLabel || preFactCheck.badgeLabel || '✓ 공식 언론 보도 및 실제 출시·트렌드 팩트 확인됨',
+        summary: parsedFv.summary || preFactCheck.summary
+      };
+
   return {
     ...baseScenario,
     sources: mergedSources,
@@ -605,6 +636,7 @@ ${newsContext || '실시간 웹 검색 결과를 바탕으로 최신 팩트 반�
     draftSections,
     summaryBlocks,
     factChecks: extractFactSentencesFromSections(draftSections, mergedSources),
+    factVerification: finalFactVerification,
     usedPerplexity: true
   };
 }
@@ -687,9 +719,7 @@ async function fetchLiveTrendRadar() {
   try {
     const [
       gRes,
-      ytDaisoOlive,
-      ytConvDessert,
-      ytPopupHot,
+      shortFormPressNews,
       viralNews,
       mzCultureNews,
       retailNews,
@@ -699,10 +729,8 @@ async function fetchLiveTrendRadar() {
       fetch('https://trends.google.co.kr/trending/rss?geo=KR', {
         headers: { 'User-Agent': 'Mozilla/5.0' }
       }).catch(() => null),
-      fetchYouTubeShorts('다이소 올리브영 신상 추천템', 6),
-      fetchYouTubeShorts('편의점 신상 디저트 꿀조합 리뷰', 6),
-      fetchYouTubeShorts('성수 더현대 팝업스토어 오픈런 핫플', 6),
-      fetchRealTimeKoreanNews('(품절 OR 오픈런 OR 팝업스토어 OR 굿즈 OR 콜라보)', 12, '7d'),
+      fetchRealTimeKoreanNews('(쇼츠 OR 릴스 OR 숏폼 OR 유튜브 OR SNS OR 바이럴 OR 오픈런 OR 품절대란) (다이소 OR 올리브영 OR 편의점 OR 디저트 OR 팝업스토어 OR 뷰티 OR 신상)', 18, '7d'),
+      fetchRealTimeKoreanNews('(품절 OR 오픈런 OR 팝업스토어 OR 굿즈 OR 콜라보)', 14, '7d'),
       fetchRealTimeKoreanNews('(2030 OR MZ세대 OR 유행 OR 열풍 OR 오픈런) (패션 OR 뷰티 OR 소비 OR 디저트 OR 팝업스토어)', 16, '7d'),
       fetchRealTimeKoreanNews('(다이소 OR 편의점 OR 올리브영 OR 이마트 OR 백화점 OR 무신사 OR 컬리) (출시 OR 신상 OR 단독 OR 5000원 OR 반값 OR 기획전)', 16, '7d'),
       fetchRealTimeKoreanNews('(스타벅스 OR 투썸 OR 이디야 OR 메가커피 OR 롯데웰푸드 OR 농심 OR 오뚜기 OR CU OR GS25) (신제품 OR 신메뉴 OR 신상 OR 프로모션 OR 한정판 OR 출시)', 12, '7d'),
@@ -729,6 +757,7 @@ async function fetchLiveTrendRadar() {
             badge: `검색량 ${traffic}`,
             source: newsSource,
             pubDateShort: `검색량 ${traffic}`,
+            verifiedPress: true,
             desc: newsTitle
               ? `[구글 실시간 검색량 ${traffic} · ${newsSource}] ${newsTitle}`
               : `[구글 실시간 검색량 ${traffic}] '${title}' 관련 오늘 급상승 검색 트렌드입니다.`,
@@ -738,50 +767,26 @@ async function fetchLiveTrendRadar() {
       }
     }
 
-    // 2) 탭 1: 유튜브 쇼츠 · 릴스 화제 (실제 유튜브 쇼츠 영상 최우선 배치 + 숏폼/바이럴 보도)
-    const interleavedShorts = [];
-    const maxShortLen = Math.max(ytDaisoOlive.length, ytConvDessert.length, ytPopupHot.length);
-    for (let i = 0; i < maxShortLen; i++) {
-      if (ytDaisoOlive[i]) interleavedShorts.push(ytDaisoOlive[i]);
-      if (ytConvDessert[i]) interleavedShorts.push(ytConvDessert[i]);
-      if (ytPopupHot[i]) interleavedShorts.push(ytPopupHot[i]);
-    }
-
-    interleavedShorts.forEach(yt => {
+    // 2) 탭 1: 유튜브 쇼츠 · 릴스 화제 (가상 AI 밈·합성 루머 원천 차단을 위해 100% 언론사 보도 검증된 숏폼·SNS·바이럴·오픈런 이슈만 엄선)
+    const combinedShortFormNews = [...(shortFormPressNews || []), ...(viralNews || [])];
+    combinedShortFormNews.forEach(vn => {
       if (shortFormTrends.length >= 10) return;
-      const cleanKw = extractCleanShortsKeyword(yt.title);
-      const itemUrl = yt.link;
-      if (!cleanKw || !itemUrl || usedUrls.has(itemUrl)) return;
-      if (shortFormTrends.some(s => s.keyword === cleanKw)) return;
-      usedUrls.add(itemUrl);
-      const viewsLabel = yt.views || '실시간 쇼츠';
-      const cleanHeadline = yt.title.replace(/#[a-zA-Z0-9가-힣_]+/g, '').replace(/\s+/g, ' ').trim();
-      const detectedCompany = extractBrandFromTopic(cleanKw + ' ' + cleanHeadline);
-      shortFormTrends.push({
-        keyword: cleanKw,
-        company: detectedCompany,
-        source: '유튜브 쇼츠',
-        pubDateShort: viewsLabel,
-        badge: `🎬 유튜브 쇼츠 · ${viewsLabel}`,
-        desc: `[유튜브 쇼츠 · ${viewsLabel}] "${cleanHeadline}" 주제로 실사용 리뷰·언박싱 영상이 확산하고 있습니다.`,
-        url: itemUrl
-      });
-    });
-
-    // 쇼츠 영상 외에 바이럴·오픈런 실시간 보도가 있으면 보충
-    viralNews.forEach(vn => {
-      if (shortFormTrends.length >= 10) return;
-      if (/부고|인사|동정|주가|코스피|결산/.test(vn.title)) return;
+      if (/부고|인사|동정|주가|코스피|결산|사망|사고|구속|재판/.test(vn.title)) return;
       const kw = extractCleanNewsKeyword(vn.title);
       const itemUrl = vn.link;
       if (!kw || !itemUrl || usedUrls.has(itemUrl)) return;
       if (shortFormTrends.some(s => s.keyword === kw)) return;
+      const fv = inspectTopicFactVerification(kw, '', 1);
+      if (fv.isWarning) return;
       usedUrls.add(itemUrl);
+      const detectedCompany = extractBrandFromTopic(kw + ' ' + vn.title);
       shortFormTrends.push({
         keyword: kw,
+        company: detectedCompany,
         source: vn.source || '언론 보도',
         pubDateShort: vn.pubDateShort || '',
-        badge: `${vn.source || '바이럴 보도'} · ${vn.pubDateShort || '최신'}`,
+        verifiedPress: true,
+        badge: `✓ 언론 보도 확인 · ${vn.source || '숏폼·바이럴'}`,
         desc: paraphraseNewsToMkFact(vn.title, kw, vn.source).paraphrasedSentence,
         url: itemUrl
       });
@@ -895,7 +900,8 @@ function createWorkObject({ id, typeId, keyword, company, url, rawText, scenario
     selectedTitleId: scenario.selectedTitleId,
     draftSections: scenario.draftSections,
     summaryBlocks: scenario.summaryBlocks,
-    factChecks: scenario.factChecks
+    factChecks: scenario.factChecks,
+    factVerification: scenario.factVerification || inspectTopicFactVerification(keyword, company, (scenario.sources || []).length)
   };
 }
 

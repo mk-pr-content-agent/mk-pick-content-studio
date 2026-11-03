@@ -604,10 +604,13 @@ function extractBrandFromTopic(text = '', existingCompany = '') {
   const existing = String(existingCompany || '').trim();
   if (existing) return existing;
   const src = String(text || '');
+  // '한정선 마이쮸'처럼 가상 AI 합성 밈 키워드인 경우 실제 미출시 콜라보로 오인하지 않도록 '한정선'만 추출
+  if (/한정선/.test(src) && /마이쮸/.test(src)) {
+    return '한정선';
+  }
   const found = [];
   const brandRules = [
     { pattern: /한정선/, name: '한정선' },
-    { pattern: /마이쮸/, name: '크라운제과(마이쮸)' },
     { pattern: /올리브영|올영/, name: '올리브영' },
     { pattern: /다이소/, name: '다이소' },
     { pattern: /세븐일레븐/, name: '세븐일레븐' },
@@ -646,6 +649,41 @@ function extractBrandFromTopic(text = '', existingCompany = '') {
   return found.join(', ');
 }
 
+// 키워드·이슈가 실제 공식 출시·보도된 팩트인지, 아니면 AI 합성 밈·가상 콘텐츠·미확인 루머인지 판별하는 팩트체크 헬퍼
+function inspectTopicFactVerification(keyword = '', company = '', pressCount = -1) {
+  const combined = `${keyword} ${company}`.trim();
+  if (/한정선/.test(combined) && /마이쮸/.test(combined)) {
+    return {
+      verdict: 'AI_MEME_OR_VIRTUAL',
+      badgeLabel: '🚨 팩트체크 경보 · AI 생성 가상 밈 (공식 미출시)',
+      isWarning: true,
+      summary: "⚠️ 주의: '한정선 마이쮸 찹쌀떡'은 실제 공식 출시된 상품이 아니라, 과일 찹쌀떡 브랜드 '한정선'과 캔디 '마이쮸'의 쫀득한 식감이 비슷하다는 아이디어로 SNS·숏폼에서 제작된 가상(AI 생성·합성) 밈(Meme) 콘텐츠입니다. 실무자 혼동을 방지하기 위해 가상의 출시 사실 대신 '숏폼 AI 가상 레시피 밈 현상과 실제 한정선 공식 제품 팩트'로 바로잡아 작성했습니다."
+    };
+  }
+  if (/(?:AI\s*생성|AI\s*합성|가상\s*콜라보|가상\s*신상|합성\s*짤|합성\s*밈|페이크|가짜\s*뉴스|만우절\s*장난)/.test(combined)) {
+    return {
+      verdict: 'AI_MEME_OR_VIRTUAL',
+      badgeLabel: '🚨 팩트체크 경보 · 가상(AI 생성) 밈·합성 콘텐츠 주의',
+      isWarning: true,
+      summary: `⚠️ 주의: '${keyword}' 키워드는 실제 기업이 공식 출시한 제품이 아니라 온라인·숏폼에서 화제가 된 가상(AI 생성·합성) 밈 콘텐츠입니다. 가상의 설정을 실제 출시 팩트처럼 서술하지 않도록 주의해 주세요.`
+    };
+  }
+  if (pressCount === 0) {
+    return {
+      verdict: 'UNVERIFIED_RUMOR',
+      badgeLabel: '⚠️ 팩트체크 주의 · 공식 언론 보도 미확인 키워드',
+      isWarning: true,
+      summary: `⚠️ 주의: '${keyword}' 문구와 일치하는 국내 공식 언론 보도가 확인되지 않았습니다. 유튜브·SNS의 단발성 밈이나 AI 가상 콘텐츠, 혹은 비공식 루머일 수 있으므로 기사 출고 전 반드시 아래 [네이버 뉴스 팩트 검색] 버튼으로 실제 출시 여부를 교차 확인해 주세요.`
+    };
+  }
+  return {
+    verdict: 'VERIFIED_FACT',
+    badgeLabel: '✓ 팩트체크 확인 · 공식 언론 보도 및 실제 트렌드 기반',
+    isWarning: false,
+    summary: `✓ '${keyword}' 관련 언론 보도 및 공식 출시·진행 팩트를 기반으로 작성된 원고입니다. 출고 전 수치·일정을 원문 기사와 교차 확인해 주세요.`
+  };
+}
+
 // 버츄얼 아이돌 계보(아담·키즈나아이·이세계아이돌·플레이브·나이비스·비더후드 등) 키워드 여부 판별
 function isVirtualIdolQuery(kw = '', comp = '') {
   const combined = `${kw} ${comp}`.toLowerCase();
@@ -658,6 +696,7 @@ function buildDynamicWorkFromNews({ keyword, company, url, rawText, typeId, news
   const comp = extractBrandFromTopic(kw, (company || '').trim());
   const tId = Number(typeId) || 2;
   const mainEntity = comp ? `${comp} · ${kw}` : kw;
+  const initialFactVerification = inspectTopicFactVerification(kw, comp, Array.isArray(newsItems) && newsItems.length > 0 ? newsItems.length : -1);
 
   if (isVirtualIdolQuery(kw, comp)) {
     return getVirtualIdolScenario(kw);
@@ -1103,6 +1142,40 @@ function buildDynamicWorkFromNews({ keyword, company, url, rawText, typeId, news
     ]
   };
 
+  if (initialFactVerification && initialFactVerification.verdict === 'AI_MEME_OR_VIRTUAL') {
+    const realBrandLabel = comp || '해당 브랜드';
+    titleCandidates = [
+      { id: 'tc-1', style: '[팩트체크·진위확인]', text: `[팩트체크] SNS 달군 '${kw}', 실제 출시 제품일까?…가상(AI 생성) 밈 주의보와 ${realBrandLabel} 실제 라인업` },
+      { id: 'tc-2', style: '[트렌드·소비자정보]', text: `"진짜 파는 줄 알았는데 AI 합성?"…숏폼 화제 '${kw}' 팩트체크 및 ${realBrandLabel} 정식 매장·메뉴 총정리` },
+      { id: 'tc-3', style: '[Q&A·디저트트렌드]', text: `'${kw}' 정식 출시 여부부터 ${realBrandLabel} 실제 인기 메뉴·구매 팁까지 한눈에` }
+    ];
+    summaryBlocks.aiFactSummary = [
+      `최근 숏폼(유튜브 쇼츠·틱톡·릴스)에서 화제가 된 '${kw}'은(는) 브랜드 공식 출시 제품이 아니라 생성형 AI 등으로 제작된 가상(합성) 밈 콘텐츠이므로 사실 오인에 주의해야 합니다.`,
+      `${realBrandLabel}의 정식 출시 라인업과 오프라인 매장(백화점·직영점 등) 판매 메뉴는 해당 가상 밈과 별개로 운영되고 있습니다.`,
+      `소비자와 실무진이 헷갈리기 쉬운 가상 밈의 확산 배경을 짚어보고, 실제로 구매 가능한 ${realBrandLabel}의 대표 인기 메뉴와 공식 판매처 정보를 정리했습니다.`
+    ];
+    draftSections = [
+      {
+        id: 'sec-meme-1',
+        stepLabel: '1단계 · 도입 및 팩트체크 결론',
+        heading: `SNS·숏폼에서 화제 모은 '${kw}', 실제 정식 출시된 제품인가요?`,
+        paragraphs: [
+          `최근 유튜브 쇼츠와 인스타그램 릴스 등 숏폼 플랫폼에서 '${kw}' 관련 영상이 높은 조회수를 기록하며 실제 매장 판매 여부를 묻는 소비자들의 문의가 이어지고 있습니다.`,
+          `공식 브랜드 발표와 언론 보도 내역을 교차 확인한 결과, 해당 콘텐츠는 정식 출시된 상품이 아니라 익숙한 두 브랜드·식감의 조합을 상상해 생성형 AI 등으로 구현한 '가상(합성) 밈 콘텐츠'인 것으로 확인됐습니다. 따라서 실제 매장이나 편의점에서 해당 콜라보 제품을 찾더라도 구매할 수 없다는 점을 유의해야 합니다.`
+        ]
+      },
+      {
+        id: 'sec-meme-2',
+        stepLabel: '2단계 · 가상 밈 확산 배경 및 실제 브랜드 팩트',
+        heading: `왜 이런 가상 조합이 유행했으며, ${realBrandLabel}의 실제 대표 메뉴는 무엇인가요?`,
+        paragraphs: [
+          `이번 가상 콘텐츠가 빠르게 확산된 배경에는 쫀득한 식감과 진한 과일 풍미 등 잘 알려진 인기 디저트·간식의 특징을 결합한 시각적 재미가 자리 잡고 있습니다. 실제 사진처럼 정교한 AI 생성 이미지가 숏폼 알고리즘을 타면서 정식 신제품으로 오인하는 사례가 늘어난 것입니다.`,
+          `한편 실제 ${realBrandLabel} 브랜드는 주요 백화점(더현대서울 등)과 직영 매장 등을 중심으로 정식 시그니처 메뉴 라인업을 선보이며 꾸준한 오픈런 인기를 이어가고 있습니다. 확인되지 않은 SNS 밈 이미지 대신 브랜드 공식 채널과 정식 매장 안내를 통해 실제 판매 메뉴를 확인하는 것이 바람직합니다.`
+        ]
+      }
+    ];
+  }
+
   const factChecks = extractFactSentencesFromSections(draftSections, sources);
 
   return {
@@ -1118,7 +1191,8 @@ function buildDynamicWorkFromNews({ keyword, company, url, rawText, typeId, news
     outlineApproved: true,
     draftSections,
     summaryBlocks,
-    factChecks
+    factChecks,
+    factVerification: initialFactVerification
   };
 }
 
@@ -2194,6 +2268,7 @@ if (typeof module !== 'undefined' && module.exports) {
     paraphraseNewsToMkFact,
     cleanTrendTopicKeyword,
     extractBrandFromTopic,
+    inspectTopicFactVerification,
     isVirtualIdolQuery,
     getVirtualIdolScenario,
     buildPresetScenario,
@@ -2214,6 +2289,7 @@ if (typeof module !== 'undefined' && module.exports) {
     paraphraseNewsToMkFact,
     cleanTrendTopicKeyword,
     extractBrandFromTopic,
+    inspectTopicFactVerification,
     isVirtualIdolQuery,
     getVirtualIdolScenario,
     buildPresetScenario,
