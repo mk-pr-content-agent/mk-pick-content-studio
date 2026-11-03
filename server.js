@@ -210,7 +210,8 @@ const TREND_CACHE_TTL_MS = 30 * 60 * 1000; // 30분 캐시
 let cachedTrendRadar = null;
 let cachedTrendTimestamp = 0;
 
-const DEFAULT_PPLX_MODEL = 'google/gemini-4-argon';
+const DEFAULT_PPLX_MODEL = 'anthropic/claude-sonnet-4-5';
+const FALLBACK_PPLX_MODEL = 'google/gemini-4-argon';
 
 const apiUsageStats = {
   model: DEFAULT_PPLX_MODEL,
@@ -409,77 +410,86 @@ function matchBestSearchResultServer(rf, searchResults = [], usedUrls = new Set(
   return searchResults[0] || null;
 }
 
-// Perplexity Responses API (/v1/responses, model: "google/gemini-4-argon") + Sonar Pro (/chat/completions) 이중 안전 폴백 호출 헬퍼
+// 하이브리드 파이프라인: Perplexity 실시간 웹 검색(web_search) 수집 + Claude Sonnet 4.5 (anthropic/claude-sonnet-4-5) 집필 자동 연동 (+ Gemini-4-Argon / Sonar-Pro 다중 안전 폴백)
 async function callPerplexityJson(apiKey, systemPrompt, userPrompt, recencyFilter = 'month', callType = 'draft') {
   const maxOutTokens = callType === 'trend' ? 6500 : 8192;
-  try {
-    const payload = {
-      model: DEFAULT_PPLX_MODEL,
-      tools: [{ type: 'web_search' }],
-      instructions: systemPrompt,
-      input: userPrompt,
-      max_output_tokens: maxOutTokens
-    };
+  const modelsToTry = [DEFAULT_PPLX_MODEL, FALLBACK_PPLX_MODEL];
+  let lastError = null;
 
-    const res = await fetch('https://api.perplexity.ai/v1/responses', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey.trim()}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(payload)
-    });
+  for (const modelName of modelsToTry) {
+    try {
+      const payload = {
+        model: modelName,
+        tools: [{ type: 'web_search' }],
+        instructions: systemPrompt,
+        input: userPrompt,
+        max_output_tokens: maxOutTokens
+      };
 
-    if (!res.ok) {
-      const errText = await res.text().catch(() => '');
-      throw new Error(`Perplexity API(${DEFAULT_PPLX_MODEL}) 호출 실패 (${res.status}): ${errText.slice(0, 120)}`);
-    }
+      const res = await fetch('https://api.perplexity.ai/v1/responses', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${apiKey.trim()}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(payload)
+      });
 
-    const data = await res.json();
-    recordPerplexityUsage(data?.usage, callType);
+      if (!res.ok) {
+        const errText = await res.text().catch(() => '');
+        throw new Error(`Perplexity Hybrid API(${modelName}) 호출 실패 (${res.status}): ${errText.slice(0, 120)}`);
+      }
 
-    const rawSearchResults = [];
-    let content = '';
-    if (Array.isArray(data?.output)) {
-      for (const item of data.output) {
-        if (Array.isArray(item?.results)) {
-          rawSearchResults.push(...item.results);
-        }
-        if (Array.isArray(item?.content)) {
-          for (const block of item.content) {
-            if (typeof block?.text === 'string') {
-              content += block.text;
+      const data = await res.json();
+      recordPerplexityUsage(data?.usage, callType);
+
+      const rawSearchResults = [];
+      let content = '';
+      if (Array.isArray(data?.output)) {
+        for (const item of data.output) {
+          if (Array.isArray(item?.results)) {
+            rawSearchResults.push(...item.results);
+          }
+          if (Array.isArray(item?.content)) {
+            for (const block of item.content) {
+              if (typeof block?.text === 'string') {
+                content += block.text;
+              }
             }
           }
         }
       }
+      if (!content && typeof data?.output_text === 'string' && data.output_text.trim()) {
+        content = data.output_text;
+      } else if (!content) {
+        content = data?.choices?.[0]?.message?.content || '';
+      }
+
+      const seenUrls = new Set();
+      const searchResults = rawSearchResults
+        .filter(r => r && isRealArticleUrl(r.url))
+        .filter(r => {
+          const u = r.url.trim();
+          if (seenUrls.has(u)) return false;
+          seenUrls.add(u);
+          return true;
+        })
+        .sort((a, b) => String(b.last_updated || b.date || '').localeCompare(String(a.last_updated || a.date || '')));
+
+      const citations = [
+        ...searchResults.map(r => r.url.trim()),
+        ...(Array.isArray(data?.citations) ? data.citations.filter(isRealArticleUrl) : [])
+      ].filter((u, idx, arr) => arr.indexOf(u) === idx);
+
+      const parsed = stripCitationBrackets(safeParseJsonFromText(content));
+      return { parsed, citations, searchResults, activeModel: modelName };
+    } catch (err) {
+      lastError = err;
     }
-    if (!content && typeof data?.output_text === 'string' && data.output_text.trim()) {
-      content = data.output_text;
-    } else if (!content) {
-      content = data?.choices?.[0]?.message?.content || '';
-    }
+  }
 
-    const seenUrls = new Set();
-    const searchResults = rawSearchResults
-      .filter(r => r && isRealArticleUrl(r.url))
-      .filter(r => {
-        const u = r.url.trim();
-        if (seenUrls.has(u)) return false;
-        seenUrls.add(u);
-        return true;
-      })
-      .sort((a, b) => String(b.last_updated || b.date || '').localeCompare(String(a.last_updated || a.date || '')));
-
-    const citations = [
-      ...searchResults.map(r => r.url.trim()),
-      ...(Array.isArray(data?.citations) ? data.citations.filter(isRealArticleUrl) : [])
-    ].filter((u, idx, arr) => arr.indexOf(u) === idx);
-
-    const parsed = stripCitationBrackets(safeParseJsonFromText(content));
-    return { parsed, citations, searchResults };
-  } catch (primaryErr) {
-    // 1차 모델 호출 또는 JSON 파싱 실패 시 Perplexity 실시간 뉴스·인용 특화 모델(sonar-pro)로 자동 재시도
+  try {
+    // 최종 폴백: Perplexity 실시간 뉴스·인용 특화 모델(sonar-pro)로 자동 재시도
     const fallbackRes = await fetch('https://api.perplexity.ai/chat/completions', {
       method: 'POST',
       headers: {
@@ -497,7 +507,7 @@ async function callPerplexityJson(apiKey, systemPrompt, userPrompt, recencyFilte
       })
     });
     if (!fallbackRes.ok) {
-      throw primaryErr;
+      throw lastError || new Error('Perplexity sonar-pro fallback failed');
     }
     const fbData = await fallbackRes.json();
     recordPerplexityUsage(fbData?.usage, callType);
@@ -510,7 +520,9 @@ async function callPerplexityJson(apiKey, systemPrompt, userPrompt, recencyFilte
       ...(Array.isArray(fbData?.citations) ? fbData.citations.filter(isRealArticleUrl) : [])
     ].filter((u, idx, arr) => arr.indexOf(u) === idx);
     const parsed = stripCitationBrackets(safeParseJsonFromText(fbContent));
-    return { parsed, citations: fbCitations, searchResults: fbSearchResults };
+    return { parsed, citations: fbCitations, searchResults: fbSearchResults, activeModel: 'sonar-pro' };
+  } catch (fbErr) {
+    throw lastError || fbErr;
   }
 }
 

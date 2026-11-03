@@ -188,7 +188,8 @@
     return k.slice(0, 5) + '••••' + k.slice(-4);
   }
 
-  const DEFAULT_PPLX_MODEL = 'google/gemini-4-argon';
+  const DEFAULT_PPLX_MODEL = 'anthropic/claude-sonnet-4-5';
+  const FALLBACK_PPLX_MODEL = 'google/gemini-4-argon';
 
   function getClientUsageStats() {
     const defaultStats = {
@@ -397,72 +398,81 @@
 
   async function callPerplexityDirectFromBrowser(apiKey, systemPrompt, userPrompt, recencyFilter = 'month', callType = 'draft', maxTokensOverride = 0) {
     const maxOutTokens = maxTokensOverride || (callType === 'trend' ? 6500 : 8192);
-    try {
-      const res = await fetch('https://api.perplexity.ai/v1/responses', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${apiKey.trim()}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          model: DEFAULT_PPLX_MODEL,
-          tools: [{ type: 'web_search' }],
-          instructions: systemPrompt,
-          input: userPrompt,
-          max_output_tokens: maxOutTokens
-        })
-      });
+    const modelsToTry = [DEFAULT_PPLX_MODEL, FALLBACK_PPLX_MODEL];
+    let lastError = null;
 
-      if (!res.ok) {
-        const errText = await res.text().catch(() => '');
-        throw new Error(`Perplexity API(${DEFAULT_PPLX_MODEL}) 호출 실패 (${res.status}): ${errText.slice(0, 100)}`);
-      }
+    for (const modelName of modelsToTry) {
+      try {
+        const res = await fetch('https://api.perplexity.ai/v1/responses', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${apiKey.trim()}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            model: modelName,
+            tools: [{ type: 'web_search' }],
+            instructions: systemPrompt,
+            input: userPrompt,
+            max_output_tokens: maxOutTokens
+          })
+        });
 
-      const data = await res.json();
-      recordClientPerplexityUsage(data?.usage, callType);
+        if (!res.ok) {
+          const errText = await res.text().catch(() => '');
+          throw new Error(`Perplexity Hybrid API(${modelName}) 호출 실패 (${res.status}): ${errText.slice(0, 100)}`);
+        }
 
-      const rawSearchResults = [];
-      let content = '';
-      if (Array.isArray(data?.output)) {
-        for (const item of data.output) {
-          if (Array.isArray(item?.results)) {
-            rawSearchResults.push(...item.results);
-          }
-          if (Array.isArray(item?.content)) {
-            for (const block of item.content) {
-              if (typeof block?.text === 'string') {
-                content += block.text;
+        const data = await res.json();
+        recordClientPerplexityUsage(data?.usage, callType);
+
+        const rawSearchResults = [];
+        let content = '';
+        if (Array.isArray(data?.output)) {
+          for (const item of data.output) {
+            if (Array.isArray(item?.results)) {
+              rawSearchResults.push(...item.results);
+            }
+            if (Array.isArray(item?.content)) {
+              for (const block of item.content) {
+                if (typeof block?.text === 'string') {
+                  content += block.text;
+                }
               }
             }
           }
         }
+        if (!content && typeof data?.output_text === 'string' && data.output_text.trim()) {
+          content = data.output_text;
+        } else if (!content) {
+          content = data?.choices?.[0]?.message?.content || '';
+        }
+
+        const seenUrls = new Set();
+        const searchResults = rawSearchResults
+          .filter(r => r && isRealArticleUrl(r.url))
+          .filter(r => {
+            const u = r.url.trim();
+            if (seenUrls.has(u)) return false;
+            seenUrls.add(u);
+            return true;
+          })
+          .sort((a, b) => String(b.last_updated || b.date || '').localeCompare(String(a.last_updated || a.date || '')));
+
+        const citations = [
+          ...searchResults.map(r => r.url.trim()),
+          ...(Array.isArray(data?.citations) ? data.citations.filter(isRealArticleUrl) : [])
+        ].filter((u, idx, arr) => arr.indexOf(u) === idx);
+
+        const parsed = stripCitationBracketsClient(safeParseClientJson(content));
+        return { parsed, citations, searchResults, activeModel: modelName };
+      } catch (err) {
+        lastError = err;
       }
-      if (!content && typeof data?.output_text === 'string' && data.output_text.trim()) {
-        content = data.output_text;
-      } else if (!content) {
-        content = data?.choices?.[0]?.message?.content || '';
-      }
+    }
 
-      const seenUrls = new Set();
-      const searchResults = rawSearchResults
-        .filter(r => r && isRealArticleUrl(r.url))
-        .filter(r => {
-          const u = r.url.trim();
-          if (seenUrls.has(u)) return false;
-          seenUrls.add(u);
-          return true;
-        })
-        .sort((a, b) => String(b.last_updated || b.date || '').localeCompare(String(a.last_updated || a.date || '')));
-
-      const citations = [
-        ...searchResults.map(r => r.url.trim()),
-        ...(Array.isArray(data?.citations) ? data.citations.filter(isRealArticleUrl) : [])
-      ].filter((u, idx, arr) => arr.indexOf(u) === idx);
-
-      const parsed = stripCitationBracketsClient(safeParseClientJson(content));
-      return { parsed, citations, searchResults };
-    } catch (primaryErr) {
-      // 1차 모델 호출 또는 JSON 파싱 실패 시 Perplexity 실시간 뉴스·인용 특화 모델(sonar-pro)로 자동 재시도하여 템플릿 폴백 원천 차단
+    try {
+      // 최종 안전 폴백: Perplexity 실시간 뉴스·인용 특화 모델(sonar-pro)로 자동 재시도하여 템플릿 폴백 원천 차단
       const fbRes = await fetch('https://api.perplexity.ai/chat/completions', {
         method: 'POST',
         headers: {
@@ -479,7 +489,7 @@
           temperature: 0.2
         })
       });
-      if (!fbRes.ok) throw primaryErr;
+      if (!fbRes.ok) throw lastError || new Error('Perplexity sonar-pro fallback failed');
       const fbData = await fbRes.json();
       recordClientPerplexityUsage(fbData?.usage, callType);
       const fbContent = fbData?.choices?.[0]?.message?.content || '';
@@ -491,7 +501,9 @@
         ...(Array.isArray(fbData?.citations) ? fbData.citations.filter(isRealArticleUrl) : [])
       ].filter((u, idx, arr) => arr.indexOf(u) === idx);
       const parsed = stripCitationBracketsClient(safeParseClientJson(fbContent));
-      return { parsed, citations: fbCitations, searchResults: fbSearchResults };
+      return { parsed, citations: fbCitations, searchResults: fbSearchResults, activeModel: 'sonar-pro' };
+    } catch (fbErr) {
+      throw lastError || fbErr;
     }
   }
 
@@ -2215,18 +2227,18 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
       <div style="position: fixed; inset: 0; background: rgba(17, 24, 39, 0.45); z-index: 300; display: flex; align-items: center; justify-content: center; padding: 20px;">
         <div class="card" style="width: 100%; max-width: 540px; margin-bottom: 0; padding: 24px 28px;">
           <div class="flex-between mb-8">
-            <h3 style="font-size: 17px; font-weight: 800;">Perplexity API 설정 · 실시간 과금(버닝) 모니터</h3>
+            <h3 style="font-size: 17px; font-weight: 800;">Perplexity × Claude 하이브리드 설정 · 실시간 과금 모니터</h3>
             <button type="button" class="text-action" id="closeApiModalBtn" style="font-size: 16px;">✕</button>
           </div>
           <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 12px; line-height: 1.55;">
-            현재 Perplexity Responses API의 <strong><code>google/gemini-4-argon</code> (제미나이 아르곤)</strong> 엔진을 사용하며, <strong>30분 스마트 캐시</strong>가 적용되어 단순 웹 접속이나 브라우저 새로고침(<code>F5</code>) 시에는 API가 중복 호출되지 않습니다(0원).
+            현재 <strong>[1단계 수집: Perplexity 실시간 웹·뉴스 검색] → [2단계 집필: <code>anthropic/claude-sonnet-4-5</code> (클로드 소넷 4.5)]</strong> 원클릭 자동 하이브리드 파이프라인으로 작동합니다. <strong>[초안 생성] 버튼 한 번만 누르면</strong> 수동 전환 없이 실시간 팩트 수집부터 매경 경어체 기사·표·FAQ 작성까지 자동으로 이어집니다.
           </p>
 
           <!-- 실시간 API 사용량 & 예상 비용 대시보드 -->
           <div style="padding: 12px 14px; background-color: var(--bg-subtle); border: var(--border-thin); border-radius: var(--radius-general); margin-bottom: 14px;">
             <div class="flex-between mb-6">
               <strong style="font-size: 12.5px; color: var(--text-primary);">📊 누적 API 호출 및 실제 과금(버닝) 현황</strong>
-              <span style="font-size: 11.5px; color: var(--mk-orange); font-weight: 700;">엔진: google/gemini-4-argon</span>
+              <span style="font-size: 11.5px; color: var(--mk-orange); font-weight: 700;">하이브리드: Perplexity Web Search + Claude Sonnet 4.5</span>
             </div>
             <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; text-align: center;">
               <div style="padding: 8px; background: var(--white); border: var(--border-thin); border-radius: 6px;">
@@ -2375,7 +2387,7 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
           📖 사용 가이드 (PPT·PDF)
         </button>
         <button type="button" class="btn btn-sm" id="openApiKeyModalBtn" style="border-color: ${state.hasPerplexityKey ? '#8FD4B2' : 'var(--mk-orange)'}; color: ${state.hasPerplexityKey ? 'var(--status-green)' : 'var(--mk-orange)'}; background-color: ${state.hasPerplexityKey ? 'var(--status-green-bg)' : 'var(--mk-orange-light)'}; font-weight: 700;">
-          ${state.hasPerplexityKey ? `🟢 Gemini-4-Argon 연결됨 · 호출 ${calls}회 (약 ${krw}원)` : '⚙ Perplexity API 키 설정 · 사용량 확인'}
+          ${state.hasPerplexityKey ? `🟢 Perplexity 검색 + Claude Sonnet 4.5 연결됨 · 호출 ${calls}회 (약 ${krw}원)` : '⚙ Perplexity × Claude 하이브리드 설정'}
         </button>
       </div>
     `;
@@ -2441,11 +2453,11 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
       ? Math.min(92, Math.round((elapsedSec / ESTIMATED_DRAFT_TOTAL_SEC) * 90) + 5)
       : Math.min(98, 92 + Math.floor((elapsedSec - ESTIMATED_DRAFT_TOTAL_SEC) / 2));
 
-    let stageText = '1/3단계 · 실시간 뉴스·유튜브 쇼츠 팩트 및 원문 출처 수집 중...';
+    let stageText = '1/3단계 [Perplexity 수집] · 실시간 한국 언론 뉴스·원문 출처 및 트렌드 팩트 수집 중...';
     if (elapsedSec >= 3.0 && elapsedSec < 9.5) {
-      stageText = '2/3단계 · Gemini-4-Argon 엔진이 매경 경어체 본문 3~4단락을 집필하고 있습니다...';
+      stageText = '2/3단계 [Claude Sonnet 4.5 집필] · 수집된 팩트로 매경 경어체 본문 3~4단락을 집필하고 있습니다...';
     } else if (elapsedSec >= 9.5) {
-      stageText = '3/3단계 · 5열 비교 요약표 · 핵심 용어사전 · FAQ 3선 및 팩트체크 구성 중...';
+      stageText = '3/3단계 [Claude Sonnet 4.5 검수] · 본문 맞춤 비교 요약표 · 핵심 용어사전 · FAQ 및 팩트체크 구성 중...';
     }
 
     const timeBadgeText = remain > 0
