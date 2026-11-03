@@ -562,10 +562,10 @@
             { role: 'system', content: systemPrompt },
             { role: 'user', content: userPrompt }
           ],
-          max_tokens: maxTokensOverride || (callType === 'trend' ? 6500 : 8000),
+          max_tokens: maxTokensOverride || (callType === 'trend' ? 6500 : 6000),
           temperature: 0.2
         })
-      }, 25000, 'Perplexity Sonar-Pro');
+      }, 45000, 'Perplexity Sonar-Pro');
       if (!res.ok) {
         const errText = await res.text().catch(() => '');
         throw new Error(`Perplexity(sonar-pro) 호출 실패 (${res.status}): ${errText.slice(0, 100)}`);
@@ -646,7 +646,7 @@
     for (const modelName of modelsToTry) {
       try {
         const isGpt5 = modelName.startsWith('openai/gpt-5');
-        const maxOutTokens = maxTokensOverride || (isGpt5 ? 12000 : 7000);
+        const maxOutTokens = maxTokensOverride || (isGpt5 ? 10000 : 5000);
         const bodyPayload = {
           model: modelName,
           instructions: systemPrompt,
@@ -665,7 +665,7 @@
             'Content-Type': 'application/json'
           },
           body: JSON.stringify(bodyPayload)
-        }, 28000, `2단계 집필 모델(${getWriterModelShortLabel(modelName)})`);
+        }, 75000, `2단계 집필 모델(${getWriterModelShortLabel(modelName)})`);
 
         if (!res.ok) {
           const errText = await res.text().catch(() => '');
@@ -746,10 +746,10 @@
             { role: 'system', content: systemPrompt },
             { role: 'user', content: enrichedUserPrompt }
           ],
-          max_tokens: 7500,
+          max_tokens: 5500,
           temperature: 0.2
         })
-      }, 24000, '백업 Sonar-Pro 집필');
+      }, 45000, '백업 Sonar-Pro 집필');
       if (!fbRes.ok) throw lastError || new Error('Perplexity sonar-pro fallback failed');
       const fbData = await fbRes.json();
       recordClientPerplexityUsage(fbData?.usage, callType);
@@ -934,30 +934,24 @@
 - 사전 팩트체크 시스템 진단(${preFactCheck.verdict}): ${preFactCheck.summary}
 
 아래 JSON 스키마에 맞춰 편집자의 기획 방향(${cleanDirection || '최신 팩트 중심'})과 서브 키워드(${subKwList.join(', ') || '핵심 포인트'})가 제목·소제목·본문 1~4단락·요약표·FAQ 전체에 자연스럽게 녹아든 한국어 기사를 작성하세요.
-⚠️ 모든 \`titleCandidates\`의 \`title\`은 **반드시 공백 포함 ${maxHeadlineLimit}자 이내(권장 28~38자)**로 작성하고, \`draftSections\`의 \`title\`(소제목)은 MK Pick 레퍼런스처럼 자연스럽고 매력적인 매거진형 소제목으로 작성하세요:
+⚠️ 필수 규칙:
+- 모든 \`titleCandidates\`(5개)의 \`title\`은 **반드시 공백 포함 ${maxHeadlineLimit}자 이내(권장 28~38자)**로 작성하세요.
+- \`draftSections\`(4개)의 \`title\`(소제목)은 MK Pick 레퍼런스처럼 자연스럽고 매력적인 매거진형 소제목으로 작성하고, 각 \`content\`는 **핵심 팩트 중심 2문단(약 250~330자, ~합니다 체)**으로 간결하고 밀도 있게 작성하세요.
+- 항목 개수: \`titleCandidates\` 5개, \`researchFacts\` 6개, \`summaryTable.rows\` 4행, \`glossary\` 4개, \`faqs\` 본문 1~4단락 순서대로 ${faqCount}개, \`fanoutQuestions\` 4개.
 {
   "factVerification": {
     "verdict": "VERIFIED_FACT | AI_MEME_OR_VIRTUAL | UNVERIFIED_VIRAL 중 택 1",
     "isWarning": false,
     "badgeLabel": "✓ 공식 보도·실제 출시 팩트 확인됨 또는 🚨 [팩트체크 경보] 가상(AI 생성) 밈 · 공식 미출시 주의",
-    "summary": "해당 키워드의 공식 보도·출시 팩트 확인 요약 1~2문장 (~합니다 체)"
+    "summary": "공식 보도·출시 팩트 확인 요약 1문장 (~합니다 체)"
   },
   "mkCategory": "산업 Q&A | 제품·기술 | 성공사례 | 기업뉴스 | 브랜드스토리(기업관) 중 택 1",
   "mkCategoryReason": "추천 이유 1문장 (~합니다 체)",
   "titleCandidates": [
-    {"id": "tc-1", "title": "공백 포함 38자 이내 매력적인 MK Pick 헤드라인 1", "totalScore": 96},
-    {"id": "tc-2", "title": "공백 포함 38자 이내 헤드라인 2", "totalScore": 93},
-    {"id": "tc-3", "title": "공백 포함 38자 이내 헤드라인 3", "totalScore": 90},
-    {"id": "tc-4", "title": "공백 포함 38자 이내 헤드라인 4", "totalScore": 88},
-    {"id": "tc-5", "title": "공백 포함 38자 이내 헤드라인 5", "totalScore": 85}
+    {"id": "tc-1", "title": "공백 포함 38자 이내 매력적인 MK Pick 헤드라인 (총 5개 작성)", "totalScore": 96}
   ],
   "researchFacts": [
-    {"category": "최신 보도 핵심 팩트", "sourceTitle": "[언론사명 · YYYY-MM-DD] 실제 뉴스 제목 1", "sourceUrl": "실제 원문 URL (https://...)", "pubDate": "YYYY-MM-DD", "usedInSection": 1, "fact": "본문 1단락에 반영된 최신 수치·배경 ~합니다 체 문장 1"},
-    {"category": "배경 · 유래 · 근황", "sourceTitle": "[언론사명 · YYYY-MM-DD] 실제 뉴스 제목 2", "sourceUrl": "실제 원문 URL (https://...)", "pubDate": "YYYY-MM-DD", "usedInSection": 1, "fact": "본문 1~2단락에 반영된 핵심 배경·근황 ~합니다 체 문장 2"},
-    {"category": "핵심 트렌드 · 특징 1", "sourceTitle": "[언론사명 · YYYY-MM-DD] 실제 뉴스 제목 3", "sourceUrl": "실제 원문 URL (https://...)", "pubDate": "YYYY-MM-DD", "usedInSection": 2, "fact": "본문 2단락에 반영된 구체적 사례·제품·트렌드 ~합니다 체 문장 3"},
-    {"category": "핵심 트렌드 · 특징 2", "sourceTitle": "[언론사명 · YYYY-MM-DD] 실제 뉴스 제목 4", "sourceUrl": "실제 원문 URL (https://...)", "pubDate": "YYYY-MM-DD", "usedInSection": 3, "fact": "본문 2~3단락에 반영된 서브 키워드·인기 요인 ~합니다 체 문장 4"},
-    {"category": "유통 · 업계 동향", "sourceTitle": "[언론사명 · YYYY-MM-DD] 실제 뉴스 제목 5", "sourceUrl": "실제 원문 URL (https://...)", "pubDate": "YYYY-MM-DD", "usedInSection": 3, "fact": "본문 3단락에 반영된 업계·소비자 반응 ~합니다 체 문장 5"},
-    {"category": "실전 활용 · 구매 팁", "sourceTitle": "[언론사명 · YYYY-MM-DD] 실제 뉴스 제목 6", "sourceUrl": "실제 원문 URL (https://...)", "pubDate": "YYYY-MM-DD", "usedInSection": 4, "fact": "본문 4단락에 반영된 실전 팁·체크포인트 ~합니다 체 문장 6"}
+    {"category": "핵심 팩트 분류", "sourceTitle": "[언론사명 · YYYY-MM-DD] 실제 뉴스 제목", "sourceUrl": "실제 원문 URL (https://...)", "pubDate": "YYYY-MM-DD", "usedInSection": 1, "fact": "본문 단락에 반영된 최신 팩트 1문장 (~합니다 체, 총 6개 작성)"}
   ],
   "subtitle": "메인 헤드라인 바로 아래에 들어갈 핵심 한줄 소제목",
   "aiFactSummary": [
@@ -966,40 +960,27 @@
     "3. 핵심 팩트 요약 세 번째 문장 (~합니다 체)"
   ],
   "draftSections": [
-    {"id": "sec-1", "title": "1단락 자연스러운 매거진 소제목 (독자의 고정관념을 깨거나 관심을 끄는 도입 화두)", "content": "독자 공감 리드 + 메인 키워드와 서브 키워드·기획 의도를 자연스럽게 연결하는 2문단 본문 (~합니다 체)", "imageCaption": "< 출처 : 관련 공식 자료 >"},
-    {"id": "sec-2", "title": "2단락 자연스러운 매거진 소제목 (핵심 배경·유래 또는 첫 번째 주요 포인트 심층 조명)", "content": "구체적인 유래·배경·수치·대표 사례를 생동감 있게 풀어낸 2문단 본문 (~합니다 체)", "imageCaption": "< 출처 : 관련 기관·기업 >"},
-    {"id": "sec-3", "title": "3단락 자연스러운 매거진 소제목 (서브 키워드·최신 유행 트렌드·이색 라인업 집중 분석)", "content": "편집자가 요청한 방향과 최신 유행 아이템·브랜드·소비자 반응을 구체적으로 소개하는 2문단 본문 (~합니다 체)", "imageCaption": "< 출처 : 공식 채널 >"},
-    {"id": "sec-4", "title": "4단락 자연스러운 매거진 소제목 (독자를 위한 특별한 활용법·추천 조합·실전 체크포인트)", "content": "독자가 일상에서 바로 활용할 수 있는 팁, 추천 조합, 구매·선택 가이드를 정리한 2문단 본문 (~합니다 체)", "imageCaption": "< 출처 : 공식 채널 >"}
+    {"id": "sec-1", "title": "1단락 자연스러운 매거진 소제목 (도입 화두·배경)", "content": "메인 키워드와 서브 키워드·기획 의도를 자연스럽게 연결하는 2문단 본문 (~합니다 체)", "imageCaption": "< 출처 : 관련 공식 자료 >"},
+    {"id": "sec-2", "title": "2단락 자연스러운 매거진 소제목 (핵심 배경·유래·주요 사례)", "content": "구체적인 유래·배경·수치·대표 사례를 생동감 있게 풀어낸 2문단 본문 (~합니다 체)", "imageCaption": "< 출처 : 관련 기관·기업 >"},
+    {"id": "sec-3", "title": "3단락 자연스러운 매거진 소제목 (서브 키워드·최신 유행 트렌드·라인업)", "content": "편집자가 요청한 방향과 최신 유행 아이템·브랜드·소비자 반응을 소개하는 2문단 본문 (~합니다 체)", "imageCaption": "< 출처 : 공식 채널 >"},
+    {"id": "sec-4", "title": "4단락 자연스러운 매거진 소제목 (특별한 활용법·추천 조합·실전 팁)", "content": "독자가 일상에서 바로 활용할 수 있는 추천 조합과 구매·선택 가이드를 정리한 2문단 본문 (~합니다 체)", "imageCaption": "< 출처 : 공식 채널 >"}
   ],
   "summaryTable": {
     "title": "[요약표] 핵심 비교 및 한눈에 보는 체크포인트",
     "headers": ["구분 · 핵심 항목", "주요 내용 및 대표 사례", "핵심 특징 · 매력 포인트", "추천 대상 및 실전 활용 팁"],
     "rows": [
-      ["항목/키워드 1", "구체적인 내용·제품·사례", "핵심 특징 및 차별점", "추천 대상 및 즐기는 법"],
-      ["항목/키워드 2", "구체적인 내용·제품·사례", "핵심 특징 및 차별점", "추천 대상 및 즐기는 법"],
-      ["항목/키워드 3", "구체적인 내용·제품·사례", "핵심 특징 및 차별점", "추천 대상 및 즐기는 법"],
-      ["실전 체크포인트", "일정·구매처·조합 팁", "알아두면 좋은 혜택·꿀팁", "사전 확인사항"]
+      ["항목/키워드 (총 4행 작성)", "구체적인 내용·제품·사례", "핵심 특징 및 차별점", "추천 대상 및 즐기는 법"]
     ]
   },
   "glossaryTitle": "주제를 더 깊이 이해하는 용어 사전",
   "glossary": [
-    {"term": "핵심 용어 1", "desc": "누구나 이해하기 쉬운 1~2문장 개념 해설 (~합니다 체)"},
-    {"term": "핵심 용어 2", "desc": "누구나 이해하기 쉬운 1~2문장 개념 해설 (~합니다 체)"},
-    {"term": "핵심 용어 3", "desc": "누구나 이해하기 쉬운 1~2문장 개념 해설 (~합니다 체)"},
-    {"term": "핵심 용어 4", "desc": "누구나 이해하기 쉬운 1~2문장 개념 해설 (~합니다 체)"}
+    {"term": "핵심 용어 (총 4개 작성)", "desc": "누구나 이해하기 쉬운 1문장 개념 해설 (~합니다 체)"}
   ],
   "faqs": [
-    {"relatedSection": 1, "q": "Q1. [1단락 문맥] 독자가 가장 궁금해할 자연어 질문 (~나요?)", "a": "1단락 내용에 기반한 구체적인 2문장 완결형 답변 (~합니다 체)"},
-    {"relatedSection": 2, "q": "Q2. [2단락 문맥] 자연어 질문 (~나요?)", "a": "2단락 내용에 기반한 구체적인 2문장 완결형 답변 (~합니다 체)"},
-    {"relatedSection": 2, "q": "Q3. [2~3단락 문맥] 자연어 질문 (~나요?)", "a": "2~3단락 내용에 기반한 구체적인 2문장 완결형 답변 (~합니다 체)"},
-    {"relatedSection": 3, "q": "Q4. [3단락 문맥] 자연어 질문 (~나요?)", "a": "3단락 내용에 기반한 구체적인 2문장 완결형 답변 (~합니다 체)"},
-    {"relatedSection": 4, "q": "Q5. [4단락 문맥] 자연어 질문 (~나요?)", "a": "4단락 내용에 기반한 구체적인 2문장 완결형 답변 (~합니다 체)"}
+    {"relatedSection": 1, "q": "Q1. 본문 1~4단락 순서에 맞춘 독자 자연어 질문 (총 ${faqCount}개 작성)", "a": "구체적인 2문장 완결형 답변 (~합니다 체)"}
   ],
   "fanoutQuestions": [
-    {"category": "핵심배경·비교", "q": "독자가 추가로 궁금해할 꼬리 질문 1 (~나요?)", "a": "팩트 기반 답변 1~2문장 (~합니다 체)"},
-    {"category": "인기메뉴·아이템", "q": "꼬리 질문 2 (~나요?)", "a": "팩트 기반 답변 1~2문장 (~합니다 체)"},
-    {"category": "추천조합·활용팁", "q": "꼬리 질문 3 (~나요?)", "a": "팩트 기반 답변 1~2문장 (~합니다 체)"},
-    {"category": "구매처·이벤트", "q": "꼬리 질문 4 (~나요?)", "a": "팩트 기반 답변 1~2문장 (~합니다 체)"}
+    {"category": "핵심배경·비교", "q": "독자가 추가로 궁금해할 꼬리 질문 (총 4개 작성)", "a": "팩트 기반 답변 1~2문장 (~합니다 체)"}
   ],
   "closingParagraph": "기사 전체 핵심 메시지를 종합하며 독자에게 실질적인 통찰과 여운을 남기는 마무리 총평 2문장 (~합니다 체)",
   "oneLineSummary": "한 줄 요약! “핵심 통찰 인용구” 독자가 꼭 기억해야 할 핵심 메시지입니다."
