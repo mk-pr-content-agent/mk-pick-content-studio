@@ -1336,7 +1336,7 @@ ${url ? `- 참고 URL: ${url}\n` : ''}${rawText ? `- 추가 메모: ${rawText}\n
   }
 
   // 본문 텍스트 내 특정 문장(matchedSentences)이나 키워드(matchTokens)를 형광펜(<mark>)으로 하이라이팅하여 HTML로 반환
-  function renderHighlightedBodyHtml(rawText = '', matchedSentences = [], matchTokens = [], badgeTitle = '') {
+  function renderHighlightedBodyHtml(rawText = '', matchedSentences = [], matchTokens = [], badgeTitle = '', options = {}) {
     const cleanSentences = (matchedSentences || []).map(s => String(s || '').trim()).filter(s => s.length >= 6);
     const cleanTokens = (matchTokens || []).map(t => String(t || '').trim()).filter(t => t.length >= 2);
     const paragraphs = String(rawText || '').split(/\n+/);
@@ -1360,6 +1360,101 @@ ${url ? `- 참고 URL: ${url}\n` : ''}${rawText ? `- 추가 메모: ${rawText}\n
       return `<p style="margin: 0 0 8px 0; line-height: 1.72;">${renderedSents.join(' ')}</p>`;
     });
 
+    // AI 자연어 편집 모드일 때는 [넣었다 / 뺐다] 문장별·전체 토글 및 [하이라이트 접기/펼치기] 영구 컨트롤 박스 제공
+    if (options && options.aiEditState && options.secId) {
+      const aiEdit = options.aiEditState;
+      const secId = options.secId;
+      const sentItems = aiEdit.sentenceStates?.[secId] || [];
+      const includedCount = sentItems.filter(it => it.included !== false).length;
+      const totalCount = sentItems.length;
+      const isSecApplied = totalCount > 0 ? includedCount > 0 : aiEdit.isApplied !== false;
+      const isHighlightVisible = aiEdit.isHighlightVisible !== false;
+
+      return `
+        <div style="margin-top: 8px; padding: 12px 14px; background-color: ${isSecApplied ? '#FFFDF4' : '#F8F9FA'}; border: 1.5px solid ${isSecApplied ? '#FAB005' : '#CED4DA'}; border-radius: 8px; font-size: 13.5px; color: var(--text-primary); transition: all 0.2s;">
+          <div class="flex-between" style="flex-wrap: wrap; gap: 8px; ${isHighlightVisible ? 'padding-bottom: 8px; margin-bottom: 8px; border-bottom: 1px dashed #FFD43B;' : ''}">
+            <div class="flex-row" style="gap: 8px; flex-wrap: wrap;">
+              <strong style="font-size: 12px; font-weight: 800; color: ${isSecApplied ? '#D9480F' : '#495057'};">
+                🖍️ ${escapeHtml(badgeTitle || 'AI 프롬프트 편집으로 생성·추가된 내용')}
+              </strong>
+              <span style="font-size: 11px; font-weight: 800; padding: 2px 8px; border-radius: 99px; background-color: ${isSecApplied ? '#EBFBEE' : '#E9ECEF'}; color: ${isSecApplied ? '#1B7F3B' : '#495057'}; border: 1px solid ${isSecApplied ? '#8CE99A' : '#CED4DA'};">
+                ${isSecApplied
+                  ? `✓ 본문·FAQ 반영 중 (${totalCount > 0 ? `${includedCount}/${totalCount}문장` : '적용됨'})`
+                  : '⏸ 현재 본문·FAQ에서 뺌 (적용 전 원문 상태)'}
+              </span>
+            </div>
+            <div class="flex-row" style="gap: 6px; flex-wrap: wrap;">
+              <button
+                type="button"
+                class="btn btn-sm"
+                data-toggle-ai-sec-all="${escapeHtml(secId)}"
+                style="padding: 3px 10px; font-size: 11.5px; font-weight: 800; border-radius: 6px; cursor: pointer; ${isSecApplied
+                  ? 'background-color: #FFF5F5; color: #C92A2A; border: 1px solid #FFA8A8;'
+                  : 'background-color: #2B8A3E; color: #FFFFFF; border: 1px solid #2B8A3E;'}"
+                title="새로 생성된 내용을 본문과 하단 FAQ에서 한 번에 빼거나 다시 넣습니다"
+              >
+                ${isSecApplied ? '➖ 새로 생성된 내용 빼기' : '➕ 새로 생성된 내용 다시 넣기'}
+              </button>
+              <button
+                type="button"
+                class="btn btn-sm"
+                data-jump-block="block-step-7"
+                style="padding: 3px 9px; font-size: 11px; font-weight: 800; background-color: #FFFFFF; color: var(--mk-orange); border: 1px solid var(--mk-orange-border); border-radius: 6px; cursor: pointer;"
+                title="이 내용과 함께 자동 업데이트된 하단 FAQ(STEP 07) 위치로 이동합니다"
+              >
+                📍 반영된 FAQ 보기 ↘
+              </button>
+              <button
+                type="button"
+                class="text-action"
+                data-toggle-highlight-visibility="1"
+                style="font-size: 11.5px; font-weight: 700; color: var(--text-secondary); padding: 2px 6px;"
+                title="하이라이트 미리보기 박스를 접거나 펼칩니다 (접어도 본문에 추가된 내용은 사라지지 않습니다)"
+              >
+                ${isHighlightVisible ? '하이라이트 접기 ▲' : '하이라이트 펼치기 ▼'}
+              </button>
+            </div>
+          </div>
+
+          ${isHighlightVisible ? `
+            ${sentItems.length > 0 ? `
+              <div style="margin-bottom: 10px; padding: 8px 10px; background-color: #FFFFFF; border: 1px solid #FFE066; border-radius: 6px;">
+                <div style="font-size: 11.5px; font-weight: 800; color: #B45309; margin-bottom: 6px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 4px;">
+                  <span>✨ 새로 생성·추가된 문장 개별 넣기 / 빼기 (클릭 시 위 본문 입력창과 하단 FAQ에 즉시 반영됩니다)</span>
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 6px;">
+                  ${sentItems.map((item, sIdx) => {
+                    const isInc = item.included !== false;
+                    return `
+                      <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; padding: 6px 8px; border-radius: 6px; background-color: ${isInc ? '#FFF9DB' : '#F8F9FA'}; border: 1px solid ${isInc ? '#FCC419' : '#DEE2E6'};">
+                        <div style="flex: 1; font-size: 12.5px; line-height: 1.55; color: ${isInc ? '#111827' : '#868E96'}; font-weight: ${isInc ? '700' : '500'}; ${isInc ? '' : 'text-decoration: line-through;'}">
+                          ${escapeHtml(item.text)}
+                        </div>
+                        <button
+                          type="button"
+                          data-toggle-ai-sent="${escapeHtml(secId)}"
+                          data-toggle-ai-sent-idx="${sIdx}"
+                          style="flex-shrink: 0; padding: 3px 9px; font-size: 11px; font-weight: 800; border-radius: 99px; cursor: pointer; font-family: inherit; ${isInc
+                            ? 'background-color: #FFFFFF; color: #D9480F; border: 1px solid #F08C00;'
+                            : 'background-color: #2B8A3E; color: #FFFFFF; border: 1px solid #2B8A3E;'}"
+                        >
+                          ${isInc ? '✓ 적용 중 · 빼기 ✕' : '+ 본문에 넣기'}
+                        </button>
+                      </div>
+                    `;
+                  }).join('')}
+                </div>
+              </div>
+            ` : ''}
+            <div style="font-size: 11px; font-weight: 700; color: var(--text-muted); margin-bottom: 4px;">
+              📖 현재 단락 내 형광펜 하이라이트 위치 미리보기:
+            </div>
+            ${renderedParas.join('')}
+          ` : ''}
+        </div>
+      `;
+    }
+
     return `
       <div style="margin-top: 8px; padding: 12px 14px; background-color: #FFFDF4; border: 1.5px solid #FAB005; border-radius: 8px; font-size: 13.5px; color: var(--text-primary);">
         <div class="flex-between mb-6" style="padding-bottom: 6px; border-bottom: 1px dashed #FFD43B;">
@@ -1374,12 +1469,16 @@ ${url ? `- 참고 URL: ${url}\n` : ''}${rawText ? `- 추가 메모: ${rawText}\n
   }
 
   // 각 FAQ 항목이 본문(draftSections)의 몇 번째 단락(1~N) 및 어느 문장 위치와 가장 밀접한지 판별하는 함수
-  function inferFaqRelatedSectionInfo(faq, draftSections = [], keyword = '', fallbackIdx = 0, totalFaqs = 5) {
+  function inferFaqRelatedSectionInfo(faq, draftSectionsOrWork = [], keyword = '', fallbackIdx = 0, totalFaqs = 5) {
+    const draftSections = Array.isArray(draftSectionsOrWork)
+      ? draftSectionsOrWork
+      : (draftSectionsOrWork?.draftSections || []);
+    const kw = keyword || (!Array.isArray(draftSectionsOrWork) ? (draftSectionsOrWork?.keyword || '') : '');
     if (!faq || !Array.isArray(draftSections) || draftSections.length === 0) {
-      return { relatedSection: 1, charOffset: 0 };
+      return { relatedSection: 1, charOffset: 0, secId: '', secLabel: '단락 01', secTitle: '' };
     }
     const qaText = `${String(faq.q || '').replace(/^Q\d+[\.\:]\s*/i, '')} ${faq.a || ''}`;
-    const qaTokens = extractDistinctiveTokens(qaText, keyword);
+    const qaTokens = extractDistinctiveTokens(qaText, kw);
 
     let bestSecNum = Number(faq.relatedSection) || 0;
     let bestScore = -1;
@@ -1403,14 +1502,25 @@ ${url ? `- 참고 URL: ${url}\n` : ''}${rawText ? `- 추가 메모: ${rawText}\n
       }
     });
 
-    if (bestScore <= 0) {
+    if (faq.isAiEdited && faq.relatedSection >= 1 && faq.relatedSection <= draftSections.length) {
+      bestSecNum = Number(faq.relatedSection);
+    } else if (bestScore <= 0) {
       if (bestSecNum >= 1 && bestSecNum <= draftSections.length) {
-        return { relatedSection: bestSecNum, charOffset: fallbackIdx * 100 };
+        bestCharOffset = fallbackIdx * 100;
+      } else {
+        bestSecNum = Math.min(draftSections.length, Math.max(1, Math.floor((fallbackIdx / Math.max(1, totalFaqs)) * draftSections.length) + 1));
+        bestCharOffset = fallbackIdx * 100;
       }
-      const approxSec = Math.min(draftSections.length, Math.max(1, Math.floor((fallbackIdx / Math.max(1, totalFaqs)) * draftSections.length) + 1));
-      return { relatedSection: approxSec, charOffset: fallbackIdx * 100 };
     }
-    return { relatedSection: bestSecNum, charOffset: bestCharOffset };
+    const finalSecIdx = Math.max(0, Math.min(draftSections.length - 1, (bestSecNum || 1) - 1));
+    const targetSec = draftSections[finalSecIdx] || {};
+    return {
+      relatedSection: finalSecIdx + 1,
+      charOffset: bestCharOffset,
+      secId: targetSec.id || '',
+      secLabel: `단락 0${finalSecIdx + 1}`,
+      secTitle: targetSec.title || ''
+    };
   }
 
   // FAQ 배열의 Q1., Q2., Q3... 번호 접두사를 현재 순서대로 깔끔하게 다시 매기는 함수
@@ -1451,7 +1561,9 @@ ${url ? `- 참고 URL: ${url}\n` : ''}${rawText ? `- 추가 메모: ${rawText}\n
     });
     w.summaryBlocks.faqs = enriched.map((f, idx) => {
       const cleanQ = String(f.q || '').replace(/^Q\d+[\.\:]\s*/i, '').trim();
+      const { _charOffset, _origIdx, ...rest } = f;
       return {
+        ...rest,
         q: `Q${idx + 1}. ${cleanQ}`,
         a: String(f.a || '').trim(),
         relatedSection: f.relatedSection
@@ -1612,29 +1724,241 @@ ${currentBodyText}
     };
   }
 
+  // AI 자연어 편집으로 새로 추가·보강된 본문 내용이 하단 FAQ(STEP 07)에도 100% 반영되도록 보장하는 함수
+  function ensureAiEditedContentReflectedInFaqs(w, { instruction = '', oldFaqs = [], changedSecIds = [], highlightedBySecId = {}, parsedAddedFaq = null } = {}) {
+    if (!w || !w.summaryBlocks) return;
+    w.summaryBlocks.faqs = Array.isArray(w.summaryBlocks.faqs) ? w.summaryBlocks.faqs : [];
+
+    const allAddedSentences = Object.values(highlightedBySecId || {}).flat().map(s => String(s || '').trim()).filter(Boolean);
+    if (allAddedSentences.length === 0 && !parsedAddedFaq) return;
+
+    const primarySecId = changedSecIds[0] || Object.keys(highlightedBySecId)[0] || (w.draftSections?.[0]?.id || 'sec-1');
+    const primarySecIdx = Math.max(0, (w.draftSections || []).findIndex(s => s.id === primarySecId));
+    const primarySecNum = primarySecIdx + 1;
+    const primarySec = (w.draftSections || [])[primarySecIdx] || {};
+
+    // 기존 FAQ 전체 텍스트
+    const oldFaqText = (oldFaqs || []).map(f => `${f.q || ''} ${f.a || ''}`).join(' ');
+    const addedTextCombined = `${instruction} ${allAddedSentences.join(' ')}`;
+
+    // 새로 추가된 문장/프롬프트 내 따옴표('...') 강조 개념어 추출 (예: '네오(NEO) K-디저트', '가래떡 츄러스')
+    const quotedMatches = [];
+    const quoteRe = /['‘’"“”]([^'‘’"“”]{2,28})['‘’"“”]/g;
+    let qm;
+    while ((qm = quoteRe.exec(addedTextCombined)) !== null) {
+      const term = qm[1].trim();
+      if (term.length >= 2 && term !== w.keyword && !quotedMatches.includes(term)) {
+        quotedMatches.push(term);
+      }
+    }
+
+    const newDistinctiveTokens = extractDistinctiveTokens(allAddedSentences.join(' '), w.keyword || '')
+      .filter(tk => tk.length >= 2 && !oldFaqText.includes(tk));
+
+    const normalizeClean = s => String(s || '').replace(/\\n/g, ' ').replace(/\s+/g, ' ').trim();
+
+    // 1) AI가 반환한 addedOrUpdatedFaq가 있으면 우선 활용
+    let candidateQ = normalizeClean(parsedAddedFaq?.q || '').replace(/^Q\d+[\.\:]\s*/i, '').trim();
+    let candidateA = normalizeClean(parsedAddedFaq?.a || '');
+    const candidateSec = Number(parsedAddedFaq?.relatedSection) || primarySecNum;
+
+    // 2) 현재 w.summaryBlocks.faqs 중 이번 편집으로 변경되었거나 새 핵심 키워드를 포함한 문항이 있는지 확인
+    let matchedFaqIdx = -1;
+    w.summaryBlocks.faqs.forEach((f, idx) => {
+      const cleanQ = String(f.q || '').replace(/^Q\d+[\.\:]\s*/i, '').trim();
+      const qaCombined = `${cleanQ} ${f.a || ''}`;
+      if (f.isAiEdited) {
+        matchedFaqIdx = idx;
+        return;
+      }
+      if (candidateQ && (cleanQ.includes(candidateQ.slice(0, 14)) || (f.a || '').includes(candidateA.slice(0, 20)))) {
+        matchedFaqIdx = idx;
+        return;
+      }
+      const wasInOld = (oldFaqs || []).some(of => String(of.q || '').replace(/^Q\d+[\.\:]\s*/i, '').trim() === cleanQ && String(of.a || '').trim() === String(f.a || '').trim());
+      if (!wasInOld) {
+        const hitQuoted = quotedMatches.some(qt => qaCombined.includes(qt));
+        const hitNewTk = newDistinctiveTokens.filter(tk => qaCombined.includes(tk)).length;
+        if (hitQuoted || hitNewTk >= 1) {
+          matchedFaqIdx = idx;
+        }
+      }
+    });
+
+    if (matchedFaqIdx !== -1) {
+      w.summaryBlocks.faqs[matchedFaqIdx].isAiEdited = true;
+      w.summaryBlocks.faqs[matchedFaqIdx].aiEditSecId = primarySecId;
+      w.summaryBlocks.faqs[matchedFaqIdx].relatedSection = w.summaryBlocks.faqs[matchedFaqIdx].relatedSection || candidateSec;
+      sortFaqsByBodyContextOrder(w);
+      return;
+    }
+
+    // 3) AI가 faqs 배열에 새 내용을 반영하지 않았거나 candidateQ/A가 비어있다면 새로 추가된 문장 기반으로 즉시 생성!
+    if (!candidateQ || !candidateA) {
+      const keyConcept = quotedMatches[0] || newDistinctiveTokens.slice(0, 2).join('·') || '';
+      const cleanSecTitle = String(primarySec.title || '').replace(/^\d+[\.\)]\s*/, '').trim();
+      if (keyConcept) {
+        candidateQ = `최근 ${w.keyword || '트렌드'}와 관련해 새롭게 주목받는 '${keyConcept}'의 특징과 핵심 포인트는 무엇인가요?`;
+      } else if (cleanSecTitle) {
+        candidateQ = cleanSecTitle.endsWith('?')
+          ? cleanSecTitle
+          : `${cleanSecTitle}와 관련해 꼭 알아두어야 할 새로운 핵심 내용은 무엇인가요?`;
+      } else {
+        candidateQ = `${w.keyword || '이번 주제'}에서 새롭게 추가된 트렌드와 핵심 내용은 무엇인가요?`;
+      }
+      candidateA = allAddedSentences.slice(0, 2).join(' ');
+    }
+
+    const newFaqItem = {
+      q: `Q. ${candidateQ.replace(/^Q\d*[\.\:]\s*/i, '')}`,
+      a: candidateA,
+      relatedSection: candidateSec,
+      isAiEdited: true,
+      aiEditSecId: primarySecId
+    };
+
+    // 같은 단락(candidateSec)에 연결된 기존 FAQ가 2개 이상이고 전체 FAQ가 6개 이상이면 마지막 연관 문항을 업데이트, 아니면 새로 추가
+    const sameSecIndices = w.summaryBlocks.faqs
+      .map((f, idx) => (inferFaqRelatedSectionInfo(f, w.draftSections, w.keyword, idx).relatedSection === candidateSec ? idx : -1))
+      .filter(idx => idx !== -1);
+
+    if (w.summaryBlocks.faqs.length >= 6 && sameSecIndices.length >= 2) {
+      const replaceIdx = sameSecIndices[sameSecIndices.length - 1];
+      w.summaryBlocks.faqs[replaceIdx] = newFaqItem;
+    } else {
+      w.summaryBlocks.faqs.push(newFaqItem);
+    }
+
+    sortFaqsByBodyContextOrder(w);
+  }
+
+  // AI 자연어 편집으로 생성된 문장/내용을 [넣었다 / 뺐다] 토글할 때 본문·FAQ·한줄요약을 즉시 동기화하는 함수
+  function syncWorkWithAiEditState(w) {
+    if (!w || !w.lastAiEdit) return;
+    const aiEdit = w.lastAiEdit;
+    const beforeSnap = aiEdit.beforeSnapshot;
+    const afterSnap = aiEdit.afterSnapshot;
+    if (!beforeSnap || !afterSnap) return;
+
+    const allSentObjs = Object.values(aiEdit.sentenceStates || {}).flat();
+    const activeSentObjs = allSentObjs.filter(s => s.included !== false);
+    const anyActive = allSentObjs.length > 0 ? activeSentObjs.length > 0 : Boolean(aiEdit.isApplied);
+    aiEdit.isApplied = anyActive;
+
+    // 1) 단락별 본문(draftSections) 동기화
+    (aiEdit.secIds || []).forEach(secId => {
+      const sec = (w.draftSections || []).find(s => s.id === secId);
+      const beforeSec = (beforeSnap.draftSections || []).find(s => s.id === secId);
+      const afterSec = (afterSnap.draftSections || []).find(s => s.id === secId);
+      if (!sec) return;
+
+      const sentList = aiEdit.sentenceStates?.[secId] || [];
+      const incList = sentList.filter(s => s.included !== false);
+      const excList = sentList.filter(s => s.included === false);
+
+      if (sentList.length === 0) {
+        if (anyActive && afterSec) {
+          sec.title = afterSec.title;
+          sec.content = afterSec.content;
+        } else if (!anyActive && beforeSec) {
+          sec.title = beforeSec.title;
+          sec.content = beforeSec.content;
+        }
+        return;
+      }
+
+      if (incList.length === 0 && beforeSec) {
+        sec.title = beforeSec.title;
+        sec.content = beforeSec.content;
+        aiEdit.sentencesBySecId[secId] = [];
+      } else if (excList.length === 0 && afterSec) {
+        sec.title = afterSec.title;
+        sec.content = afterSec.content;
+        aiEdit.sentencesBySecId[secId] = incList.map(s => s.text);
+      } else if (afterSec) {
+        // 일부 문장만 선택적으로 넣거나 뺀 경우: afterSec.content에서 제외된 문장(excList)만 정교하게 제거
+        const paras = String(afterSec.content || '').split(/\n+/);
+        const rebuiltParas = paras.map(p => {
+          const sents = splitIntoSentences(p);
+          const kept = sents.filter(st => {
+            const cleanSt = st.trim();
+            return !excList.some(ex => {
+              const cleanEx = String(ex.text || '').trim();
+              return cleanSt === cleanEx ||
+                (cleanEx.length >= 14 && cleanSt.includes(cleanEx.slice(0, 20))) ||
+                (cleanSt.length >= 14 && cleanEx.includes(cleanSt.slice(0, 20)));
+            });
+          });
+          return kept.join(' ').trim();
+        }).filter(Boolean);
+        sec.title = afterSec.title;
+        sec.content = rebuiltParas.join('\n\n');
+        aiEdit.sentencesBySecId[secId] = incList.map(s => s.text);
+      }
+    });
+
+    // 2) 제목, 3줄 요약, 요약표, 하단 FAQ, 한 줄 요약 동시 동기화
+    if (!anyActive) {
+      w.title = beforeSnap.title;
+      if (w.summaryBlocks) {
+        w.summaryBlocks.subtitle = beforeSnap.subtitle;
+        w.summaryBlocks.aiFactSummary = JSON.parse(JSON.stringify(beforeSnap.aiFactSummary || []));
+        w.summaryBlocks.summaryTable = JSON.parse(JSON.stringify(beforeSnap.summaryTable || {}));
+        w.summaryBlocks.faqs = JSON.parse(JSON.stringify(beforeSnap.faqs || []));
+        w.summaryBlocks.closingParagraph = beforeSnap.closingParagraph;
+        w.summaryBlocks.oneLineSummary = beforeSnap.oneLineSummary;
+      }
+    } else {
+      w.title = afterSnap.title;
+      if (w.summaryBlocks) {
+        w.summaryBlocks.subtitle = afterSnap.subtitle;
+        w.summaryBlocks.aiFactSummary = JSON.parse(JSON.stringify(afterSnap.aiFactSummary || []));
+        w.summaryBlocks.summaryTable = JSON.parse(JSON.stringify(afterSnap.summaryTable || {}));
+        w.summaryBlocks.faqs = JSON.parse(JSON.stringify(afterSnap.faqs || []));
+        w.summaryBlocks.closingParagraph = afterSnap.closingParagraph;
+        w.summaryBlocks.oneLineSummary = afterSnap.oneLineSummary;
+
+        // 일부 문장만 포함시킨 경우, AI가 반영한 FAQ 답변에서도 포함 중인 문장이 우선 노출되도록 동기화
+        if (activeSentObjs.length < allSentObjs.length && activeSentObjs.length > 0) {
+          (w.summaryBlocks.faqs || []).forEach(f => {
+            if (f.isAiEdited) {
+              f.a = activeSentObjs.map(s => s.text).slice(0, 2).join(' ');
+            }
+          });
+        }
+      }
+    }
+
+    w.factChecks = extractFactSentencesFromSections(w.draftSections, w.sources);
+    state.activeHighlight = aiEdit;
+  }
+
   // 우측 상단 [✨ AI 자연어 기사 편집 프롬프트] 실행 함수 (반영된 문장 자동 추출 & 하이라이팅 + FAQ 자동 동기화)
   async function applyAiNaturalLanguageEditToWork(w, promptText) {
     if (!w || !promptText || !promptText.trim()) return;
     const instruction = promptText.trim();
 
+    const beforeSnapshot = JSON.parse(JSON.stringify({
+      title: w.title,
+      subtitle: w.summaryBlocks?.subtitle || '',
+      aiFactSummary: w.summaryBlocks?.aiFactSummary || [],
+      draftSections: w.draftSections || [],
+      summaryTable: w.summaryBlocks?.summaryTable || {},
+      faqs: w.summaryBlocks?.faqs || [],
+      closingParagraph: w.summaryBlocks?.closingParagraph || '',
+      oneLineSummary: w.summaryBlocks?.oneLineSummary || ''
+    }));
+
     // 되돌리기(Undo)를 위해 현재 상태 스냅샷 저장
     w.aiEditHistory = Array.isArray(w.aiEditHistory) ? w.aiEditHistory : [];
-    w.aiEditHistory.push(JSON.parse(JSON.stringify({
-      title: w.title,
-      subtitle: w.summaryBlocks?.subtitle,
-      aiFactSummary: w.summaryBlocks?.aiFactSummary,
-      draftSections: w.draftSections,
-      summaryTable: w.summaryBlocks?.summaryTable,
-      faqs: w.summaryBlocks?.faqs,
-      closingParagraph: w.summaryBlocks?.closingParagraph,
-      oneLineSummary: w.summaryBlocks?.oneLineSummary
-    })));
+    w.aiEditHistory.push(JSON.parse(JSON.stringify(beforeSnapshot)));
     if (w.aiEditHistory.length > 10) w.aiEditHistory.shift();
 
     const oldSectionsMap = {};
     (w.draftSections || []).forEach(s => {
       oldSectionsMap[s.id] = { title: s.title, content: s.content };
     });
+    const oldFaqs = JSON.parse(JSON.stringify(w.summaryBlocks?.faqs || []));
     const oldTitle = w.title;
     const oldAiSummary = (w.summaryBlocks?.aiFactSummary || []).join('\n');
 
@@ -1647,7 +1971,7 @@ ${currentBodyText}
       aiFactSummary: w.summaryBlocks?.aiFactSummary || [],
       draftSections: (w.draftSections || []).map(s => ({ id: s.id, title: s.title, content: s.content })),
       summaryTable: w.summaryBlocks?.summaryTable || {},
-      faqs: w.summaryBlocks?.faqs || [],
+      faqs: (w.summaryBlocks?.faqs || []).map(f => ({ q: f.q, a: f.a, relatedSection: f.relatedSection })),
       closingParagraph: w.summaryBlocks?.closingParagraph || '',
       oneLineSummary: w.summaryBlocks?.oneLineSummary || ''
     };
@@ -1656,10 +1980,12 @@ ${currentBodyText}
 편집자가 작성된 초안을 보고 **자연어 편집 지시(프롬프트)**를 입력했습니다.
 필요 시 web_search로 오늘(${todayStr}) 기준 최신 뉴스 팩트를 추가 검색하여 편집자의 지시를 정확히 반영해 기사를 수정하세요.
 [필수 규칙]
-1. 편집자의 지시('${instruction}')를 충실히 반영하여 해당되는 단락(draftSections), 제목(title), 3줄 요약(aiFactSummary)을 수정하세요. 지시와 무관한 단락은 원문을 유지하세요.
+1. 편집자의 지시('${instruction}')를 충실히 반영하여 해당되는 단락(draftSections), 제목(title), 3줄 요약(aiFactSummary), 한 줄 요약(oneLineSummary)을 수정하세요. 지시와 무관한 단락은 원문을 유지하세요.
 2. 모든 본문과 답변은 매일경제 경어체("~합니다/습니다")를 유지하세요.
-3. [가장 중요] 본문에서 어떤 내용이 삭제·수정·추가되었다면, **하단 FAQ(faqs)와 요약표(summaryTable)도 반드시 함께 수정**하여 본문에서 삭제된 내용이 FAQ에 남아있지 않도록 100% 동기화하세요!
-4. 수정되거나 새로 추가된 본문 문장들을 \`highlightedSentences\` 배열에 정확히 담아 반환하세요 (화면에서 형광펜 하이라이팅 표시에 사용됩니다).`;
+3. [가장 중요 - 하단 FAQ 100% 필수 동시 반영]
+   - 편집자의 지시로 본문 단락에 새로운 개념·트렌드·제품·수치·문장이 추가되거나 보강되었다면, **반드시 \`addedOrUpdatedFaq\`에 그 새로 추가된 핵심 내용을 묻고 답하는 Q&A를 작성하고, 하단 \`faqs\` 배열에도 해당 문항을 추가하거나 업데이트하여 100% 반영**하세요!
+   - 반대로 본문에서 삭제된 내용은 \`faqs\`와 \`summaryTable\`에서도 즉시 제거하세요.
+4. 수정되거나 새로 추가된 본문 문장들을 \`highlightedSentences\` 배열에 정확히 담아 반환하세요 (화면에서 형광펜 하이라이팅 및 문장별 넣기/빼기 토글에 사용됩니다).`;
 
     const usr = `[편집자의 자연어 수정 지시]: "${instruction}"
 [현재 기사 데이터]:
@@ -1667,9 +1993,14 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
 
 편집자의 지시를 반영해 수정한 전체 기사 데이터를 아래 순수 JSON 형식으로만 출력하세요:
 {
-  "editSummary": "편집자의 요청에 따라 어떤 단락과 FAQ를 어떻게 수정했는지 1문장 요약 (~했습니다 체)",
+  "editSummary": "편집자의 요청에 따라 어떤 단락과 한 줄 요약, 하단 FAQ를 어떻게 수정·추가했는지 1문장 요약 (~했습니다 체)",
   "editedSectionIds": ["수정된 단락의 id 배열 (예: sec-1, sec-2)"],
   "highlightedSentences": ["이번 편집으로 새로 추가되었거나 수정된 핵심 문장 원문 그대로 (최소 1~5개 문장)"],
+  "addedOrUpdatedFaq": {
+    "relatedSection": 2,
+    "q": "Q. 이번에 본문에 새로 추가·보강된 핵심 내용에 대한 독자 구어체 질문 (~나요?)",
+    "a": "이번에 새로 추가·보강된 본문 핵심 문장과 팩트를 100% 반영한 2문장 답변 (~합니다 체)"
+  },
   "title": "수정된 기사 제목 (변경 없으면 기존 제목 그대로)",
   "subtitle": "수정된 부제 (줄바꿈 \\n 사용)",
   "aiFactSummary": ["1. 요약 1", "2. 요약 2", "3. 요약 3"],
@@ -1682,7 +2013,7 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
     "rows": [["항목", "내용", "특징", "팁"]]
   },
   "faqs": [
-    {"q": "Q1. 수정된 본문과 100% 일치하는 질문", "a": "수정된 본문과 100% 일치하는 답변 (~합니다 체)"}
+    {"relatedSection": 1, "q": "Q1. 수정·추가된 본문과 100% 일치하는 질문", "a": "수정·추가된 본문과 100% 일치하는 답변 (~합니다 체)"}
   ],
   "closingParagraph": "마무리 총평 문단",
   "oneLineSummary": "한 줄 요약! 문장"
@@ -1699,6 +2030,7 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
 
     const changedSecIds = new Set(Array.isArray(parsed.editedSectionIds) ? parsed.editedSectionIds : []);
     const highlightedBySecId = {};
+    const sentenceStates = {};
     const globalHighlightedSentences = Array.isArray(parsed.highlightedSentences)
       ? parsed.highlightedSentences.map(s => normalizeNl(s)).filter(Boolean)
       : [];
@@ -1719,7 +2051,14 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
 
         if (!oldSec || oldSec.content !== newContent || oldSec.title !== newTitle || combinedHighlights.length > 0) {
           changedSecIds.add(secId);
-          highlightedBySecId[secId] = combinedHighlights.length > 0 ? combinedHighlights : newSents.slice(-1);
+          const finalHighlights = combinedHighlights.length > 0 ? combinedHighlights : newSents.slice(-1);
+          highlightedBySecId[secId] = finalHighlights;
+          sentenceStates[secId] = finalHighlights.map((txt, sIdx) => ({
+            id: `${secId}-ai-sent-${sIdx}`,
+            secId,
+            text: txt,
+            included: true
+          }));
         }
 
         return {
@@ -1743,31 +2082,70 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
     if (Array.isArray(parsed.faqs) && parsed.faqs.length > 0) {
       w.summaryBlocks.faqs = parsed.faqs.map((f, i) => ({
         q: /^Q\d+\./i.test(normalizeNl(f.q)) ? normalizeNl(f.q) : `Q${i + 1}. ${normalizeNl(f.q)}`,
-        a: normalizeNl(f.a)
+        a: normalizeNl(f.a),
+        relatedSection: Number(f.relatedSection) || undefined,
+        isAiEdited: Boolean(f.isAiEdited)
       }));
     }
 
     if (parsed.closingParagraph) w.summaryBlocks.closingParagraph = normalizeNl(parsed.closingParagraph);
     if (parsed.oneLineSummary) w.summaryBlocks.oneLineSummary = normalizeNl(parsed.oneLineSummary);
 
-    // 추가로 로컬 삭제 키워드 검사를 한 번 더 수행해 삭제된 내용이 FAQ에 절대 남지 않도록 보장
+    // 1) 로컬 삭제 키워드 검사를 수행해 본문에서 삭제된 내용이 FAQ에 남지 않도록 정리
     syncFaqsAndTableOnBodyEdit(w, {
       previousBody: Object.values(oldSectionsMap).map(s => s.content).join('\n'),
       newBody: (w.draftSections || []).map(s => s.content).join('\n')
     });
 
+    // 2) 새로 본문에 추가·보강된 문장/개념이 하단 FAQ(STEP 07)에도 반드시 업데이트·반영되도록 보장!
+    ensureAiEditedContentReflectedInFaqs(w, {
+      instruction,
+      oldFaqs,
+      changedSecIds: [...changedSecIds],
+      highlightedBySecId,
+      parsedAddedFaq: parsed.addedOrUpdatedFaq || null
+    });
+
+    const nowTimeStr = new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    state.lastFaqAutoSyncInfo = {
+      time: nowTimeStr,
+      removedFaqCount: 0,
+      updatedFaqCount: (w.summaryBlocks?.faqs || []).filter(f => f.isAiEdited).length || 1,
+      removedKeywords: [],
+      aiPromptSynced: true
+    };
+
     w.factChecks = extractFactSentencesFromSections(w.draftSections, w.sources);
 
-    state.activeHighlight = {
+    const afterSnapshot = JSON.parse(JSON.stringify({
+      title: w.title,
+      subtitle: w.summaryBlocks?.subtitle || '',
+      aiFactSummary: w.summaryBlocks?.aiFactSummary || [],
+      draftSections: w.draftSections || [],
+      summaryTable: w.summaryBlocks?.summaryTable || {},
+      faqs: w.summaryBlocks?.faqs || [],
+      closingParagraph: w.summaryBlocks?.closingParagraph || '',
+      oneLineSummary: w.summaryBlocks?.oneLineSummary || ''
+    }));
+
+    const aiEditRecord = {
       mode: 'ai-edit',
       prompt: instruction,
-      summary: normalizeNl(parsed.editSummary || `"${instruction}" 요청을 반영해 본문과 하단 FAQ를 수정했습니다.`),
+      summary: normalizeNl(parsed.editSummary || `"${instruction}" 요청을 반영해 본문과 한 줄 요약, 하단 FAQ를 동시에 업데이트했습니다.`),
+      isApplied: true,
+      isHighlightVisible: true,
       secIds: [...changedSecIds],
       sentencesBySecId: highlightedBySecId,
+      sentenceStates,
+      beforeSnapshot,
+      afterSnapshot,
       titleChanged: w.title !== oldTitle,
       aiSummaryChanged: (w.summaryBlocks?.aiFactSummary || []).join('\n') !== oldAiSummary,
-      timestamp: new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+      timestamp: nowTimeStr
     };
+
+    w.lastAiEdit = aiEditRecord;
+    state.activeHighlight = aiEditRecord;
 
     return state.activeHighlight;
   }
@@ -4771,9 +5149,14 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
                   ${(w.draftSections || []).map((sec, sIdx) => {
                     const roleLabel = getSectionRoleLabel(sec, sIdx, (w.draftSections || []).length);
                     const secCharLen = (sec.content || '').length;
-                    const isSecHighlighted = state.activeHighlight?.secIds?.includes(sec.id);
-                    const hlSentences = state.activeHighlight?.sentencesBySecId?.[sec.id] || [];
-                    const hlTokens = state.activeHighlight?.tokensBySecId?.[sec.id] || [];
+                    const activeAiEdit = w.lastAiEdit || (state.activeHighlight?.mode === 'ai-edit' ? state.activeHighlight : null);
+                    const isMemoHighlighted = state.activeHighlight?.mode === 'memo' && state.activeHighlight?.secIds?.includes(sec.id);
+                    const isAiSecEdited = Boolean(activeAiEdit && activeAiEdit.secIds?.includes(sec.id));
+                    const isSecHighlighted = isMemoHighlighted || (isAiSecEdited && activeAiEdit.isApplied !== false);
+                    const hlSentences = isMemoHighlighted
+                      ? (state.activeHighlight?.sentencesBySecId?.[sec.id] || [])
+                      : (activeAiEdit?.sentencesBySecId?.[sec.id] || []);
+                    const hlTokens = isMemoHighlighted ? (state.activeHighlight?.tokensBySecId?.[sec.id] || []) : [];
                     return `
                       <div style="padding: 14px 16px; border: ${isSecHighlighted ? '2px solid #F08C00' : 'var(--border-thin)'}; border-radius: var(--radius-general); background-color: ${isSecHighlighted ? '#FFF9DB' : 'var(--bg-subtle)'}; margin-bottom: 14px; transition: all 0.2s;" id="secWrap-${sec.id}">
                         <div class="flex-between mb-8" style="flex-wrap: wrap; gap: 6px;">
@@ -4782,9 +5165,13 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
                               단락 0${sIdx + 1} · ${escapeHtml(roleLabel)}
                             </span>
                             <span class="text-muted" id="secCharCount-${sec.id}">${secCharLen.toLocaleString()}자</span>
-                            ${isSecHighlighted ? `
+                            ${isMemoHighlighted ? `
                               <span style="font-size: 11px; font-weight: 800; color: #D9480F; background-color: #FFFFFF; border: 1px solid #FAB005; padding: 1px 7px; border-radius: 99px;">
-                                🖍️ ${state.activeHighlight?.mode === 'memo' ? '취재 팩트 메모 반영 단락' : 'AI 편집 반영 단락'}
+                                🖍️ 취재 팩트 메모 반영 단락
+                              </span>
+                            ` : isAiSecEdited ? `
+                              <span style="font-size: 11px; font-weight: 800; color: ${activeAiEdit.isApplied !== false ? '#D9480F' : '#495057'}; background-color: #FFFFFF; border: 1px solid ${activeAiEdit.isApplied !== false ? '#FAB005' : '#CED4DA'}; padding: 1px 7px; border-radius: 99px;">
+                                🖍️ ${activeAiEdit.isApplied !== false ? 'AI 편집 내용 적용 중 (넣기/빼기 가능)' : 'AI 편집 내용 제외됨 (다시 넣기 가능)'}
                               </span>
                             ` : ''}
                           </div>
@@ -4808,13 +5195,17 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
                         <div class="mb-8">
                           <label class="text-muted" style="display: block; margin-bottom: 3px; font-weight: 700;">본문 내용 ('~합니다' 체 · 내용 수정/삭제 시 하단 FAQ 자동 반영)</label>
                           <textarea class="doc-editable-textarea doc-body-textarea" id="secBody-${sec.id}" data-doc-sec-body="${sec.id}" rows="5" placeholder="본문 내용을 '~합니다' 체로 입력하세요">${escapeHtml(sec.content)}</textarea>
-                          ${isSecHighlighted ? renderHighlightedBodyHtml(
+                          ${isMemoHighlighted ? renderHighlightedBodyHtml(
                             sec.content,
                             hlSentences,
                             hlTokens,
-                            state.activeHighlight?.mode === 'memo'
-                              ? `취재 팩트 메모가 이 단락(단락 0${sIdx + 1})에 반영된 문장 하이라이트`
-                              : `AI 프롬프트 편집으로 수정·추가된 문장 하이라이트`
+                            `취재 팩트 메모가 이 단락(단락 0${sIdx + 1})에 반영된 문장 하이라이트`
+                          ) : isAiSecEdited ? renderHighlightedBodyHtml(
+                            sec.content,
+                            hlSentences,
+                            [],
+                            `AI 프롬프트 편집으로 생성·추가된 내용`,
+                            { aiEditState: activeAiEdit, secId: sec.id }
                           ) : ''}
                         </div>
 
@@ -4946,8 +5337,10 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
                 ${state.lastFaqAutoSyncInfo ? `
                   <div style="margin-bottom: 12px; padding: 8px 12px; background-color: #EBFBEE; border: 1px solid #8CE99A; border-radius: 6px; font-size: 12px; color: #1B7F3B; font-weight: 700; display: flex; align-items: center; justify-content: space-between; gap: 8px;">
                     <span>
-                      ✓ [${escapeHtml(state.lastFaqAutoSyncInfo.time)}] 본문 편집·삭제 내용이 하단 FAQ에 자동 반영되었습니다!
-                      ${state.lastFaqAutoSyncInfo.removedFaqCount > 0 ? `(본문에서 삭제된 내용 관련 FAQ ${state.lastFaqAutoSyncInfo.removedFaqCount}문항 자동 제거 완료)` : '(현재 본문 문맥 순서 기준으로 FAQ 동기화 완료)'}
+                      ✓ [${escapeHtml(state.lastFaqAutoSyncInfo.time)}]
+                      ${state.lastFaqAutoSyncInfo.aiPromptSynced
+                        ? 'AI 자연어 편집으로 본문에 새로 추가·수정된 내용이 하단 FAQ에도 자동 업데이트되어 반영되었습니다!'
+                        : `본문 편집·삭제 내용이 하단 FAQ에 자동 반영되었습니다! ${state.lastFaqAutoSyncInfo.removedFaqCount > 0 ? `(본문에서 삭제된 내용 관련 FAQ ${state.lastFaqAutoSyncInfo.removedFaqCount}문항 자동 제거 완료)` : '(현재 본문 문맥 순서 기준으로 FAQ 동기화 완료)'}`}
                     </span>
                   </div>
                 ` : ''}
@@ -4978,12 +5371,13 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
                 <div id="docFaqsContainer">
                   ${(sb.faqs || []).map((faq, idx) => {
                     const relInfo = inferFaqRelatedSectionInfo(faq, w);
+                    const isFaqAiEdited = Boolean(faq.isAiEdited);
                     return `
                       <div
                         class="faq-draggable-card"
                         draggable="true"
                         data-faq-card-idx="${idx}"
-                        style="padding: 10px 12px; margin-bottom: 10px; background-color: var(--bg-subtle); border: var(--border-thin); border-radius: var(--radius-general); transition: all 0.15s;"
+                        style="padding: 10px 12px; margin-bottom: 10px; background-color: ${isFaqAiEdited ? '#FFF9DB' : 'var(--bg-subtle)'}; border: ${isFaqAiEdited ? '2px solid #F08C00' : 'var(--border-thin)'}; border-radius: var(--radius-general); transition: all 0.15s;"
                       >
                         <div class="flex-between mb-6" style="gap: 8px; flex-wrap: wrap;">
                           <div class="flex-row" style="gap: 6px; flex-wrap: wrap;">
@@ -5002,6 +5396,11 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
                               >
                                 📍 본문 ${escapeHtml(relInfo.secLabel)} 문맥 ↗
                               </button>
+                            ` : ''}
+                            ${isFaqAiEdited ? `
+                              <span style="font-size: 11px; font-weight: 800; color: #D9480F; background-color: #FFFFFF; border: 1px solid #FAB005; padding: 2px 8px; border-radius: 99px;">
+                                ✨ AI 편집 추가 내용 자동 반영됨
+                              </span>
                             ` : ''}
                           </div>
                           <div class="flex-row" style="gap: 8px;">
@@ -5164,26 +5563,92 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
               ${state.isApplyingAiEdit ? '⏳ AI가 본문·표·FAQ 편집 중...' : '✨ AI 편집 적용 →'}
             </button>
 
-            ${(Array.isArray(w.aiEditHistory) && w.aiEditHistory.length > 0) || state.activeHighlight ? `
+            ${(Array.isArray(w.aiEditHistory) && w.aiEditHistory.length > 0) || w.lastAiEdit || state.activeHighlight ? `
               <div style="display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px;">
                 ${Array.isArray(w.aiEditHistory) && w.aiEditHistory.length > 0 ? `
                   <button type="button" class="btn btn-sm" id="undoAiPromptEditBtn" style="width: 100%; justify-content: center; padding: 6px 10px; font-size: 12px; font-weight: 800; background-color: #FFFFFF;">
                     ↩ 이전 상태로 되돌리기 (${w.aiEditHistory.length})
                   </button>
                 ` : ''}
-                ${state.activeHighlight ? `
-                  <div style="padding: 8px 10px; background-color: #FFF9DB; border: 1px solid #FAB005; border-radius: 6px;">
-                    <div style="font-size: 11.5px; font-weight: 800; color: #D9480F; margin-bottom: 4px;">
-                      🖍️ ${state.activeHighlight.mode === 'memo' ? '메모 반영 하이라이트 켜짐' : 'AI 편집 반영 하이라이트 켜짐'}
-                    </div>
-                    <div style="font-size: 11.5px; color: #111; line-height: 1.45; margin-bottom: 6px;">
-                      ${escapeHtml(state.activeHighlight.summary || '')}
-                    </div>
-                    <button type="button" class="btn btn-sm" data-clear-highlight="1" style="width: 100%; justify-content: center; padding: 4px 8px; font-size: 11.5px; font-weight: 700; color: #D9480F; background: #FFFFFF; border-color: #FAB005;">
-                      🖍️ 하이라이트 끄기 ✕
-                    </button>
-                  </div>
-                ` : ''}
+                ${(() => {
+                  const aiEdit = w.lastAiEdit || (state.activeHighlight?.mode === 'ai-edit' ? state.activeHighlight : null);
+                  if (aiEdit) {
+                    const isApp = aiEdit.isApplied !== false;
+                    const isHlVis = aiEdit.isHighlightVisible !== false;
+                    return `
+                      <div style="padding: 10px 12px; background-color: ${isApp ? '#FFF9DB' : '#F8F9FA'}; border: 1.5px solid ${isApp ? '#FAB005' : '#CED4DA'}; border-radius: 8px;">
+                        <div class="flex-between" style="margin-bottom: 5px; gap: 4px; flex-wrap: wrap;">
+                          <span style="font-size: 11.5px; font-weight: 800; color: ${isApp ? '#D9480F' : '#495057'};">
+                            🖍️ ${isApp ? 'AI 새로 생성된 내용 적용 중' : 'AI 새로 생성된 내용 뺌 (원문)'}
+                          </span>
+                          <span style="font-size: 10.5px; font-weight: 800; padding: 1px 6px; border-radius: 99px; background: ${isApp ? '#EBFBEE' : '#E9ECEF'}; color: ${isApp ? '#1B7F3B' : '#495057'};">
+                            ${isApp ? '✓ 본문·FAQ 반영됨' : '⏸ 본문·FAQ 제외됨'}
+                          </span>
+                        </div>
+                        <div style="font-size: 11.5px; color: #111; line-height: 1.45; margin-bottom: 8px;">
+                          ${escapeHtml(aiEdit.summary || '')}
+                        </div>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 6px;">
+                          <button
+                            type="button"
+                            class="btn btn-sm"
+                            data-ai-edit-master-toggle="apply"
+                            style="justify-content: center; padding: 6px 6px; font-size: 11.5px; font-weight: 800; ${isApp
+                              ? 'background-color: #2B8A3E; color: #FFFFFF; border-color: #2B8A3E;'
+                              : 'background-color: #FFFFFF; color: #2B8A3E; border-color: #8CE99A;'}"
+                          >
+                            ➕ 생성 내용 넣기
+                          </button>
+                          <button
+                            type="button"
+                            class="btn btn-sm"
+                            data-ai-edit-master-toggle="exclude"
+                            style="justify-content: center; padding: 6px 6px; font-size: 11.5px; font-weight: 800; ${!isApp
+                              ? 'background-color: #C92A2A; color: #FFFFFF; border-color: #C92A2A;'
+                              : 'background-color: #FFFFFF; color: #C92A2A; border-color: #FFA8A8;'}"
+                          >
+                            ➖ 생성 내용 빼기
+                          </button>
+                        </div>
+                        <div style="display: flex; gap: 6px;">
+                          <button
+                            type="button"
+                            class="btn btn-sm"
+                            data-toggle-highlight-visibility="1"
+                            style="flex: 1; justify-content: center; padding: 4px 6px; font-size: 11px; font-weight: 700; color: #D9480F; background: #FFFFFF; border-color: #FAB005;"
+                            title="하이라이트 박스만 접거나 펼칩니다 (본문에 추가된 내용은 그대로 유지됩니다)"
+                          >
+                            🖍️ 하이라이트 ${isHlVis ? '접기 ▲' : '펼치기 ▼'}
+                          </button>
+                          <button
+                            type="button"
+                            class="btn btn-sm"
+                            data-jump-block="block-step-7"
+                            style="flex: 1; justify-content: center; padding: 4px 6px; font-size: 11px; font-weight: 800; color: var(--mk-orange); background: #FFFFFF; border-color: var(--mk-orange-border);"
+                          >
+                            📍 반영된 FAQ ↘
+                          </button>
+                        </div>
+                      </div>
+                    `;
+                  }
+                  if (state.activeHighlight?.mode === 'memo') {
+                    return `
+                      <div style="padding: 8px 10px; background-color: #FFF9DB; border: 1px solid #FAB005; border-radius: 6px;">
+                        <div style="font-size: 11.5px; font-weight: 800; color: #D9480F; margin-bottom: 4px;">
+                          🖍️ 메모 반영 하이라이트 켜짐
+                        </div>
+                        <div style="font-size: 11.5px; color: #111; line-height: 1.45; margin-bottom: 6px;">
+                          ${escapeHtml(state.activeHighlight.summary || '')}
+                        </div>
+                        <button type="button" class="btn btn-sm" data-clear-highlight="1" style="width: 100%; justify-content: center; padding: 4px 8px; font-size: 11.5px; font-weight: 700; color: #D9480F; background: #FFFFFF; border-color: #FAB005;">
+                          🖍️ 하이라이트 닫기 ✕
+                        </button>
+                      </div>
+                    `;
+                  }
+                  return '';
+                })()}
               </div>
             ` : ''}
 
@@ -5701,15 +6166,117 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
         w.summaryBlocks.oneLineSummary = prev.oneLineSummary;
       }
       w.factChecks = extractFactSentencesFromSections(w.draftSections, w.sources);
-      state.activeHighlight = null;
+      if (w.lastAiEdit) {
+        w.lastAiEdit.isApplied = false;
+        Object.values(w.lastAiEdit.sentenceStates || {}).forEach(arr => {
+          (arr || []).forEach(it => { it.included = false; });
+        });
+      }
       saveCurrentWork(true);
       render(true);
-      showToast('↩ 이전 편집 상태로 기사를 되돌렸습니다.');
+      showToast('↩ 이전 편집 상태로 기사를 되돌렸습니다. ([➕ 생성 내용 넣기] 버튼으로 언제든 다시 넣을 수 있습니다)');
+    });
+
+    // AI 편집 생성 내용 전체 [넣기 / 빼기] 마스터 토글 (오른쪽 사이드바)
+    root.querySelectorAll('[data-ai-edit-master-toggle]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const mode = btn.getAttribute('data-ai-edit-master-toggle');
+        const aiEdit = w.lastAiEdit || (state.activeHighlight?.mode === 'ai-edit' ? state.activeHighlight : null);
+        if (!aiEdit) return;
+        w.lastAiEdit = aiEdit;
+        const shouldApply = mode === 'apply';
+        aiEdit.isApplied = shouldApply;
+        Object.values(aiEdit.sentenceStates || {}).forEach(arr => {
+          (arr || []).forEach(it => { it.included = shouldApply; });
+        });
+        syncWorkWithAiEditState(w);
+        saveCurrentWork(true);
+        render(true);
+        showToast(
+          shouldApply
+            ? '➕ AI가 새로 생성한 문장과 업데이트된 하단 FAQ·한 줄 요약을 다시 넣었습니다!'
+            : '➖ AI가 새로 생성한 내용을 본문과 하단 FAQ에서 뺐습니다. ([➕ 생성 내용 넣기]로 언제든 다시 넣을 수 있습니다)'
+        );
+      });
+    });
+
+    // 단락별 AI 생성 내용 전체 [넣기 / 빼기] 토글 (단락 하단 컨트롤 바)
+    root.querySelectorAll('[data-toggle-ai-sec-all]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const secId = btn.getAttribute('data-toggle-ai-sec-all');
+        const aiEdit = w.lastAiEdit || (state.activeHighlight?.mode === 'ai-edit' ? state.activeHighlight : null);
+        if (!aiEdit || !secId) return;
+        w.lastAiEdit = aiEdit;
+        const sentItems = aiEdit.sentenceStates?.[secId] || [];
+        const currentlyApplied = sentItems.length > 0
+          ? sentItems.some(it => it.included !== false)
+          : aiEdit.isApplied !== false;
+        const nextInclude = !currentlyApplied;
+        if (sentItems.length > 0) {
+          sentItems.forEach(it => { it.included = nextInclude; });
+        } else {
+          aiEdit.isApplied = nextInclude;
+        }
+        syncWorkWithAiEditState(w);
+        saveCurrentWork(true);
+        render(true);
+        showToast(
+          nextInclude
+            ? '➕ 새로 생성된 내용을 본문과 하단 FAQ에 다시 넣었습니다!'
+            : '➖ 새로 생성된 내용을 본문과 하단 FAQ에서 뺐습니다. ([➕ 새로 생성된 내용 다시 넣기]를 누르면 복원됩니다)'
+        );
+      });
+    });
+
+    // 단락 하단 박스 내 개별 AI 생성 문장 [넣기 / 빼기] 토글
+    root.querySelectorAll('[data-toggle-ai-sent]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const secId = btn.getAttribute('data-toggle-ai-sent');
+        const sentIdx = Number(btn.getAttribute('data-toggle-ai-sent-idx'));
+        const aiEdit = w.lastAiEdit || (state.activeHighlight?.mode === 'ai-edit' ? state.activeHighlight : null);
+        if (!aiEdit || !secId || isNaN(sentIdx)) return;
+        w.lastAiEdit = aiEdit;
+        const item = aiEdit.sentenceStates?.[secId]?.[sentIdx];
+        if (!item) return;
+        item.included = !(item.included !== false);
+        syncWorkWithAiEditState(w);
+        saveCurrentWork(true);
+        render(true);
+        showToast(
+          item.included
+            ? '➕ 선택한 AI 생성 문장을 본문과 FAQ에 다시 넣었습니다!'
+            : '➖ 선택한 AI 생성 문장을 본문에서 뺐습니다. ([+ 본문에 넣기]로 언제든 다시 넣을 수 있습니다)'
+        );
+      });
+    });
+
+    // [하이라이트 접기 ▲ / 펼치기 ▼] 토글 (박스를 완전히 없애지 않고 접거나 펼쳐서 내용이 사라지지 않도록 유지!)
+    root.querySelectorAll('[data-toggle-highlight-visibility]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const aiEdit = w.lastAiEdit || (state.activeHighlight?.mode === 'ai-edit' ? state.activeHighlight : null);
+        if (aiEdit) {
+          w.lastAiEdit = aiEdit;
+          aiEdit.isHighlightVisible = !(aiEdit.isHighlightVisible !== false);
+          saveCurrentWork(true);
+          render(true);
+          showToast(
+            aiEdit.isHighlightVisible
+              ? '🖍️ AI 생성 문장 하이라이트 및 개별 넣기/빼기 박스를 펼쳤습니다.'
+              : '🖍️ 하이라이트 미리보기를 접었습니다. (새로 생성된 본문·FAQ 내용은 그대로 유지됩니다!)'
+          );
+        }
+      });
     });
 
     root.querySelectorAll('[data-clear-highlight]').forEach(btn => {
       btn.addEventListener('click', () => {
-        state.activeHighlight = null;
+        if (state.activeHighlight?.mode === 'memo') {
+          state.activeHighlight = w.lastAiEdit || null;
+        } else if (w.lastAiEdit) {
+          w.lastAiEdit.isHighlightVisible = false;
+        } else {
+          state.activeHighlight = null;
+        }
         render(true);
       });
     });
