@@ -12,6 +12,9 @@ const {
   paraphraseNewsToMkFact,
   cleanTrendTopicKeyword,
   extractBrandFromTopic,
+  splitKeywordIntoBrandsAndTopic,
+  splitLongHeadlineToSubtitle,
+  MAX_HEADLINE_CHARS,
   inspectTopicFactVerification,
   isVirtualIdolQuery,
   getVirtualIdolScenario,
@@ -112,8 +115,8 @@ async function fetchYouTubeShorts(keyword, limit = 6) {
   }
 }
 
-// 실시간 한국어 뉴스 검색 (기본 최근 30일, 트렌드 발굴 시 최근 7일 필터 적용)
-async function fetchRealTimeKoreanNews(keyword, limit = 6, when = '30d') {
+// 실시간 한국어 뉴스 검색 (기본 최근 30일, 트렌드 발굴 시 최근 7일 필터 적용 + 복수 브랜드/긴 키워드 자동 분할 검색 지원)
+async function fetchRealTimeKoreanNews(keyword, limit = 6, when = '30d', isRetry = false) {
   const q = (keyword || '').trim();
   if (!q) return [];
   const fullQuery = when && !q.includes('when:') ? `${q} when:${when}` : q;
@@ -159,9 +162,23 @@ async function fetchRealTimeKoreanNews(keyword, limit = 6, when = '30d') {
         });
       }
     }
+    // 복수 브랜드·복합 긴 키워드(예: '이디야, 맘스터치, 메가커피 푸드 스낵 신메뉴 강화')여서 단일 문자열 매칭이 부족할 때 브랜드별/OR 쿼리로 자동 확장 검색
+    if (!isRetry && items.length < 2 && splitKeywordIntoBrandsAndTopic) {
+      const splitInfo = splitKeywordIntoBrandsAndTopic(q, '', '');
+      if (splitInfo.brands.length >= 2) {
+        const shortTopicWords = (splitInfo.coreTopic || '신메뉴').split(/[\s·,]+/).filter(w => w.length >= 2).slice(0, 2).join(' ');
+        const orQuery = `(${splitInfo.brands.join(' OR ')}) ${shortTopicWords || '신메뉴'}`.trim();
+        const expanded = await fetchRealTimeKoreanNews(orQuery, limit, when, true);
+        if (expanded.length > items.length) return expanded;
+      } else if (q.split(/[\s·,]+/).length >= 4) {
+        const coreTokens = q.replace(/[·,]/g, ' ').split(/\s+/).filter(Boolean).slice(0, 3).join(' ');
+        const shortened = await fetchRealTimeKoreanNews(coreTokens, limit, when, true);
+        if (shortened.length > items.length) return shortened;
+      }
+    }
     // 만약 최근 기간(when:30d) 내 기사가 0건이면 기간 제한 없이 재검색
     if (items.length === 0 && when) {
-      return fetchRealTimeKoreanNews(keyword, limit, '');
+      return fetchRealTimeKoreanNews(keyword, limit, '', isRetry);
     }
     return items;
   } catch (err) {
@@ -261,6 +278,7 @@ function recordPerplexityUsage(usage = {}, callType = 'draft') {
 function repairUnescapedQuotesInJson(raw = '') {
   let out = '';
   let inStr = false;
+  let insideInnerQuote = false;
   let escaped = false;
   const len = raw.length;
   for (let i = 0; i < len; i++) {
@@ -278,6 +296,7 @@ function repairUnescapedQuotesInJson(raw = '') {
     if (ch === '"') {
       if (!inStr) {
         inStr = true;
+        insideInnerQuote = false;
         out += ch;
       } else {
         // 다음 공백 아닌 문자가 :, ,, }, ] 인지 확인하여 문자열 종료 따옴표인지 판별
@@ -286,12 +305,27 @@ function repairUnescapedQuotesInJson(raw = '') {
           j++;
         }
         const nextChar = raw[j];
+        // 문장 내부에서 열린 큰따옴표(“)가 아직 닫히지 않은 상태에서 뒤에 쉼표(,)가 오면 문자열 종료가 아니라 내부 닫는 따옴표(”)로 처리 (예: "이디야", "맘스터치")
+        if (insideInnerQuote && nextChar === ',') {
+          let k = j + 1;
+          while (k < len && (raw[k] === ' ' || raw[k] === '\t' || raw[k] === '\r' || raw[k] === '\n')) {
+            k++;
+          }
+          const restAfterComma = raw.slice(k, k + 40);
+          if (!/^"[a-zA-Z0-9_]+\s*":/.test(restAfterComma)) {
+            insideInnerQuote = false;
+            out += '”';
+            continue;
+          }
+        }
         if (nextChar === ':' || nextChar === ',' || nextChar === '}' || nextChar === ']' || j >= len) {
           inStr = false;
+          insideInnerQuote = false;
           out += ch;
         } else {
           // 문자열 내부의 이스케이프 안 된 큰따옴표는 유니코드 겹따옴표(“/”)로 치환
-          out += '“';
+          out += insideInnerQuote ? '”' : '“';
+          insideInnerQuote = !insideInnerQuote;
         }
       }
       continue;
@@ -458,7 +492,7 @@ async function callPerplexityJson(apiKey, systemPrompt, userPrompt, recencyFilte
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userPrompt }
         ],
-        max_tokens: 4096,
+        max_tokens: 8000,
         temperature: 0.2
       })
     });
@@ -509,8 +543,8 @@ ${rawLiveContext}
   return parsed;
 }
 
-// Perplexity API를 활용해 선택한 콘텐츠 유형(1~5번)과 입력 키워드·주제에 딱 맞춘 맞춤형 기사 초안 생성
-async function buildPerplexityEnhancedScenario({ apiKey, keyword: rawKeyword, company: rawCompany, url, rawText, typeId, newsItems, baseScenario }) {
+// Perplexity API를 활용해 선택한 콘텐츠 유형(1~5번)과 입력 키워드·주제·서브키워드·기획방향에 딱 맞춘 맞춤형 기사 초안 생성
+async function buildPerplexityEnhancedScenario({ apiKey, keyword: rawKeyword, company: rawCompany, subKeywords = '', direction = '', url, rawText, typeId, newsItems, baseScenario }) {
   const keyword = cleanTrendTopicKeyword(rawKeyword);
   const company = extractBrandFromTopic(keyword, rawCompany);
   // 버츄얼 아이돌 계보 키워드('아담, 키즈나아이, 이세계아이돌, 플레이브, 나이비스' 등)인 경우에만 버츄얼 아이돌 계보 원고 시나리오 적용
@@ -522,17 +556,19 @@ async function buildPerplexityEnhancedScenario({ apiKey, keyword: rawKeyword, co
     };
   }
 
+  const parsedTopic = splitKeywordIntoBrandsAndTopic(keyword, company, subKeywords);
+  const brandList = parsedTopic.brands || [];
+  const coreTopicText = parsedTopic.coreTopic || keyword;
+  const subKwList = parsedTopic.explicitSubs || [];
+  const cleanDirection = String(direction || '').trim();
+
   const tInfo = CONTENT_TYPES[typeId] || CONTENT_TYPES[4];
   const newsContext = (newsItems || [])
     .slice(0, 6)
     .map((n, i) => `${i + 1}. [${n.source}] ${n.title} (${n.link})`)
     .join('\n');
 
-  const kwEntities = String(keyword || '')
-    .split(/[,/·]+/)
-    .map(s => s.trim())
-    .filter(Boolean);
-  const isMultiEntityTopic = kwEntities.length >= 2;
+  const isMultiBrandTopic = brandList.length >= 2;
   const isHistoryTopic = /(?:계보|변천사|타임라인|역사|세대별\s*진화)/.test(keyword);
 
   const typeInstructions = {
@@ -541,7 +577,7 @@ async function buildPerplexityEnhancedScenario({ apiKey, keyword: rawKeyword, co
     3: isHistoryTopic
       ? '유형 3(시대별 계보·트렌드 변천사 심층 분석): 사용자가 계보·변천사 주제를 입력했으므로 초창기 원조부터 전환기, 현재 대표 주자들까지 흐름에 따라 각 주자를 단락별로 조명하고 비교 요약표와 FAQ 5문항으로 정리.'
       : '유형 3(최신 트렌드·이슈 심층 분석 콘텐츠 1): 선택된 유형의 틀에 억지로 끼워 맞추지 말고, 최신 뉴스 검색 결과를 바탕으로 1단락은 왜 지금 이 키워드·이슈가 주목받는지 배경 분석, 2~3단락은 최신 보도된 핵심 팩트·사례·수치·시장 반응을 심층 분석, 마지막 단락은 독자를 위한 실전 활용 가이드 및 전망 제시. 요약표는 핵심 비교표, 용어 사전 4개, FAQ 5문항.',
-    4: '유형 4(최신 트렌드·신상품·라이프스타일 콘텐츠 2): 선택된 유형의 틀에 억지로 끼워 맞추지 말고, 입력된 키워드의 최신 뉴스와 실제 출시·진행 팩트를 검색하여 1단락은 화제 배경과 소비자 니즈, 2~3단락은 실제 브랜드·제품·메뉴·혜택의 구체적 특징과 최신 근황, 마지막 단락은 구매·이용 팁을 자연스럽게 구성하세요. 요약표는 핵심 비교표, 용어 사전 4개, FAQ는 5문항.',
+    4: '유형 4(최신 트렌드·신상품·라이프스타일 콘텐츠 2): 선택된 유형의 틀에 억지로 끼워 맞추지 말고, 입력된 키워드의 최신 뉴스와 실제 출시·진행 팩트를 검색하여 1단락은 화제 배경과 소비자 니즈, 2~3단락은 각 브랜드·제품·신메뉴·혜택의 실제 명칭과 가격·특징·최신 근황을 구체적으로 소개, 마지막 단락은 구매·이용 팁을 자연스럽게 구성하세요. 요약표는 핵심 비교표, 용어 사전 4개, FAQ는 5문항.',
     5: '유형 5(영업 기업 맞춤 기획 콘텐츠): 1단락은 독자 질문 도입 1문단 뒤 Q1~Q4 시장 메가 트렌드·소비자 페인포인트 문답, 2단락은 Q5~Q6 선택 기준 문답, 3단락은 Q7에서 영업 타깃 기업의 핵심 솔루션·경쟁력을 집중 소개. 요약표는 대상 기업 핵심 기능·기대효과 요약표, 용어 사전 4개, FAQ는 7문항.'
   };
 
@@ -551,7 +587,7 @@ async function buildPerplexityEnhancedScenario({ apiKey, keyword: rawKeyword, co
   const preFactCheck = inspectTopicFactVerification(keyword, company, pressNewsItems.length);
 
   const sys = `당신은 매일경제 MK Pick(GEO·AEO 최적화 매거진형 심층 기사) 수석 에디터이자 팩트체크 데스크입니다.
-타 언론사 기사의 문장을 절대 그대로 베끼지 말고, 수치·브랜드명·성분·규격·가격 등 핵심 팩트만 추출하여 모든 본문과 답변을 매일경제 고유의 정중하고 생동감 있는 "~합니다/습니다" 체로 작성하세요.
+타 언론사 기사의 문장을 절대 그대로 베끼지 말고, 수치·브랜드명·신메뉴명·성분·규격·가격 등 핵심 팩트만 추출하여 모든 본문과 답변을 매일경제 고유의 정중하고 생동감 있는 "~합니다/습니다" 체로 작성하세요.
 
 [핵심 작성 원칙 — 반드시 준수!]
 0. [가장 중요 · 0순위 원칙] 실제 공식 출시·언론 보도 여부 팩트체크 및 가상(AI 생성) 밈·루머 엄격 판별 (절대 준수!):
@@ -561,34 +597,34 @@ async function buildPerplexityEnhancedScenario({ apiKey, keyword: rawKeyword, co
      ② 반드시 JSON의 \`factVerification.verdict\`를 \`"AI_MEME_OR_VIRTUAL"\` (또는 보도 미확인 시 \`"UNVERIFIED_VIRAL"\`), \`factVerification.isWarning\`을 \`true\`로 설정하세요.
      ③ 기사 제목(\`titleCandidates\`), \`aiFactSummary\`(3줄 요약), 본문(\`draftSections\`) 첫 단락에서 **"해당 화제 키워드는 실제 정식 출시된 제품이 아니라 SNS·숏폼에서 확산된 가상(AI 생성) 밈·콘텐츠"**라는 사실을 명확히 팩트체크해 바로잡고, 대신 **실제 존재하는 원조 브랜드(예: 더현대서울 등에서 판매되는 '한정선' 생과일 찹쌀떡 등)의 진짜 정식 메뉴와 검증된 시장 트렌드 팩트**를 중심으로 설명하세요.
    - 실제 정식 출시·공식 발표 및 언론 보도가 확인된 정상적인 주제라면 \`factVerification.verdict\`를 \`"VERIFIED_FACT"\`, \`factVerification.isWarning\`을 \`false\`로 설정하고 확인된 공식 팩트 요약을 적어주세요.
-1. 주제와 콘텐츠 유형(01~05)에 딱 맞는 맞춤형 본문 구성 (억지 연도별 타임라인 절대 금지!):
-   - 사용자가 명시적으로 '역사/계보/변천사'를 물어본 경우가 아니라면, 절대로 '1990년대/2000년대~2010년대/2020년대'처럼 다짜고짜 연도별로 단락을 나누거나 '탄생 배경과 이유 :', '활동 방식의 한계 :', 'Bonus Track :' 같은 고정 라벨을 기계적으로 붙이지 마세요!
-   - 예를 들어 사용자가 '대왕패치, 환절기, 기초템'을 입력했다면 환절기 피부 고민(속건조·열감·각질·장벽 약화)이라는 주제 흐름에 맞춰 왜 요즘 넓은 부위를 케어하는 대왕패치와 장벽·보습 기초템 루틴이 뜨는지, 각 아이템(대왕패치, 토너·로션·크림 기초템 등)과 대표 제품들은 어떤 성분·크기·특징을 가졌는지, 어떻게 조합해 쓰면 좋은지 자연스럽고 실용적인 매거진 기사로 작성해야 합니다.
-2. 유튜브·SNS 구어체 제목 및 오탈자 자동 정제 원칙 (절대 준수!):
-   - 입력된 키워드에 유튜버의 감탄사·수식어(예: '과즙 넘치는', '과즙미 가득한', '먹어봄', '미친 가성비', '다이소깡' 등)나 오탈자(예: '찹살떡', '찹살덕' → '찹쌀떡')가 포함되어 있더라도, 기사 제목·본문·요약표·FAQ에서는 절대 유튜버의 수식어나 오탈자를 그대로 반복하지 마세요!
-   - 반드시 언론 보도와 공식 발표로 검증된 **실제 핵심 브랜드·기업**(예: '이디야커피', '다이소', '올리브영', '더현대서울 한정선' 등)과 **정확한 공식 제품명·트렌드 배경**을 중심으로 전문적인 매일경제 기사를 작성하세요.
-3. 독자 공감 질문형 도입부:
-   - 첫 번째 단락(draftSections[0].content)의 첫 문장은 독자가 일상이나 계절·소비 상황에서 실제로 겪을 법한 자연스러운 질문("~하신 적 없으신가요?")으로 시작하세요.
-4. 복수 키워드·소재 입력 시 자연스러운 단락 전개 (3~5개 단락):
-   - 여러 키워드(${isMultiEntityTopic ? kwEntities.join(', ') : '관련 핵심 포인트'})나 여러 브랜드·제품이 등장하면, 전체 주제를 아우르는 도입 단락 뒤에 각 키워드·제품군·브랜드의 핵심 특징과 실제 사례(성분, 크기, 가격, 프로모션 등)를 단락별로 명확하고 깊이 있게 소개하고, 마지막 단락에서 선택·활용 팁으로 매듭지으세요.
-   - 각 단락의 소제목(title)은 주제에 어울리는 자연스러운 질문형 소제목("~할까요?", "~무엇인가요?") 또는 핵심 주제를 명확히 보여주는 매거진형 소제목으로 작성하세요.
-5. 주제 맞춤형 비교 요약표(summaryTable) & 핵심 용어 사전(glossary) & FAQ:
-   - 요약표(summaryTable)의 열 헤더(headers 4~5개)도 고정된 틀이 아니라 해당 주제에 가장 잘 맞는 항목(예: 뷰티/제품이면 ["구분·제품군", "핵심 특징 및 규격", "주요 성분·기술", "기대 효과 및 추천 대상"] 등)으로 구성하세요.
-   - 기사에 등장하는 주요 성분·트렌드·핵심 개념 3~4개를 선정해 핵심 용어 사전(glossary)으로 정리하세요.
-   - 기사 끝에는 전체 내용을 자연스럽게 갈무리하는 마무리 문단(closingParagraph)과 '한 줄 요약! ~입니다.'(oneLineSummary)를 작성하세요. 순수 JSON 객체만 출력하세요.`;
+1. [편집자 기획 의도·방향 및 서브 키워드 최우선 반영]:
+   - 편집자가 입력한 **'원하는 글의 방향·맥락'(${cleanDirection || '최신 트렌드 및 실제 출시 팩트 심층 분석'})**과 **'서브 키워드'(${subKwList.length > 0 ? subKwList.join(', ') : '핵심 연관 포인트'})**가 있다면, 반드시 기사 제목·소제목·본문 단락·비교표·FAQ 전체가 그 기획 의도와 서브 키워드를 중심으로 전개되도록 맞춤 작성하세요!
+2. [복합·다중 브랜드 키워드('${keyword}') 정밀 분석 및 실제 신메뉴·제품 소개 원칙]:
+   - '이디야, 맘스터치, 메가커피 푸드 스낵 신메뉴 강화'처럼 **여러 브랜드(${brandList.join(', ') || '주요 브랜드'}) + 핵심 주제('${coreTopicText}')**가 결합된 문장형 키워드가 입력된 경우, 절대로 문장 뒷부분('푸드 스낵 신메뉴 강화' 등)을 또 하나의 브랜드나 제품 이름인 것처럼 쪼개서 표에 넣지 마세요!
+   - 반드시 웹 검색을 통해 등장하는 **각 브랜드(${brandList.join(', ') || '해당 브랜드들'})가 실제로 출시한 대표 신메뉴·신상품의 정확한 이름, 가격·구성, 특징**을 각각 구체적으로 찾아 본문 단락과 비교 요약표(summaryTable)에 1:1로 소개하세요.
+3. [메인 화면 노출용 헤드라인 글자수 제한 (최대 ${MAX_HEADLINE_CHARS}자 이내 필수!)]:
+   - MK Pick 메인 화면 카드에 노출될 때 제목이 2줄을 넘어 잘리지 않도록, 모든 \`titleCandidates\`의 \`title\`은 **공백 포함 28~38자 이내(절대 최대 ${MAX_HEADLINE_CHARS}자 이하!)**로 간결하고 임팩트 있게 작성하세요!
+   - 제목에 다 담지 못한 부연 설명은 \`subtitle\`(한줄 소제목)에 담아주세요.
+4. [FAQ 본문 문맥 순서(단락 1 → 단락 2 → 단락 3 → 단락 4) 완벽 정렬]:
+   - \`faqs\` 배열의 질문(Q1~Q${faqCount})은 반드시 **본문(\`draftSections\`) 1단락부터 마지막 단락까지의 문맥 흐름 순서 그대로** 배치하고, 각 FAQ 항목마다 본문 몇 번째 단락(1~4)과 연결되는지 \`"relatedSection": 1\` ~ \`4\` 숫자를 명시하세요!
+5. JSON 문자열 내부에 큰따옴표를 쓸 때는 반드시 유니코드 겹따옴표(“…”)나 작은따옴표('…')만 사용하여 JSON 파싱 오류가 절대 발생하지 않도록 하세요.`;
 
   const usr = `[작성 요청 정보]
-- 키워드/주제: ${keyword}
-- 타깃 기업/브랜드(선택): ${company || '관련 주요 브랜드·제품'}
+- 메인 키워드/주제: ${keyword}
+- 식별된 핵심 브랜드(${brandList.length}개): ${brandList.join(', ') || company || '관련 주요 브랜드·제품'}
+- 핵심 세부 주제: ${coreTopicText}
+- 서브 키워드(선택): ${subKwList.length > 0 ? subKwList.join(', ') : '없음 (주제에 맞는 핵심 세부 키워드 자동 반영)'}
+- 편집자가 원하는 글의 방향·맥락(기획 의도): ${cleanDirection || '최신 언론 보도와 실제 출시된 제품·신메뉴·프로모션 팩트를 중심으로 독자에게 유익한 정보 제공'}
 - 참고 URL: ${url || '없음'}
 - 추가 보도자료/메모: ${rawText || '없음'}
 - 선택된 콘텐츠 유형: ${tInfo.shortName} (${tInfo.desc})
 - 유형별 필수 구성 지침: ${typeInstructions[typeId] || typeInstructions[4]}
 - 사전 팩트체크 시스템 진단(${preFactCheck.verdict}): ${preFactCheck.summary} (매칭된 언론 보도 기사 수: ${pressNewsItems.length}건)
 - 실시간 참고 언론 뉴스 목록:
-${newsContext || '매칭된 언론 보도 기사가 0건입니다! 가상(AI 생성) 밈이거나 미출시 루머일 가능성이 높으므로 반드시 실제 정식 출시 여부를 먼저 팩트체크하고, 정식 출시된 적 없는 가상 밈이라면 절대 실제 출시 제품처럼 쓰지 말고 가상 밈이라는 사실을 명시하세요!'}
+${newsContext || '매칭된 언론 보도 기사가 적으므로 웹 검색을 통해 각 브랜드·주제의 가장 최신 실제 공식 보도 팩트를 찾아 작성하세요.'}
 
-아래 JSON 스키마에 맞춰 주제('${keyword}')의 실제 출시·언론 보도 진위를 먼저 검증(factVerification)한 뒤, 사실에 기반한 완성도 높은 기사(본문 3~5개 단락, 맞춤형 비교표, 용어 사전 3~4개, FAQ ${faqCount}개, 마무리 요약)를 작성하세요:
+아래 JSON 스키마에 맞춰 주제('${keyword}')의 실제 출시·언론 보도 진위를 먼저 검증(factVerification)한 뒤, 편집자의 기획 방향(${cleanDirection || '최신 팩트 중심'})과 서브 키워드(${subKwList.join(', ') || '핵심 포인트'})를 충실히 반영한 완성도 높은 기사(본문 4개 단락, 맞춤형 비교표, 용어 사전 4개, 본문 문맥 순서대로 정렬된 FAQ ${faqCount}개, 마무리 요약)를 작성하세요.
+⚠️ 특히 모든 \`titleCandidates\`의 \`title\`은 메인 화면에서 잘리지 않도록 **반드시 공백 포함 ${MAX_HEADLINE_CHARS}자 이내(권장 30~38자)**로 작성하세요!
 {
   "factVerification": {
     "verdict": "VERIFIED_FACT(공식 출시·언론 보도 확인) | AI_MEME_OR_VIRTUAL(가상·AI 생성 밈/정식 미출시) | UNVERIFIED_VIRAL(공식 보도 미확인 주의) 중 택 1",
@@ -599,21 +635,21 @@ ${newsContext || '매칭된 언론 보도 기사가 0건입니다! 가상(AI 생
   "mkCategory": "산업 Q&A | 제품·기술 | 성공사례 | 기업뉴스 | 브랜드스토리(기업관) 중 택 1",
   "mkCategoryReason": "이 기사에 해당 MK Pick 카테고리를 추천한 이유 1문장 (~합니다 체)",
   "titleCandidates": [
-    {"id": "tc-1", "title": "“큰따옴표 인용구”…핵심 키워드 포함 설명형 제목", "totalScore": 96},
-    {"id": "tc-2", "title": "“큰따옴표 인용구”…설명형 제목 2", "totalScore": 93},
-    {"id": "tc-3", "title": "“큰따옴표 인용구”…설명형 제목 3", "totalScore": 90},
-    {"id": "tc-4", "title": "“큰따옴표 인용구”…설명형 제목 4", "totalScore": 88},
-    {"id": "tc-5", "title": "“큰따옴표 인용구”…설명형 제목 5", "totalScore": 85}
+    {"id": "tc-1", "title": "“공백 포함 38자 이내 헤드라인”…핵심 키워드 요약", "totalScore": 96},
+    {"id": "tc-2", "title": "“공백 포함 38자 이내 헤드라인”…설명형 제목 2", "totalScore": 93},
+    {"id": "tc-3", "title": "“공백 포함 38자 이내 헤드라인”…설명형 제목 3", "totalScore": 90},
+    {"id": "tc-4", "title": "“공백 포함 38자 이내 헤드라인”…설명형 제목 4", "totalScore": 88},
+    {"id": "tc-5", "title": "“공백 포함 38자 이내 헤드라인”…설명형 제목 5", "totalScore": 85}
   ],
   "researchFacts": [
-    {"category": "최신 보도 핵심 팩트", "sourceTitle": "[언론사명 · YYYY-MM-DD] 가장 최근 보도된 실제 뉴스 제목 1", "sourceUrl": "웹 검색 결과에 있는 해당 기사의 실제 원문 URL (https://...)", "pubDate": "YYYY-MM-DD", "usedInSection": 1, "fact": "본문 1단락에 반영된 가장 최신 수치(조회수, 출시일 등)와 근황이 포함된 ~합니다 체 팩트 문장 1"},
+    {"category": "최신 보도 핵심 팩트", "sourceTitle": "[언론사명 · YYYY-MM-DD] 가장 최근 보도된 실제 뉴스 제목 1", "sourceUrl": "웹 검색 결과에 있는 해당 기사의 실제 원문 URL (https://...)", "pubDate": "YYYY-MM-DD", "usedInSection": 1, "fact": "본문 1단락에 반영된 가장 최신 수치와 배경이 포함된 ~합니다 체 팩트 문장 1"},
     {"category": "후속 반응 · 최신 근황", "sourceTitle": "[언론사명 · YYYY-MM-DD] 최신 후속 보도 제목 2", "sourceUrl": "웹 검색 결과에 있는 해당 기사의 실제 원문 URL (https://...)", "pubDate": "YYYY-MM-DD", "usedInSection": 1, "fact": "본문 1~2단락에 반영된 최신 후속 반응·인터뷰·비하인드가 포함된 ~합니다 체 팩트 문장 2"},
-    {"category": "브랜드 · 신메뉴/제품 특징", "sourceTitle": "[언론사명 · YYYY-MM-DD] 공식 출시 메뉴·제품 특징 보도 제목 3", "sourceUrl": "웹 검색 결과에 있는 해당 기사의 실제 원문 URL (https://...)", "pubDate": "YYYY-MM-DD", "usedInSection": 2, "fact": "본문 2단락에 반영된 구체적인 제품·세트 구성·원재료·차별점이 포함된 ~합니다 체 팩트 문장 3"},
-    {"category": "소비자 · SNS 확산 배경", "sourceTitle": "[언론사명 · YYYY-MM-DD] 2030 소비자 및 숏폼 화제성 보도 제목 4", "sourceUrl": "웹 검색 결과에 있는 해당 기사의 실제 원문 URL (https://...)", "pubDate": "YYYY-MM-DD", "usedInSection": 2, "fact": "본문 2~3단락에 반영된 SNS·유튜브 쇼츠 확산 이유와 소비자 반응이 포함된 ~합니다 체 팩트 문장 4"},
-    {"category": "유통 · 프로모션 동향", "sourceTitle": "[언론사명 · YYYY-MM-DD] 매장·판매처·광고 협업 보도 제목 5", "sourceUrl": "웹 검색 결과에 있는 해당 기사의 실제 원문 URL (https://...)", "pubDate": "YYYY-MM-DD", "usedInSection": 3, "fact": "본문 3단락에 반영된 판매 채널·광고 협업·프로모션 동향이 포함된 ~합니다 체 팩트 문장 5"},
-    {"category": "가격 · 구성 및 이용 팁", "sourceTitle": "[언론사명 · YYYY-MM-DD] 가격·구성·구매 가이드 보도 제목 6", "sourceUrl": "웹 검색 결과에 있는 해당 기사의 실제 원문 URL (https://...)", "pubDate": "YYYY-MM-DD", "usedInSection": 4, "fact": "본문 마지막 단락에 반영된 가격·구성·이용 시 참고할 점이 포함된 ~합니다 체 팩트 문장 6"}
+    {"category": "브랜드 · 신메뉴/제품 특징 1", "sourceTitle": "[언론사명 · YYYY-MM-DD] 공식 출시 메뉴·제품 특징 보도 제목 3", "sourceUrl": "웹 검색 결과에 있는 해당 기사의 실제 원문 URL (https://...)", "pubDate": "YYYY-MM-DD", "usedInSection": 2, "fact": "본문 2단락에 반영된 구체적인 실제 신메뉴·제품명·가격·특징이 포함된 ~합니다 체 팩트 문장 3"},
+    {"category": "브랜드 · 신메뉴/제품 특징 2", "sourceTitle": "[언론사명 · YYYY-MM-DD] 브랜드별 신메뉴·차별화 포인트 보도 제목 4", "sourceUrl": "웹 검색 결과에 있는 해당 기사의 실제 원문 URL (https://...)", "pubDate": "YYYY-MM-DD", "usedInSection": 2, "fact": "본문 2~3단락에 반영된 브랜드별 실제 주력 제품·차별점·소비자 반응이 포함된 ~합니다 체 팩트 문장 4"},
+    {"category": "유통 · 프로모션 동향", "sourceTitle": "[언론사명 · YYYY-MM-DD] 매장·판매처·프로모션 보도 제목 5", "sourceUrl": "웹 검색 결과에 있는 해당 기사의 실제 원문 URL (https://...)", "pubDate": "YYYY-MM-DD", "usedInSection": 3, "fact": "본문 3단락에 반영된 판매 채널·세트 혜택·프로모션 동향이 포함된 ~합니다 체 팩트 문장 5"},
+    {"category": "가격 · 구성 및 이용 팁", "sourceTitle": "[언론사명 · YYYY-MM-DD] 가격·구성·구매 가이드 보도 제목 6", "sourceUrl": "웹 검색 결과에 있는 해당 기사의 실제 원문 URL (https://...)", "pubDate": "YYYY-MM-DD", "usedInSection": 4, "fact": "본문 4단락에 반영된 가격·구성·이용 시 참고할 점이 포함된 ~합니다 체 팩트 문장 6"}
   ],
-  "subtitle": "기사 부제 2줄 (줄바꿈 \\n 사용)",
+  "subtitle": "메인 헤드라인 바로 아래에 들어갈 핵심 한줄 소제목 (또는 2줄 부제, 줄바꿈 \\n 사용)",
   "aiFactSummary": [
     "1. 핵심 팩트 요약 첫 번째 문장 (~합니다 체)",
     "2. 핵심 팩트 요약 두 번째 문장 (~합니다 체)",
@@ -622,48 +658,52 @@ ${newsContext || '매칭된 언론 보도 기사가 0건입니다! 가상(AI 생
   "draftSections": [
     {
       "id": "sec-1",
-      "title": "주제에 맞는 도입 질문형 소제목 (예: 왜 요즘 환절기 스킨케어에서 '대왕패치'와 '기초템' 조합이 주목받을까요?)",
-      "content": "독자의 일상·계절 고민에 공감하는 질문형 첫 문장 + 해당 주제가 부상한 배경과 핵심 트렌드 분석 2~3문단 (~합니다 체)",
+      "title": "1단락 소제목: 독자의 공감을 이끄는 도입 질문 및 트렌드 배경 (~할까요?)",
+      "content": "독자의 일상·소비 고민에 공감하는 질문형 첫 문장 + 해당 주제가 부상한 배경과 핵심 트렌드 분석 2~3문단 (~합니다 체)",
       "imageCaption": ""
     },
     {
       "id": "sec-2",
-      "title": "첫 번째 핵심 키워드·카테고리·대표 제품 심층 분석 소제목",
-      "content": "구체적인 제품 사례, 규격·성분·가격·차별화 포인트를 상세히 설명하는 본문 2~3문단 (~합니다 체)",
+      "title": "2단락 소제목: 주요 브랜드·첫 번째 핵심 라인업(실제 신메뉴·제품명) 심층 분석",
+      "content": "실제 출시된 구체적인 메뉴·제품명, 가격, 원재료·사양, 차별화 포인트를 상세히 설명하는 본문 2~3문단 (~합니다 체)",
       "imageCaption": ""
     },
     {
       "id": "sec-3",
-      "title": "두 번째 핵심 키워드·카테고리·브랜드 비교 소제목",
-      "content": "연관 아이템·브랜드별 주요 특징과 시너지 포인트를 구체적 팩트로 설명하는 본문 2~3문단 (~합니다 체)",
+      "title": "3단락 소제목: 경쟁 브랜드·연관 라인업 비교 및 시너지 포인트",
+      "content": "함께 비교되는 브랜드별 실제 신메뉴·제품 특징과 프로모션 혜택을 구체적 팩트로 설명하는 본문 2~3문단 (~합니다 체)",
       "imageCaption": ""
     },
     {
       "id": "sec-4",
-      "title": "소비자를 위한 똑똑한 선택 기준과 실전 활용·구매 팁 소제목",
-      "content": "상황·타입별 추천 조합, 사용 시 주의사항, 온·오프라인 구매 팁을 정리한 본문 2문단 (~합니다 체)",
+      "title": "4단락 소제목: 소비자를 위한 똑똑한 선택 기준과 실전 구매·활용 팁",
+      "content": "상황·취향별 추천 메뉴·제품 조합, 시간대·할인 혜택, 온·오프라인 이용 팁을 정리한 본문 2문단 (~합니다 체)",
       "imageCaption": ""
     }
   ],
   "summaryTable": {
-    "title": "[요약표] 주제 맞춤형 핵심 비교",
-    "headers": ["구분", "핵심 특징 및 사양", "주요 성분 · 강점", "추천 대상 및 활용 팁"],
+    "title": "[요약표] 브랜드·제품별 핵심 신메뉴·특징 및 선택 가이드",
+    "headers": ["구분 · 브랜드", "대표 신메뉴 · 주력 제품", "핵심 특징 및 가격·사양", "추천 조합 및 이용 팁"],
     "rows": [
-      ["항목 1", "구체적 특징·규격", "핵심 성분·차별점", "추천 대상·활용법"],
-      ["항목 2", "구체적 특징·규격", "핵심 성분·차별점", "추천 대상·활용법"],
-      ["항목 3", "구체적 특징·규격", "핵심 성분·차별점", "추천 대상·활용법"],
-      ["항목 4", "구체적 특징·규격", "핵심 성분·차별점", "추천 대상·활용법"]
+      ["브랜드/항목 1", "실제 출시 메뉴·제품명", "구체적 특징·가격·사양", "추천 대상·이용 팁"],
+      ["브랜드/항목 2", "실제 출시 메뉴·제품명", "구체적 특징·가격·사양", "추천 대상·이용 팁"],
+      ["브랜드/항목 3", "실제 출시 메뉴·제품명", "구체적 특징·가격·사양", "추천 대상·이용 팁"],
+      ["이용 체크포인트", "세트·타임할인·앱 주문", "가성비 및 편의성 극대화 포인트", "방문·배달 전 확인사항"]
     ]
   },
   "glossaryTitle": "주제를 더 깊이 이해하는 핵심 용어 사전",
   "glossary": [
-    {"term": "핵심 용어·성분·개념 1", "desc": "누구나 이해하기 쉬운 1~2문장 명쾌한 해설 (~합니다 체)"},
-    {"term": "핵심 용어·성분·개념 2", "desc": "누구나 이해하기 쉬운 1~2문장 명쾌한 해설 (~합니다 체)"},
-    {"term": "핵심 용어·성분·개념 3", "desc": "누구나 이해하기 쉬운 1~2문장 명쾌한 해설 (~합니다 체)"},
-    {"term": "핵심 용어·성분·개념 4", "desc": "누구나 이해하기 쉬운 1~2문장 명쾌한 해설 (~합니다 체)"}
+    {"term": "핵심 용어·트렌드·제품 개념 1", "desc": "누구나 이해하기 쉬운 1~2문장 명쾌한 해설 (~합니다 체)"},
+    {"term": "핵심 용어·트렌드·제품 개념 2", "desc": "누구나 이해하기 쉬운 1~2문장 명쾌한 해설 (~합니다 체)"},
+    {"term": "핵심 용어·트렌드·제품 개념 3", "desc": "누구나 이해하기 쉬운 1~2문장 명쾌한 해설 (~합니다 체)"},
+    {"term": "핵심 용어·트렌드·제품 개념 4", "desc": "누구나 이해하기 쉬운 1~2문장 명쾌한 해설 (~합니다 체)"}
   ],
   "faqs": [
-    {"q": "Q1. 사람들이 실제로 검색창에 물어볼 법한 구어체 자연어 질문 (~나요? / ~무엇인가요?)", "a": "구체적인 수치·성분·고유명사가 담긴 2~3문장 완결형 답변 (~합니다 체)"}
+    {"relatedSection": 1, "q": "Q1. [1단락 도입·배경 문맥] 독자가 검색창에 물어볼 자연어 질문 (~나요?)", "a": "1단락 내용에 기반한 구체적인 2~3문장 완결형 답변 (~합니다 체)"},
+    {"relatedSection": 2, "q": "Q2. [2단락 주요 브랜드·신메뉴 문맥] 자연어 질문 (~나요?)", "a": "2단락 내용에 기반한 구체적인 2~3문장 완결형 답변 (~합니다 체)"},
+    {"relatedSection": 2, "q": "Q3. [2~3단락 세부 메뉴·제품 특징 문맥] 자연어 질문 (~나요?)", "a": "2~3단락 내용에 기반한 구체적인 2~3문장 완결형 답변 (~합니다 체)"},
+    {"relatedSection": 3, "q": "Q4. [3단락 브랜드 비교·혜택 문맥] 자연어 질문 (~나요?)", "a": "3단락 내용에 기반한 구체적인 2~3문장 완결형 답변 (~합니다 체)"},
+    {"relatedSection": 4, "q": "Q5. [4단락 구매·이용 팁 문맥] 자연어 질문 (~나요?)", "a": "4단락 내용에 기반한 구체적인 2~3문장 완결형 답변 (~합니다 체)"}
   ],
   "fanoutQuestions": [
     {"category": "핵심특징·비교", "q": "'${keyword}'에 대해 독자가 추가로 가장 궁금해할 구체적인 꼬리 질문 1 (~나요?)", "a": "구체적인 팩트 기반 답변 1~2문장 (~합니다 체)"},
@@ -741,12 +781,84 @@ ${newsContext || '매칭된 언론 보도 기사가 0건입니다! 가상(AI 생
     : fallbackCat.recommendedCategory;
   const pickedCatReason = (parsed.mkCategoryReason || '').trim() || fallbackCat.categoryReason;
 
+  // 헤드라인 후보 40자 이내 자동 보정 및 초과분 한줄 소제목 분리
+  let rawSubtitle = normalizeNewlines(parsed.subtitle || baseScenario.summaryBlocks.subtitle).trim();
+  const rawTitleCandidates = Array.isArray(parsed.titleCandidates) && parsed.titleCandidates.length > 0
+    ? parsed.titleCandidates
+    : baseScenario.titleCandidates;
+  const titleCandidates = rawTitleCandidates.map((tc, idx) => {
+    const cleanT = normalizeNewlines(tc.title || '').trim();
+    if (cleanT.length > MAX_HEADLINE_CHARS) {
+      const splitRes = splitLongHeadlineToSubtitle(cleanT, idx === 0 ? rawSubtitle : '', MAX_HEADLINE_CHARS);
+      if (idx === 0 && splitRes.subtitle) {
+        rawSubtitle = splitRes.subtitle;
+      }
+      return {
+        ...tc,
+        id: tc.id || `tc-${idx + 1}`,
+        title: splitRes.headline,
+        overflowSubtitle: splitRes.overflowText || ''
+      };
+    }
+    return {
+      ...tc,
+      id: tc.id || `tc-${idx + 1}`,
+      title: cleanT
+    };
+  });
+
+  // FAQ 본문 문맥 순서(relatedSection 1 -> 2 -> 3 -> 4) 정렬 및 번호 재부여
+  const rawFaqs = Array.isArray(parsed.faqs) && parsed.faqs.length > 0
+    ? parsed.faqs.map((f, i) => {
+        const cleanQ = normalizeNewlines(f.q || '').replace(/^Q\d+\.\s*/i, '').trim();
+        const cleanA = normalizeNewlines(f.a || '').trim();
+        let relSec = Number(f.relatedSection) || 0;
+        if (!relSec || relSec < 1 || relSec > draftSections.length) {
+          // 본문 단락과의 어휘 유사도로 문맥 단락 자동 매칭
+          const qaTokens = `${cleanQ} ${cleanA}`.replace(/[^\w가-힣\s]/g, ' ').split(/\s+/).filter(w => w.length >= 2);
+          let bestSecIdx = Math.min(draftSections.length, Math.floor((i / Math.max(1, parsed.faqs.length)) * draftSections.length) + 1);
+          let bestScore = -1;
+          draftSections.forEach((sec, sIdx) => {
+            const secText = `${sec.title || ''} ${sec.content || ''}`;
+            let score = 0;
+            qaTokens.forEach(tk => {
+              if (secText.includes(tk)) score += 1;
+            });
+            if (score > bestScore) {
+              bestScore = score;
+              bestSecIdx = sIdx + 1;
+            }
+          });
+          relSec = bestSecIdx;
+        }
+        return {
+          q: cleanQ,
+          a: cleanA,
+          relatedSection: relSec,
+          origIdx: i
+        };
+      })
+    : (baseScenario.summaryBlocks.faqs || []).map((f, i) => ({
+        q: String(f.q || '').replace(/^Q\d+\.\s*/i, '').trim(),
+        a: String(f.a || '').trim(),
+        relatedSection: Number(f.relatedSection) || Math.min(draftSections.length || 4, Math.floor(i / 2) + 1),
+        origIdx: i
+      }));
+
+  const sortedFaqs = rawFaqs
+    .sort((a, b) => (a.relatedSection - b.relatedSection) || (a.origIdx - b.origIdx))
+    .map((f, i) => ({
+      q: `Q${i + 1}. ${f.q}`,
+      a: f.a,
+      relatedSection: f.relatedSection
+    }));
+
   const summaryBlocks = {
     ...baseScenario.summaryBlocks,
     mkCategory: pickedCategory,
     mkCategoryReason: pickedCatReason,
     byline: `${pickedCategory} | 남궁선희 기자 | 입력 ${new Date().toISOString().slice(0, 10).replace(/-/g, '.')} 10:00`,
-    subtitle: normalizeNewlines(parsed.subtitle || baseScenario.summaryBlocks.subtitle).trim(),
+    subtitle: rawSubtitle,
     aiFactSummary: Array.isArray(parsed.aiFactSummary) && parsed.aiFactSummary.length > 0
       ? parsed.aiFactSummary.map(s => normalizeNewlines(s).trim())
       : baseScenario.summaryBlocks.aiFactSummary,
@@ -764,12 +876,7 @@ ${newsContext || '매칭된 언론 보도 기사가 0건입니다! 가상(AI 생
           desc: normalizeNewlines(g.desc || '').trim()
         })).filter(g => g.term && g.desc)
       : (baseScenario.summaryBlocks.glossary || []),
-    faqs: Array.isArray(parsed.faqs) && parsed.faqs.length > 0
-      ? parsed.faqs.map((f, i) => ({
-          q: /^Q\d+\./i.test((f.q || '').trim()) ? normalizeNewlines(f.q).trim() : `Q${i + 1}. ${normalizeNewlines(f.q || '').trim()}`,
-          a: normalizeNewlines(f.a || '').trim()
-        }))
-      : baseScenario.summaryBlocks.faqs,
+    faqs: sortedFaqs,
     fanoutQuestions: Array.isArray(parsed.fanoutQuestions) && parsed.fanoutQuestions.length > 0
       ? parsed.fanoutQuestions.map((fq, i) => ({
           id: `fq-pplx-${i + 1}`,
@@ -781,10 +888,6 @@ ${newsContext || '매칭된 언론 보도 기사가 0건입니다! 가상(AI 생
     closingParagraph: normalizeNewlines(parsed.closingParagraph || baseScenario.summaryBlocks.closingParagraph || '').trim(),
     oneLineSummary: normalizeNewlines(parsed.oneLineSummary || baseScenario.summaryBlocks.oneLineSummary).trim()
   };
-
-  const titleCandidates = Array.isArray(parsed.titleCandidates) && parsed.titleCandidates.length > 0
-    ? parsed.titleCandidates
-    : baseScenario.titleCandidates;
 
   const parsedFv = parsed.factVerification || {};
   const finalFactVerification = preFactCheck.isWarning
@@ -1052,7 +1155,7 @@ async function fetchLiveTrendRadar() {
   };
 }
 
-function createWorkObject({ id, typeId, keyword, company, url, rawText, scenario }) {
+function createWorkObject({ id, typeId, keyword, company, subKeywords = '', direction = '', url, rawText, scenario }) {
   const nowStr = new Date().toISOString().slice(0, 16).replace('T', ' ');
   return {
     id: id || 'work-' + Date.now(),
@@ -1061,6 +1164,8 @@ function createWorkObject({ id, typeId, keyword, company, url, rawText, scenario
     keyword,
     inputUrl: url || '',
     inputCompany: company || '',
+    inputSubKeywords: subKeywords || '',
+    inputDirection: direction || '',
     rawText: rawText || '',
     typeId: Number(typeId) || scenario.recommendedType || 2,
     createdAt: new Date().toISOString(),
@@ -1326,11 +1431,13 @@ const requestHandler = async (req, res) => {
       const rawKeyword = (body.keyword || CONTENT_TYPES[Number(body.typeId) || 4]?.exampleKeyword || '최신 트렌드').trim();
       const keyword = cleanTrendTopicKeyword(rawKeyword);
       const company = extractBrandFromTopic(keyword, (body.company || '').trim());
+      const subKeywords = (body.subKeywords || '').trim();
+      const direction = (body.direction || '').trim();
       const url = (body.url || '').trim();
       const rawText = (body.rawText || '').trim();
       const autoMatchType = Boolean(body.autoMatchType) || isVirtualIdolQuery(keyword, company);
       const requestedType = Number(body.typeId) || 4;
-      const typeId = autoMatchType ? detectBestContentType(keyword, company, rawText, requestedType) : requestedType;
+      const typeId = autoMatchType ? detectBestContentType(keyword, company, `${rawText} ${direction} ${subKeywords}`, requestedType) : requestedType;
 
       let scenario;
       let liveCount = 0;
@@ -1350,6 +1457,8 @@ const requestHandler = async (req, res) => {
         const baseScenario = buildDynamicWorkFromNews({
           keyword,
           company,
+          subKeywords,
+          direction,
           url,
           rawText,
           typeId,
@@ -1362,6 +1471,8 @@ const requestHandler = async (req, res) => {
               apiKey,
               keyword,
               company,
+              subKeywords,
+              direction,
               url,
               rawText,
               typeId,
@@ -1382,6 +1493,8 @@ const requestHandler = async (req, res) => {
         typeId,
         keyword,
         company,
+        subKeywords,
+        direction,
         url,
         rawText,
         scenario
@@ -1433,11 +1546,13 @@ const requestHandler = async (req, res) => {
       const current = db.works[idx];
       const keyword = cleanTrendTopicKeyword((body.keyword || current.keyword).trim());
       const company = extractBrandFromTopic(keyword, (body.company !== undefined ? body.company : current.inputCompany || '').trim());
+      const subKeywords = (body.subKeywords !== undefined ? body.subKeywords : current.inputSubKeywords || '').trim();
+      const direction = (body.direction !== undefined ? body.direction : current.inputDirection || '').trim();
       const url = (body.url !== undefined ? body.url : current.inputUrl || '').trim();
       const rawText = (body.rawText !== undefined ? body.rawText : current.rawText || '').trim();
       const autoMatch = Boolean(body.autoMatchType) || isVirtualIdolQuery(keyword, company) || keyword !== current.keyword;
       const rawTypeId = Number(body.typeId || current.typeId || 4);
-      const typeId = autoMatch ? detectBestContentType(keyword, company, rawText, rawTypeId) : rawTypeId;
+      const typeId = autoMatch ? detectBestContentType(keyword, company, `${rawText} ${direction} ${subKeywords}`, rawTypeId) : rawTypeId;
       const rebuildDraft = Boolean(body.rebuildDraft);
 
       const searchQuery = company && !keyword.includes(company.split(',')[0].trim())
@@ -1453,6 +1568,8 @@ const requestHandler = async (req, res) => {
         const baseScenario = buildDynamicWorkFromNews({
           keyword,
           company,
+          subKeywords,
+          direction,
           url,
           rawText,
           typeId,
@@ -1465,6 +1582,8 @@ const requestHandler = async (req, res) => {
               apiKey,
               keyword,
               company,
+              subKeywords,
+              direction,
               url,
               rawText,
               typeId,
@@ -1480,6 +1599,8 @@ const requestHandler = async (req, res) => {
           ...current,
           keyword,
           inputCompany: company,
+          inputSubKeywords: subKeywords,
+          inputDirection: direction,
           inputUrl: url,
           rawText,
           typeId,

@@ -11,6 +11,9 @@
     paraphraseNewsToMkFact,
     cleanTrendTopicKeyword,
     extractBrandFromTopic,
+    splitKeywordIntoBrandsAndTopic,
+    splitLongHeadlineToSubtitle,
+    MAX_HEADLINE_CHARS,
     inspectTopicFactVerification,
     isVirtualIdolQuery,
     getVirtualIdolScenario,
@@ -49,6 +52,8 @@
     homeInput: {
       keyword: '',
       company: '',
+      subKeywords: '',
+      direction: '',
       url: '',
       rawText: '',
       typeId: 4
@@ -263,6 +268,7 @@
   function repairUnescapedQuotesClient(raw = '') {
     let out = '';
     let inStr = false;
+    let insideInnerQuote = false;
     let escaped = false;
     const len = raw.length;
     for (let i = 0; i < len; i++) {
@@ -280,6 +286,7 @@
       if (ch === '"') {
         if (!inStr) {
           inStr = true;
+          insideInnerQuote = false;
           out += ch;
         } else {
           let j = i + 1;
@@ -287,11 +294,25 @@
             j++;
           }
           const nextChar = raw[j];
+          if (insideInnerQuote && nextChar === ',') {
+            let k = j + 1;
+            while (k < len && (raw[k] === ' ' || raw[k] === '\t' || raw[k] === '\r' || raw[k] === '\n')) {
+              k++;
+            }
+            const restAfterComma = raw.slice(k, k + 40);
+            if (!/^"[a-zA-Z0-9_]+\s*":/.test(restAfterComma)) {
+              insideInnerQuote = false;
+              out += '”';
+              continue;
+            }
+          }
           if (nextChar === ':' || nextChar === ',' || nextChar === '}' || nextChar === ']' || j >= len) {
             inStr = false;
+            insideInnerQuote = false;
             out += ch;
           } else {
-            out += '“';
+            out += insideInnerQuote ? '”' : '“';
+            insideInnerQuote = !insideInnerQuote;
           }
         }
         continue;
@@ -454,7 +475,7 @@
             { role: 'system', content: systemPrompt },
             { role: 'user', content: userPrompt }
           ],
-          max_tokens: 4096,
+          max_tokens: 8000,
           temperature: 0.2
         })
       });
@@ -556,19 +577,28 @@
     return parsed;
   }
 
-  async function buildClientPerplexityEnhancedScenario({ apiKey, keyword: rawKeyword, company: rawCompany, url, rawText, typeId, baseScenario }) {
+  async function buildClientPerplexityEnhancedScenario({ apiKey, keyword: rawKeyword, company: rawCompany, subKeywords = '', direction = '', url, rawText, typeId, baseScenario }) {
     const keyword = cleanTrendTopicKeyword ? cleanTrendTopicKeyword(rawKeyword) : String(rawKeyword || '').trim();
     const company = extractBrandFromTopic ? extractBrandFromTopic(keyword, rawCompany) : String(rawCompany || '').trim();
     if (isVirtualIdolQuery && isVirtualIdolQuery(keyword, company)) {
       const vi = getVirtualIdolScenario(keyword);
       return { ...vi, usedPerplexity: true };
     }
+    const parsedTopic = splitKeywordIntoBrandsAndTopic
+      ? splitKeywordIntoBrandsAndTopic(keyword, company, subKeywords)
+      : { brands: company ? company.split(',').map(s => s.trim()).filter(Boolean) : [], coreTopic: keyword, explicitSubs: [] };
+    const brandList = parsedTopic.brands || [];
+    const coreTopicText = parsedTopic.coreTopic || keyword;
+    const subKwList = parsedTopic.explicitSubs || [];
+    const cleanDirection = String(direction || '').trim();
+    const maxHeadlineLimit = MAX_HEADLINE_CHARS || 40;
+
     const tInfo = CONTENT_TYPES[typeId] || CONTENT_TYPES[4];
     const typeInstructions = {
       1: '유형 1(파트너사·서비스 비교 기획 콘텐츠): 선택된 유형의 틀에 억지로 끼워 맞추지 말고, 검색된 최신 뉴스 팩트를 바탕으로 1단락은 소비자 핵심 고민과 최신 트렌드 배경, 2~3단락은 실제 기업·서비스의 핵심 혜택과 차별점을 실명으로 분석(절대 브랜드 A/B/C 같은 가상 알파벳 표기 금지!), 마지막 단락은 선택 체크포인트 제시. 요약표는 비교표, 용어 사전 4~5개, FAQ는 7문항.',
       2: '유형 2(시즌·기념일·주요 일정 맞춤형 콘텐츠): 절대로 모든 주제를 "왜 하필 이날로 지정됐을까 / 정부24 바우처 / 브랜드 A~E" 같은 기계적인 틀에 억지로 끼워 맞추지 마세요! 입력된 단일 키워드(예: 수능, 빼빼로데이, 가래떡데이, 한우데이, 임산부의 날 등)의 실제 성격과 최신 뉴스 보도에 100% 맞춰, 그 주제의 핵심 이슈·일정·실제 기업 프로모션·독자 체크포인트를 가장 자연스러운 소제목과 단락으로 구성하세요. (가상 알파벳 브랜드 A/B/C 절대 금지!) 요약표는 핵심 비교표, 용어 사전 4~5개, FAQ는 5문항.',
       3: '유형 3(최신 트렌드·이슈 심층 분석 콘텐츠 1): 선택된 유형의 틀에 억지로 끼워 맞추지 말고, 최신 뉴스 검색 결과를 바탕으로 1단락은 독자의 공감을 깨우는 질문 리드와 왜 지금 이 키워드·이슈가 부상했는지 배경 분석, 2~3단락은 최신 보도된 핵심 소재·사례·수치·시장 파급력을 자연스럽게 심층 분석(일반 주제는 절대 억지 연도별 타임라인 금지), 마지막 단락은 실전 가이드와 전망 제시. 요약표는 비교표, 용어 사전 4~5개, FAQ 5문항.',
-      4: '유형 4(최신 트렌드·라이프스타일·뷰티·유통 콘텐츠 2): 선택된 유형의 틀에 억지로 끼워 맞추지 말고, 입력된 키워드의 최신 뉴스와 실제 출시·진행 팩트를 검색하여 1단락은 소비자 관심 배경과 핵심 트렌드 정의, 2~3단락은 실제 브랜드·아이템·신메뉴의 구체적 특징·수치·인기 요인을 집중 분석, 마지막 단락은 똑똑한 선택법 및 실생활 활용 팁 정리. 요약표는 비교표, 용어 사전 4~5개, FAQ는 5문항.',
+      4: '유형 4(최신 트렌드·신메뉴·신상품·라이프스타일 콘텐츠 2): 선택된 유형의 틀에 억지로 끼워 맞추지 말고, 입력된 키워드의 최신 뉴스와 실제 출시·진행 팩트를 검색하여 1단락은 소비자 관심 배경과 핵심 트렌드 정의, 2~3단락은 각 브랜드·아이템·신메뉴의 실제 명칭과 가격·특징·인기 요인을 구체적으로 소개, 마지막 단락은 똑똑한 선택법 및 실생활 활용 팁 정리. 요약표는 비교표, 용어 사전 4~5개, FAQ는 5문항.',
       5: '유형 5(영업 기업 맞춤 기획 콘텐츠): 1단락은 독자 질문 도입 1문단 뒤 Q1~Q4 시장 메가 트렌드·페인포인트 문답, 2단락은 Q5~Q6 선택 기준 문답, 3단락은 Q7 영업 타깃 기업 집중 소개. 요약표는 요약표, 용어 사전 4~5개, FAQ는 7문항.'
     };
     const faqCount = (typeId === 1 || typeId === 5) ? 7 : 5;
@@ -580,7 +610,7 @@
     const todayStr = new Date().toISOString().slice(0, 10);
     const sys = `당신은 매일경제 MK Pick(GEO·AEO 최적화 매거진형 심층 기사) 수석 에디터이자 실시간 뉴스 팩트체크 데스크입니다.
 반드시 web_search 도구를 실행하여 오늘(${todayStr}) 기준으로 '${keyword}' 관련 **가장 최신 보도된 한국 뉴스 기사들(오늘·최근 24시간~7일 이내 최신순)**을 검색하고, 과거 초기 보도에 머물지 말고 **가장 최근의 후속 보도·최신 조회수/판매량 수치·실제 출시 메뉴/광고 근황**까지 기사 본문과 취재 팩트 메모장(researchFacts)에 100% 반영하세요!
-타 언론사 기사의 문장을 절대 그대로 베끼지 말고, 수치·브랜드명·성분·출시일 등 핵심 팩트만 추출하여 모든 본문과 답변을 매일경제 고유의 정중하고 생동감 있는 "~합니다/습니다" 체로 작성하세요.
+타 언론사 기사의 문장을 절대 그대로 베끼지 말고, 수치·브랜드명·신메뉴명·성분·출시일 등 핵심 팩트만 추출하여 모든 본문과 답변을 매일경제 고유의 정중하고 생동감 있는 "~합니다/습니다" 체로 작성하세요.
 [절대 준수 작성 원칙]
 0) [가장 중요 · 0순위 원칙] 실제 공식 출시·언론 보도 여부 팩트체크 및 가상(AI 생성) 밈·루머 엄격 판별 (절대 준수!):
    - 기사를 작성하기 전에 입력된 키워드('${keyword}')가 **실제 기업·브랜드가 정식 출시·발표하고 언론에 보도된 실제 제품·트렌드**인지, 아니면 **유튜브 쇼츠·틱톡·릴스 등 SNS에서 인공지능(AI) 합성이나 상상력으로 만들어진 '가상(AI 생성) 밈·합성 콘텐츠·루머'**(예: 실제 정식 출시된 적 없는 '한정선 마이쮸 콜라보 찹쌀떡' 등)인지 실시간 웹 검색을 통해 반드시 먼저 검증하세요!
@@ -589,29 +619,36 @@
      ② 반드시 JSON의 \`factVerification.verdict\`를 \`"AI_MEME_OR_VIRTUAL"\` (또는 보도 미확인 시 \`"UNVERIFIED_VIRAL"\`), \`factVerification.isWarning\`을 \`true\`로 설정하세요.
      ③ 기사 제목(\`titleCandidates\`), \`aiFactSummary\`(3줄 요약), 본문(\`draftSections\`) 첫 단락에서 **"해당 화제 키워드는 실제 정식 출시된 제품이 아니라 SNS·숏폼에서 확산된 가상(AI 생성) 밈·콘텐츠"**라는 사실을 명확히 팩트체크해 바로잡고, 대신 **실제 존재하는 원조 브랜드(예: 더현대서울 등에서 판매되는 '한정선' 생과일 찹쌀떡 등)의 진짜 정식 메뉴와 검증된 시장 트렌드 팩트**를 중심으로 설명하세요.
    - 실제 정식 출시·공식 발표 및 언론 보도가 확인된 정상적인 주제라면 \`factVerification.verdict\`를 \`"VERIFIED_FACT"\`, \`factVerification.isWarning\`을 \`false\`로 설정하고 확인된 공식 팩트 요약을 적어주세요.
-1) 선택된 유형의 틀에 억지로 끼워 맞추기 절대 금지 & 가상 알파벳 브랜드(브랜드 A, B) 절대 금지!:
-   - 입력된 키워드(${keyword})의 실제 성격(예: 수능·입시, 식음료 신메뉴, 유통 할인전, 뷰티·스킨케어, IT, 문화 트렌드 등)과 최신 뉴스 검색 결과에 100% 맞춰 가장 자연스러운 소제목과 3~4개 본문 단락(draftSections)을 구성하세요.
-   - 예를 들어 '수능'을 입력했는데 억지로 '특정 기념일 지정 유래 / 정부24 바우처' 틀에 끼워 맞추거나, 실제 기업명 대신 '브랜드 A', '브랜드 B' 같은 가상 명칭을 쓰는 행위를 절대 금지합니다!
-2) 유튜브·SNS 구어체 제목 및 오탈자 자동 정제 원칙 (절대 준수!):
-   - 입력된 키워드에 유튜버의 감탄사·수식어(예: '과즙 넘치는', '과즙미 가득한', '먹어봄', '미친 가성비', '다이소깡' 등)나 오탈자(예: '찹살떡', '찹살덕' → '찹쌀떡')가 포함되어 있더라도, 기사 제목·본문·요약표·FAQ에서는 절대 유튜버의 수식어나 오탈자를 그대로 반복하지 마세요!
-   - 반드시 언론 보도와 공식 발표로 검증된 **실제 핵심 브랜드·기업**과 **정확한 공식 제품명·트렌드 배경**을 중심으로 전문적인 매일경제 기사를 작성하세요.
-3) 취재 팩트 메모장(researchFacts 6건)과 본문 단락(draftSections) 간의 1:1 반영 위치(usedInSection) 명시:
-   - 웹 검색(web_search) 결과에서 확인된 **가장 최근 보도된 실제 뉴스 기사 6건(최신순)**을 기반으로 \`researchFacts\`를 작성하고, 각 팩트가 본문 몇 번째 단락(\`draftSections\`의 1~4번 중 어디)에 반영되었는지 \`"usedInSection": 1\`(숫자 1~4) 필드에 정확히 표기하세요. 또한 해당 팩트의 핵심 내용·수치가 실제로 그 단락 본문(\`draftSections[usedInSection-1].content\`) 안에 자연스럽게 포함되도록 작성하세요!
+1) [편집자 기획 의도·방향 및 서브 키워드 최우선 반영]:
+   - 편집자가 입력한 **'원하는 글의 방향·맥락'(${cleanDirection || '최신 언론 보도 및 실제 출시 제품·신메뉴 심층 소개'})**과 **'서브 키워드'(${subKwList.length > 0 ? subKwList.join(', ') : '핵심 연관 포인트'})**가 있다면, 반드시 기사 제목·소제목·본문 단락·비교표·FAQ 전체가 그 기획 의도와 서브 키워드를 중심으로 전개되도록 맞춤 작성하세요!
+2) [복합·다중 브랜드 키워드('${keyword}') 정밀 분석 및 실제 신메뉴·제품 소개 원칙]:
+   - '이디야, 맘스터치, 메가커피 푸드 스낵 신메뉴 강화'처럼 **여러 브랜드(${brandList.join(', ') || '주요 브랜드'}) + 핵심 주제('${coreTopicText}')**가 결합된 문장형 키워드가 입력된 경우, 절대로 문장 뒷부분('푸드 스낵 신메뉴 강화' 등)을 또 하나의 브랜드나 제품 이름인 것처럼 쪼개서 표에 넣지 마세요!
+   - 반드시 웹 검색을 통해 등장하는 **각 브랜드(${brandList.join(', ') || '해당 브랜드들'})가 실제로 출시한 대표 신메뉴·신상품의 정확한 이름, 가격·구성, 특징**을 각각 구체적으로 찾아 본문 단락과 비교 요약표(summaryTable)에 1:1로 소개하세요.
+3) [메인 화면 노출용 헤드라인 글자수 제한 (최대 ${maxHeadlineLimit}자 이내 필수!)]:
+   - MK Pick 메인 화면 카드에 노출될 때 제목이 2줄을 넘어 잘리지 않도록, 모든 \`titleCandidates\`의 \`title\`은 **공백 포함 28~38자 이내(절대 최대 ${maxHeadlineLimit}자 이하!)**로 간결하고 임팩트 있게 작성하세요!
+   - 제목에 다 담지 못한 부연 설명은 \`subtitle\`(한줄 소제목)에 담아주세요.
+4) [FAQ 본문 문맥 순서(단락 1 → 단락 2 → 단락 3 → 단락 4) 완벽 정렬]:
+   - \`faqs\` 배열의 질문(Q1~Q${faqCount})은 반드시 **본문(\`draftSections\`) 1단락부터 마지막 단락까지의 문맥 흐름 순서 그대로** 배치하고, 각 FAQ 항목마다 본문 몇 번째 단락(1~4)과 연결되는지 \`"relatedSection": 1\` ~ \`4\` 숫자를 명시하세요!
+5) 취재 팩트 메모장(researchFacts 6건)과 본문 단락(draftSections) 간의 1:1 반영 위치(usedInSection) 명시:
+   - 웹 검색(web_search) 결과에서 확인된 **가장 최근 보도된 실제 뉴스 기사 6건(최신순)**을 기반으로 \`researchFacts\`를 작성하고, 각 팩트가 본문 몇 번째 단락(\`draftSections\`의 1~4번 중 어디)에 반영되었는지 \`"usedInSection": 1\`(숫자 1~4) 필드에 정확히 표기하세요.
    - 각 항목의 \`sourceUrl\`에는 검색 결과에 나온 **해당 개별 기사의 정확한 원문 링크(https://...)**를 그대로 넣으세요.
-4) 팬아웃 추천 질문(fanoutQuestions) 작성 시 절대 주의:
-   - 반드시 현재 키워드('${keyword}'${company ? `, '${company}'` : ''})의 실제 품목·서비스·특징에 100% 맞춘 구체적인 심화 질문 6개를 작성하세요.`;
+6) JSON 문자열 내부에 큰따옴표를 쓸 때는 반드시 유니코드 겹따옴표(“…”)나 작은따옴표('…')만 사용하여 JSON 파싱 오류가 절대 발생하지 않도록 하세요.`;
 
     const usr = `[작성 요청 정보]
 - 기준 일자: ${todayStr} (가장 최근 보도된 최신 뉴스·후속 보도 최우선 반영!)
-- 키워드/주제: ${keyword}
-- 타깃 기업/브랜드(선택): ${company || '관련 주요 브랜드·제품'}
+- 메인 키워드/주제: ${keyword}
+- 식별된 핵심 브랜드(${brandList.length}개): ${brandList.join(', ') || company || '관련 주요 브랜드·제품'}
+- 핵심 세부 주제: ${coreTopicText}
+- 서브 키워드(선택): ${subKwList.length > 0 ? subKwList.join(', ') : '없음 (주제에 맞는 핵심 세부 키워드 자동 반영)'}
+- 편집자가 원하는 글의 방향·맥락(기획 의도): ${cleanDirection || '최신 언론 보도와 실제 출시된 제품·신메뉴·프로모션 팩트를 중심으로 독자에게 유익한 정보 제공'}
 - 참고 URL: ${url || '없음'}
 - 추가 보도자료/메모: ${rawText || '없음'}
 - 선택된 콘텐츠 유형(참고 가이드): ${tInfo.shortName} (${tInfo.desc})
 - 구성 지침(틀에 억지로 끼워 맞추지 말고 키워드 맞춤형으로 작성): ${typeInstructions[typeId] || typeInstructions[4]}
 - 사전 팩트체크 시스템 진단(${preFactCheck.verdict}): ${preFactCheck.summary}
 
-아래 JSON 스키마에 맞춰 주제('${keyword}')의 실제 공식 출시·언론 보도 진위를 먼저 검증(factVerification)하고, 가장 최신 뉴스 팩트를 반영해 한국어로 작성하세요 (JSON 문자열 내부에서 인용구를 쓸 때는 반드시 유니코드 겹따옴표 “ ” 또는 작은따옴표 ' '를 사용하세요):
+아래 JSON 스키마에 맞춰 주제('${keyword}')의 실제 공식 출시·언론 보도 진위를 먼저 검증(factVerification)하고, 편집자의 기획 방향(${cleanDirection || '최신 팩트 중심'})과 서브 키워드(${subKwList.join(', ') || '핵심 포인트'})를 충실히 반영해 한국어로 작성하세요.
+⚠️ 특히 모든 \`titleCandidates\`의 \`title\`은 메인 화면에서 잘리지 않도록 **반드시 공백 포함 ${maxHeadlineLimit}자 이내(권장 30~38자)**로 작성하고, \`faqs\`는 본문 1단락→4단락 문맥 순서대로 작성하세요:
 {
   "factVerification": {
     "verdict": "VERIFIED_FACT(공식 출시·언론 보도 확인) | AI_MEME_OR_VIRTUAL(가상·AI 생성 밈/정식 미출시) | UNVERIFIED_VIRAL(공식 보도 미확인 주의) 중 택 1",
@@ -622,52 +659,55 @@
   "mkCategory": "산업 Q&A | 제품·기술 | 성공사례 | 기업뉴스 | 브랜드스토리(기업관) 중 택 1",
   "mkCategoryReason": "이 기사에 해당 MK Pick 카테고리를 추천한 이유 1문장 (~합니다 체)",
   "titleCandidates": [
-    {"id": "tc-1", "title": "“큰따옴표 인용구”…핵심 키워드 포함 설명형 제목", "totalScore": 96},
-    {"id": "tc-2", "title": "“큰따옴표 인용구”…설명형 제목 2", "totalScore": 93},
-    {"id": "tc-3", "title": "“큰따옴표 인용구”…설명형 제목 3", "totalScore": 90},
-    {"id": "tc-4", "title": "“큰따옴표 인용구”…설명형 제목 4", "totalScore": 88},
-    {"id": "tc-5", "title": "“큰따옴표 인용구”…설명형 제목 5", "totalScore": 85}
+    {"id": "tc-1", "title": "“공백 포함 38자 이내 헤드라인”…핵심 키워드 요약", "totalScore": 96},
+    {"id": "tc-2", "title": "“공백 포함 38자 이내 헤드라인”…설명형 제목 2", "totalScore": 93},
+    {"id": "tc-3", "title": "“공백 포함 38자 이내 헤드라인”…설명형 제목 3", "totalScore": 90},
+    {"id": "tc-4", "title": "“공백 포함 38자 이내 헤드라인”…설명형 제목 4", "totalScore": 88},
+    {"id": "tc-5", "title": "“공백 포함 38자 이내 헤드라인”…설명형 제목 5", "totalScore": 85}
   ],
   "researchFacts": [
-    {"category": "최신 보도 핵심 팩트", "sourceTitle": "[언론사명 · YYYY-MM-DD] 가장 최근 보도된 실제 뉴스 제목 1", "sourceUrl": "웹 검색 결과에 있는 해당 기사의 실제 원문 URL (https://...)", "pubDate": "YYYY-MM-DD", "usedInSection": 1, "fact": "본문 1단락에 반영된 가장 최신 수치(조회수, 출시일 등)와 근황이 포함된 ~합니다 체 취재 팩트 문장 1"},
+    {"category": "최신 보도 핵심 팩트", "sourceTitle": "[언론사명 · YYYY-MM-DD] 가장 최근 보도된 실제 뉴스 제목 1", "sourceUrl": "웹 검색 결과에 있는 해당 기사의 실제 원문 URL (https://...)", "pubDate": "YYYY-MM-DD", "usedInSection": 1, "fact": "본문 1단락에 반영된 가장 최신 수치와 근황이 포함된 ~합니다 체 취재 팩트 문장 1"},
     {"category": "후속 반응 · 최신 근황", "sourceTitle": "[언론사명 · YYYY-MM-DD] 최신 후속 보도 제목 2", "sourceUrl": "웹 검색 결과에 있는 해당 기사의 실제 원문 URL (https://...)", "pubDate": "YYYY-MM-DD", "usedInSection": 1, "fact": "본문 1~2단락에 반영된 최신 후속 반응·인터뷰·비하인드가 포함된 ~합니다 체 취재 팩트 문장 2"},
-    {"category": "브랜드 · 신메뉴/제품 특징", "sourceTitle": "[언론사명 · YYYY-MM-DD] 공식 출시 메뉴·제품 특징 보도 제목 3", "sourceUrl": "웹 검색 결과에 있는 해당 기사의 실제 원문 URL (https://...)", "pubDate": "YYYY-MM-DD", "usedInSection": 2, "fact": "본문 2단락에 반영된 구체적인 제품·세트 구성·원재료·차별점이 포함된 ~합니다 체 취재 팩트 문장 3"},
-    {"category": "소비자 · SNS 확산 배경", "sourceTitle": "[언론사명 · YYYY-MM-DD] 2030 소비자 및 숏폼 화제성 보도 제목 4", "sourceUrl": "웹 검색 결과에 있는 해당 기사의 실제 원문 URL (https://...)", "pubDate": "YYYY-MM-DD", "usedInSection": 2, "fact": "본문 2~3단락에 반영된 SNS·유튜브 쇼츠 확산 이유와 소비자 반응이 포함된 ~합니다 체 취재 팩트 문장 4"},
-    {"category": "유통 · 프로모션 동향", "sourceTitle": "[언론사명 · YYYY-MM-DD] 매장·판매처·광고 협업 보도 제목 5", "sourceUrl": "웹 검색 결과에 있는 해당 기사의 실제 원문 URL (https://...)", "pubDate": "YYYY-MM-DD", "usedInSection": 3, "fact": "본문 3단락에 반영된 판매 채널·광고 협업·프로모션 동향이 포함된 ~합니다 체 취재 팩트 문장 5"},
-    {"category": "가격 · 구성 및 이용 팁", "sourceTitle": "[언론사명 · YYYY-MM-DD] 가격·구성·구매 가이드 보도 제목 6", "sourceUrl": "웹 검색 결과에 있는 해당 기사의 실제 원문 URL (https://...)", "pubDate": "YYYY-MM-DD", "usedInSection": 4, "fact": "본문 마지막 단락에 반영된 가격·구성·이용 시 참고할 점이 포함된 ~합니다 체 취재 팩트 문장 6"}
+    {"category": "브랜드 · 신메뉴/제품 특징 1", "sourceTitle": "[언론사명 · YYYY-MM-DD] 공식 출시 메뉴·제품 특징 보도 제목 3", "sourceUrl": "웹 검색 결과에 있는 해당 기사의 실제 원문 URL (https://...)", "pubDate": "YYYY-MM-DD", "usedInSection": 2, "fact": "본문 2단락에 반영된 구체적인 실제 신메뉴·제품명·가격·차별점이 포함된 ~합니다 체 취재 팩트 문장 3"},
+    {"category": "브랜드 · 신메뉴/제품 특징 2", "sourceTitle": "[언론사명 · YYYY-MM-DD] 브랜드별 신메뉴·차별화 포인트 보도 제목 4", "sourceUrl": "웹 검색 결과에 있는 해당 기사의 실제 원문 URL (https://...)", "pubDate": "YYYY-MM-DD", "usedInSection": 2, "fact": "본문 2~3단락에 반영된 브랜드별 실제 주력 제품·차별점·소비자 반응이 포함된 ~합니다 체 취재 팩트 문장 4"},
+    {"category": "유통 · 프로모션 동향", "sourceTitle": "[언론사명 · YYYY-MM-DD] 매장·판매처·프로모션 보도 제목 5", "sourceUrl": "웹 검색 결과에 있는 해당 기사의 실제 원문 URL (https://...)", "pubDate": "YYYY-MM-DD", "usedInSection": 3, "fact": "본문 3단락에 반영된 판매 채널·세트 혜택·프로모션 동향이 포함된 ~합니다 체 취재 팩트 문장 5"},
+    {"category": "가격 · 구성 및 이용 팁", "sourceTitle": "[언론사명 · YYYY-MM-DD] 가격·구성·구매 가이드 보도 제목 6", "sourceUrl": "웹 검색 결과에 있는 해당 기사의 실제 원문 URL (https://...)", "pubDate": "YYYY-MM-DD", "usedInSection": 4, "fact": "본문 4단락에 반영된 가격·구성·이용 시 참고할 점이 포함된 ~합니다 체 취재 팩트 문장 6"}
   ],
-  "subtitle": "기사 부제 2줄 (줄바꿈 \\n 사용)",
+  "subtitle": "메인 헤드라인 바로 아래에 들어갈 핵심 한줄 소제목 (줄바꿈 \\n 사용 가능)",
   "aiFactSummary": [
     "1. 핵심 팩트 요약 첫 번째 문장 (~합니다 체)",
     "2. 핵심 팩트 요약 두 번째 문장 (~합니다 체)",
     "3. 핵심 팩트 요약 세 번째 문장 (~합니다 체)"
   ],
   "draftSections": [
-    {"id": "sec-1", "title": "독자의 관심을 끄는 도입·배경 소제목 (주제 맞춤형)", "content": "독자 공감 리드 + 해당 주제/트렌드가 주목받는 이유와 배경 2~3문단 (~합니다 체)", "imageCaption": "< 출처 : 관련 브랜드·공식 자료 >"},
-    {"id": "sec-2", "title": "핵심 포인트·아이템 1 심층 분석 소제목", "content": "첫 번째 핵심 키워드/아이템/브랜드의 구체적인 특징·성분·인기 요인 및 사례 상세 서술 (~합니다 체)", "imageCaption": "< 출처 : 관련 기업 >"},
-    {"id": "sec-3", "title": "핵심 포인트·아이템 2 심층 분석 소제목", "content": "두 번째 핵심 키워드/아이템/브랜드의 차별화 포인트와 시장 반응 상세 서술 (~합니다 체)", "imageCaption": "< 출처 : 공식 채널 >"},
-    {"id": "sec-4", "title": "선택 가이드 및 실생활 활용 팁 소제목", "content": "소비자·독자가 알아두면 좋은 선택 기준, 사용 팁 및 향후 전망 정리 (~합니다 체)", "imageCaption": "< 출처 : 공식 채널 >"}
+    {"id": "sec-1", "title": "1단락 소제목: 독자의 관심을 끄는 도입·배경 질문형 소제목 (~할까요?)", "content": "독자 공감 리드 + 해당 주제/트렌드가 주목받는 이유와 배경 2~3문단 (~합니다 체)", "imageCaption": "< 출처 : 관련 브랜드·공식 자료 >"},
+    {"id": "sec-2", "title": "2단락 소제목: 주요 브랜드·첫 번째 핵심 라인업(실제 신메뉴·제품명) 심층 분석", "content": "실제 출시된 구체적인 메뉴·제품명, 가격, 원재료·사양, 인기 요인 및 사례 상세 서술 (~합니다 체)", "imageCaption": "< 출처 : 관련 기업 >"},
+    {"id": "sec-3", "title": "3단락 소제목: 경쟁 브랜드·연관 라인업 비교 및 시너지 포인트", "content": "함께 비교되는 브랜드별 실제 신메뉴·제품 특징과 프로모션 혜택 상세 서술 (~합니다 체)", "imageCaption": "< 출처 : 공식 채널 >"},
+    {"id": "sec-4", "title": "4단락 소제목: 선택 가이드 및 실생활 활용·구매 팁", "content": "소비자·독자가 알아두면 좋은 선택 기준, 시간대·할인 혜택 및 활용 팁 정리 (~합니다 체)", "imageCaption": "< 출처 : 공식 채널 >"}
   ],
   "summaryTable": {
-    "title": "[ 핵심 항목 한눈에 비교 ]",
-    "headers": ["구분", "핵심 특징 및 구성", "주요 포인트·성분", "기대 효과·강점", "추천 대상 및 활용 팁"],
+    "title": "[요약표] 브랜드·제품별 핵심 신메뉴·특징 및 선택 가이드",
+    "headers": ["구분 · 브랜드", "대표 신메뉴 · 주력 구성", "핵심 특징 및 가격·사양", "기대 효과 · 강점", "추천 조합 및 이용 팁"],
     "rows": [
-      ["항목/제품 1", "핵심 형태·구분", "주요 특징 요약", "핵심 강점·효과", "추천 대상 및 활용법"],
-      ["항목/제품 2", "핵심 형태·구분", "주요 특징 요약", "핵심 강점·효과", "추천 대상 및 활용법"],
-      ["항목/제품 3", "핵심 형태·구분", "주요 특징 요약", "핵심 강점·효과", "추천 대상 및 활용법"],
-      ["항목/제품 4", "핵심 형태·구분", "주요 특징 요약", "핵심 강점·효과", "추천 대상 및 활용법"]
+      ["브랜드/항목 1", "실제 출시 메뉴·제품명", "주요 특징·가격·사양", "핵심 강점·효과", "추천 대상 및 활용법"],
+      ["브랜드/항목 2", "실제 출시 메뉴·제품명", "주요 특징·가격·사양", "핵심 강점·효과", "추천 대상 및 활용법"],
+      ["브랜드/항목 3", "실제 출시 메뉴·제품명", "주요 특징·가격·사양", "핵심 강점·효과", "추천 대상 및 활용법"],
+      ["이용 체크포인트", "세트·타임할인·앱 주문", "가성비·편의성 포인트", "할인·적립 혜택", "방문·배달 전 확인사항"]
     ]
   },
   "glossaryTitle": "주제를 더 깊이 이해하는 용어 사전",
   "glossary": [
-    {"term": "핵심 용어 1 (영문)", "desc": "누구나 이해하기 쉬운 1~2문장 개념 해설 (~합니다 체)"},
-    {"term": "핵심 용어 2 (영문)", "desc": "누구나 이해하기 쉬운 1~2문장 개념 해설 (~합니다 체)"},
-    {"term": "핵심 용어 3 (영문)", "desc": "누구나 이해하기 쉬운 1~2문장 개념 해설 (~합니다 체)"},
-    {"term": "핵심 용어 4 (영문)", "desc": "누구나 이해하기 쉬운 1~2문장 개념 해설 (~합니다 체)"},
-    {"term": "핵심 용어 5 (영문)", "desc": "누구나 이해하기 쉬운 1~2문장 개념 해설 (~합니다 체)"}
+    {"term": "핵심 용어 1", "desc": "누구나 이해하기 쉬운 1~2문장 개념 해설 (~합니다 체)"},
+    {"term": "핵심 용어 2", "desc": "누구나 이해하기 쉬운 1~2문장 개념 해설 (~합니다 체)"},
+    {"term": "핵심 용어 3", "desc": "누구나 이해하기 쉬운 1~2문장 개념 해설 (~합니다 체)"},
+    {"term": "핵심 용어 4", "desc": "누구나 이해하기 쉬운 1~2문장 개념 해설 (~합니다 체)"}
   ],
   "faqs": [
-    {"q": "Q1. 실제 독자가 검색창에 물어볼 법한 구어체 자연어 질문 (${faqCount}문항 작성)", "a": "구체적인 수치·장소·조건이 담긴 2~3문장 완결형 답변 (~합니다 체)"}
+    {"relatedSection": 1, "q": "Q1. [1단락 도입·배경 문맥] 독자가 검색창에 물어볼 자연어 질문 (~나요?)", "a": "1단락 내용에 기반한 구체적인 2~3문장 완결형 답변 (~합니다 체)"},
+    {"relatedSection": 2, "q": "Q2. [2단락 주요 브랜드·신메뉴 문맥] 자연어 질문 (~나요?)", "a": "2단락 내용에 기반한 구체적인 2~3문장 완결형 답변 (~합니다 체)"},
+    {"relatedSection": 2, "q": "Q3. [2~3단락 세부 메뉴·제품 특징 문맥] 자연어 질문 (~나요?)", "a": "2~3단락 내용에 기반한 구체적인 2~3문장 완결형 답변 (~합니다 체)"},
+    {"relatedSection": 3, "q": "Q4. [3단락 브랜드 비교·혜택 문맥] 자연어 질문 (~나요?)", "a": "3단락 내용에 기반한 구체적인 2~3문장 완결형 답변 (~합니다 체)"},
+    {"relatedSection": 4, "q": "Q5. [4단락 구매·이용 팁 문맥] 자연어 질문 (~나요?)", "a": "4단락 내용에 기반한 구체적인 2~3문장 완결형 답변 (~합니다 체)"}
   ],
   "fanoutQuestions": [
     {"category": "핵심특징·비교", "q": "'${keyword}'에 대해 독자가 추가로 가장 궁금해할 구체적인 꼬리 질문 1 (~나요?)", "a": "구체적인 팩트 기반 답변 1~2문장 (~합니다 체)"},
@@ -748,6 +788,77 @@
         }))
       : baseScenario.draftSections;
 
+    // 헤드라인 후보 40자 이내 자동 보정 및 초과분 한줄 소제목 분리
+    let rawSubtitle = normalizeNewlines(parsed.subtitle || baseScenario.summaryBlocks.subtitle).trim();
+    const rawTitleCandidates = Array.isArray(parsed.titleCandidates) && parsed.titleCandidates.length > 0
+      ? parsed.titleCandidates
+      : baseScenario.titleCandidates;
+    const processedTitleCandidates = rawTitleCandidates.map((tc, idx) => {
+      const cleanT = normalizeNewlines(tc.title || '').trim();
+      if (splitLongHeadlineToSubtitle && cleanT.length > maxHeadlineLimit) {
+        const splitRes = splitLongHeadlineToSubtitle(cleanT, idx === 0 ? rawSubtitle : '', maxHeadlineLimit);
+        if (idx === 0 && splitRes.subtitle) {
+          rawSubtitle = splitRes.subtitle;
+        }
+        return {
+          ...tc,
+          id: tc.id || `tc-${idx + 1}`,
+          title: splitRes.headline,
+          overflowSubtitle: splitRes.overflowText || ''
+        };
+      }
+      return {
+        ...tc,
+        id: tc.id || `tc-${idx + 1}`,
+        title: cleanT
+      };
+    });
+
+    // FAQ 본문 문맥 순서(단락 1 -> 2 -> 3 -> 4) 자동 매칭 및 정렬
+    const rawFaqs = Array.isArray(parsed.faqs) && parsed.faqs.length > 0
+      ? parsed.faqs.map((f, i) => {
+          const cleanQ = normalizeNewlines(f.q || '').replace(/^Q\d+[\.\:]\s*/i, '').trim();
+          const cleanA = normalizeNewlines(f.a || '').trim();
+          let relSec = Number(f.relatedSection) || 0;
+          if (!relSec || relSec < 1 || relSec > draftSections.length) {
+            const qaTokens = `${cleanQ} ${cleanA}`.replace(/[^\w가-힣\s]/g, ' ').split(/\s+/).filter(w => w.length >= 2);
+            let bestSecIdx = Math.min(draftSections.length, Math.floor((i / Math.max(1, parsed.faqs.length)) * draftSections.length) + 1);
+            let bestScore = -1;
+            draftSections.forEach((sec, sIdx) => {
+              const secText = `${sec.title || ''} ${sec.content || ''}`;
+              let score = 0;
+              qaTokens.forEach(tk => {
+                if (secText.includes(tk)) score += 1;
+              });
+              if (score > bestScore) {
+                bestScore = score;
+                bestSecIdx = sIdx + 1;
+              }
+            });
+            relSec = bestSecIdx;
+          }
+          return {
+            q: cleanQ,
+            a: cleanA,
+            relatedSection: relSec,
+            origIdx: i
+          };
+        })
+      : (baseScenario.summaryBlocks.faqs || []).map((f, i) => ({
+          q: String(f.q || '').replace(/^Q\d+[\.\:]\s*/i, '').trim(),
+          a: String(f.a || '').trim(),
+          relatedSection: Number(f.relatedSection) || Math.min(draftSections.length || 4, Math.floor(i / 2) + 1),
+          origIdx: i
+        }));
+
+    const sortedFaqs = rawFaqs
+      .sort((a, b) => (a.relatedSection - b.relatedSection) || (a.origIdx - b.origIdx))
+      .map((f, i) => ({
+        q: `Q${i + 1}. ${f.q}`,
+        a: f.a,
+        relatedSection: f.relatedSection
+      }));
+
     const validCategories = MK_PICK_CATEGORIES.map(c => c.id);
     const chosenCat = validCategories.includes(parsed.mkCategory) ? parsed.mkCategory : fallbackCat.recommendedCategory || fallbackCat;
     const summaryBlocks = {
@@ -755,7 +866,7 @@
       mkCategory: chosenCat,
       mkCategoryReason: normalizeNewlines(parsed.mkCategoryReason || baseScenario.summaryBlocks.mkCategoryReason).trim(),
       byline: `${chosenCat} | 남궁선희 기자 | 입력 ${new Date().toISOString().slice(0, 10).replace(/-/g, '.')} 10:00`,
-      subtitle: normalizeNewlines(parsed.subtitle || baseScenario.summaryBlocks.subtitle).trim(),
+      subtitle: rawSubtitle,
       aiFactSummary: Array.isArray(parsed.aiFactSummary) && parsed.aiFactSummary.length > 0
         ? parsed.aiFactSummary.map(s => normalizeNewlines(s).trim())
         : baseScenario.summaryBlocks.aiFactSummary,
@@ -773,14 +884,7 @@
             desc: normalizeNewlines(g.desc || '').trim()
           }))
         : (baseScenario.summaryBlocks.glossary || []),
-      faqs: Array.isArray(parsed.faqs) && parsed.faqs.length > 0
-        ? parsed.faqs.map((f, i) => ({
-            q: /^Q\d+\./i.test(normalizeNewlines(f.q || '').trim())
-              ? normalizeNewlines(f.q || '').trim()
-              : `Q${i + 1}. ${normalizeNewlines(f.q || '').trim()}`,
-            a: normalizeNewlines(f.a || '').trim()
-          }))
-        : baseScenario.summaryBlocks.faqs,
+      faqs: sortedFaqs,
       fanoutQuestions: Array.isArray(parsed.fanoutQuestions) && parsed.fanoutQuestions.length > 0
         ? parsed.fanoutQuestions.map((fq, i) => ({
             id: `fq-pplx-${i + 1}`,
@@ -808,9 +912,7 @@
 
     return {
       ...baseScenario,
-      titleCandidates: Array.isArray(parsed.titleCandidates) && parsed.titleCandidates.length > 0
-        ? parsed.titleCandidates
-        : baseScenario.titleCandidates,
+      titleCandidates: processedTitleCandidates,
       sources: mergedSources,
       researchItems,
       draftSections,
@@ -995,6 +1097,93 @@
     `;
   }
 
+  // 각 FAQ 항목이 본문(draftSections)의 몇 번째 단락(1~N) 및 어느 문장 위치와 가장 밀접한지 판별하는 함수
+  function inferFaqRelatedSectionInfo(faq, draftSections = [], keyword = '', fallbackIdx = 0, totalFaqs = 5) {
+    if (!faq || !Array.isArray(draftSections) || draftSections.length === 0) {
+      return { relatedSection: 1, charOffset: 0 };
+    }
+    const qaText = `${String(faq.q || '').replace(/^Q\d+[\.\:]\s*/i, '')} ${faq.a || ''}`;
+    const qaTokens = extractDistinctiveTokens(qaText, keyword);
+
+    let bestSecNum = Number(faq.relatedSection) || 0;
+    let bestScore = -1;
+    let bestCharOffset = 999999;
+
+    draftSections.forEach((sec, sIdx) => {
+      const secFull = `${sec.title || ''} ${sec.content || ''}`;
+      let score = 0;
+      let firstHitPos = 999999;
+      qaTokens.forEach(tk => {
+        const pos = secFull.indexOf(tk);
+        if (pos !== -1) {
+          score += (sec.title || '').includes(tk) ? 3 : 2;
+          if (pos < firstHitPos) firstHitPos = pos;
+        }
+      });
+      if (score > bestScore) {
+        bestScore = score;
+        bestSecNum = sIdx + 1;
+        bestCharOffset = firstHitPos;
+      }
+    });
+
+    if (bestScore <= 0) {
+      if (bestSecNum >= 1 && bestSecNum <= draftSections.length) {
+        return { relatedSection: bestSecNum, charOffset: fallbackIdx * 100 };
+      }
+      const approxSec = Math.min(draftSections.length, Math.max(1, Math.floor((fallbackIdx / Math.max(1, totalFaqs)) * draftSections.length) + 1));
+      return { relatedSection: approxSec, charOffset: fallbackIdx * 100 };
+    }
+    return { relatedSection: bestSecNum, charOffset: bestCharOffset };
+  }
+
+  // FAQ 배열의 Q1., Q2., Q3... 번호 접두사를 현재 순서대로 깔끔하게 다시 매기는 함수
+  function renumberFaqPrefixes(faqs = [], draftSections = [], keyword = '') {
+    if (!Array.isArray(faqs)) return [];
+    return faqs.map((f, idx) => {
+      const cleanQ = String(f.q || '').replace(/^Q\d+[\.\:]\s*/i, '').trim();
+      const info = inferFaqRelatedSectionInfo(f, draftSections, keyword, idx, faqs.length);
+      return {
+        ...f,
+        q: `Q${idx + 1}. ${cleanQ}`,
+        a: String(f.a || '').trim(),
+        relatedSection: Number(f.relatedSection) >= 1 && Number(f.relatedSection) <= (draftSections.length || 4)
+          ? Number(f.relatedSection)
+          : info.relatedSection
+      };
+    });
+  }
+
+  // 본문(draftSections) 문맥 흐름 순서(단락 01 -> 단락 02 -> 단락 03 -> 단락 04)에 맞춰 FAQ를 자동 정렬하는 함수
+  function sortFaqsByBodyContextOrder(w) {
+    if (!w || !w.summaryBlocks || !Array.isArray(w.summaryBlocks.faqs)) return [];
+    const sections = w.draftSections || [];
+    const faqs = w.summaryBlocks.faqs;
+    const enriched = faqs.map((f, idx) => {
+      const info = inferFaqRelatedSectionInfo(f, sections, w.keyword || '', idx, faqs.length);
+      return {
+        ...f,
+        relatedSection: info.relatedSection,
+        _charOffset: info.charOffset,
+        _origIdx: idx
+      };
+    });
+    enriched.sort((a, b) => {
+      if (a.relatedSection !== b.relatedSection) return a.relatedSection - b.relatedSection;
+      if (a._charOffset !== b._charOffset) return a._charOffset - b._charOffset;
+      return a._origIdx - b._origIdx;
+    });
+    w.summaryBlocks.faqs = enriched.map((f, idx) => {
+      const cleanQ = String(f.q || '').replace(/^Q\d+[\.\:]\s*/i, '').trim();
+      return {
+        q: `Q${idx + 1}. ${cleanQ}`,
+        a: String(f.a || '').trim(),
+        relatedSection: f.relatedSection
+      };
+    });
+    return w.summaryBlocks.faqs;
+  }
+
   // 본문 단락에서 특정 내용이 삭제되거나 수정되었을 때 하단 FAQ(STEP 07)와 요약표(STEP 06)를 즉시 자동 동기화하는 함수
   function syncFaqsAndTableOnBodyEdit(w, { deletedText = '', previousBody = '', newBody = '' } = {}) {
     if (!w || !w.summaryBlocks) return { removedFaqCount: 0, updatedFaqCount: 0 };
@@ -1045,16 +1234,15 @@
       });
     }
 
-    // 남은 본문 단락(draftSections)의 핵심 내용과 연결되지 않는 고립된 FAQ가 있는지 추가 점검 및 번호 재정렬
+    // 남은 본문 단락(draftSections)의 핵심 내용과 연결되지 않는 고립된 FAQ가 있는지 추가 점검 및 본문 문맥 순서 재정렬
     if (Array.isArray(sb.faqs)) {
-      // 만약 삭제 동기화로 인해 FAQ가 줄어들었다면, 현재 남아 있는 본문 단락을 기반으로 새로운 맞춤 FAQ를 자동 보충
       const currentSections = w.draftSections || [];
       if (removedFaqCount > 0 && currentSections.length > 0 && sb.faqs.length < 4) {
-        for (const sec of currentSections) {
-          if (sb.faqs.length >= 5) break;
+        currentSections.forEach((sec, sIdx) => {
+          if (sb.faqs.length >= 5) return;
           const sents = splitIntoSentences(sec.content || '');
           const keySent = sents.find(s => s.length >= 25 && !s.includes('?')) || sents[0];
-          if (!keySent) continue;
+          if (!keySent) return;
           const cleanSecTitle = String(sec.title || '').replace(/^\d+[\.\)]\s*/, '').trim();
           const candidateQ = cleanSecTitle.endsWith('?')
             ? cleanSecTitle
@@ -1063,21 +1251,16 @@
           if (!alreadyExists) {
             sb.faqs.push({
               q: candidateQ,
-              a: sents.slice(0, 2).join(' ')
+              a: sents.slice(0, 2).join(' '),
+              relatedSection: sIdx + 1
             });
             updatedFaqCount++;
           }
-        }
+        });
       }
 
-      // Q1, Q2... 번호 깔끔하게 재정렬
-      sb.faqs = sb.faqs.map((f, idx) => {
-        const cleanQ = String(f.q || '').replace(/^Q\d+[\.\:]\s*/i, '').trim();
-        return {
-          q: `Q${idx + 1}. ${cleanQ}`,
-          a: String(f.a || '').trim()
-        };
-      });
+      // 본문 문맥 순서(단락 01 -> 04)에 맞춰 정렬 및 Q1, Q2... 번호 재정렬
+      sortFaqsByBodyContextOrder(w);
     }
 
     if (removedFaqCount > 0 || updatedFaqCount > 0) {
@@ -1107,17 +1290,17 @@
 
     const sys = `당신은 매일경제 MK Pick 수석 에디터입니다.
 편집자가 기사 본문(draftSections)을 수정·삭제했습니다.
-반드시 아래 제공된 [현재 수정된 기사 본문]에 실제로 남아 있는 내용만을 100% 기준으로 삼아, 본문에서 삭제된 내용은 FAQ와 요약표에서 완전히 제거하고, 현재 본문에 있는 핵심 팩트·수치·체크포인트만으로 독자 자연어 FAQ 5문항과 핵심 비교 요약표(summaryTable)를 새롭게 동기화해 순수 JSON만 출력하세요.`;
+반드시 아래 제공된 [현재 수정된 기사 본문]에 실제로 남아 있는 내용만을 100% 기준으로 삼아, 본문에서 삭제된 내용은 FAQ와 요약표에서 완전히 제거하고, 현재 본문 1단락부터 마지막 단락까지의 문맥 흐름 순서 그대로 독자 자연어 FAQ 5문항과 핵심 비교 요약표(summaryTable)를 새롭게 동기화해 순수 JSON만 출력하세요.`;
 
     const usr = `[기사 제목]: ${w.title}
 [키워드]: ${w.keyword}
 [현재 수정된 기사 본문]:
 ${currentBodyText}
 
-위 현재 본문 내용과 100% 일치하도록 FAQ 5문항과 요약표를 재작성해 아래 JSON 형식으로만 출력하세요 (본문에 없는 내용은 절대 FAQ에 넣지 마세요!):
+위 현재 본문 내용과 100% 일치하고 **본문 1단락 → 마지막 단락의 문맥 순서 그대로** 이어지도록 FAQ 5문항과 요약표를 재작성해 아래 JSON 형식으로만 출력하세요 (본문에 없는 내용은 절대 FAQ에 넣지 마세요!):
 {
   "faqs": [
-    {"q": "Q1. 현재 본문 핵심 내용에 기반한 독자 구어체 질문 (~나요?)", "a": "현재 본문의 팩트와 수치를 반영한 2문장 답변 (~합니다 체)"}
+    {"relatedSection": 1, "q": "Q1. [1단락 문맥] 현재 본문 핵심 내용에 기반한 독자 구어체 질문 (~나요?)", "a": "현재 본문의 팩트와 수치를 반영한 2문장 답변 (~합니다 체)"}
   ],
   "summaryTable": {
     "title": "[요약표] 핵심 내용 비교",
@@ -1132,8 +1315,10 @@ ${currentBodyText}
     if (Array.isArray(parsed?.faqs) && parsed.faqs.length > 0) {
       w.summaryBlocks.faqs = parsed.faqs.map((f, i) => ({
         q: /^Q\d+\./i.test(String(f.q || '').trim()) ? String(f.q).trim() : `Q${i + 1}. ${String(f.q || '').trim()}`,
-        a: String(f.a || '').trim()
+        a: String(f.a || '').trim(),
+        relatedSection: Number(f.relatedSection) || Math.min((w.draftSections || []).length || 4, Math.floor(i / 2) + 1)
       }));
+      sortFaqsByBodyContextOrder(w);
     }
     if (parsed?.summaryTable && Array.isArray(parsed.summaryTable.rows) && parsed.summaryTable.rows.length > 0) {
       w.summaryBlocks.summaryTable = {
@@ -1351,6 +1536,9 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
     }
     lines.push('');
     lines.push(w.title || '');
+    if (sb.oneLineSubtitle && sb.oneLineSubtitle.trim()) {
+      lines.push(String(sb.oneLineSubtitle).trim());
+    }
     lines.push('');
 
     if (sb.aiFactSummary && sb.aiFactSummary.length > 0) {
@@ -2282,15 +2470,19 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
     };
   }
 
-  // 트렌드 키워드 또는 직접 입력으로 바로 기사 초안 생성하는 공통 함수
-  async function startWorkWithKeyword(rawKeyword, typeId = 4, rawCompany = '', autoMatchType = false) {
+  // 트렌드 키워드 또는 직접 입력으로 바로 기사 초안 생성하는 공통 함수 (서브 키워드 및 편집자 기획 방향·맥락 반영)
+  async function startWorkWithKeyword(rawKeyword, typeId = 4, rawCompany = '', autoMatchType = false, customSubKeywords = undefined, customDirection = undefined) {
     if (state.isSearchingNews) return;
     const keyword = cleanTrendTopicKeyword ? cleanTrendTopicKeyword(rawKeyword) : String(rawKeyword || '').trim();
     const company = extractBrandFromTopic ? extractBrandFromTopic(keyword, rawCompany) : String(rawCompany || '').trim();
-    const matchedType = autoMatchType ? detectBestContentType(keyword, company, state.homeInput.rawText, typeId) : typeId;
+    const subKeywords = (customSubKeywords !== undefined ? customSubKeywords : (state.homeInput.subKeywords || '')).trim();
+    const direction = (customDirection !== undefined ? customDirection : (state.homeInput.direction || '')).trim();
+    const matchedType = autoMatchType ? detectBestContentType(keyword, company, `${state.homeInput.rawText || ''} ${direction} ${subKeywords}`, typeId) : typeId;
     const tName = CONTENT_TYPES[matchedType]?.shortName || '맞춤 유형';
     state.homeInput.keyword = keyword;
     if (company) state.homeInput.company = company;
+    state.homeInput.subKeywords = subKeywords;
+    state.homeInput.direction = direction;
     state.homeInput.typeId = matchedType;
     state.isSearchingNews = true;
     const stopTimer = startDraftProgressTimer(keyword, tName);
@@ -2302,6 +2494,8 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
           mode: 'dynamic',
           keyword,
           company,
+          subKeywords,
+          direction,
           url: state.homeInput.url || '',
           rawText: state.homeInput.rawText || '',
           typeId: matchedType,
@@ -2326,6 +2520,8 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
       let fallbackScenario = (buildDynamicScenario || buildPresetScenario)({
         keyword,
         company,
+        subKeywords,
+        direction,
         url: state.homeInput.url || '',
         rawText: state.homeInput.rawText || '',
         typeId: matchedType,
@@ -2338,6 +2534,8 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
             apiKey: clientKey,
             keyword,
             company,
+            subKeywords,
+            direction,
             url: state.homeInput.url || '',
             rawText: state.homeInput.rawText || '',
             typeId: matchedType,
@@ -2355,6 +2553,8 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
             typeId: matchedType,
             keyword,
             company,
+            subKeywords,
+            direction,
             url: state.homeInput.url || '',
             rawText: state.homeInput.rawText || '',
             scenario: fallbackScenario
@@ -2364,6 +2564,8 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
             typeId: matchedType,
             keyword,
             inputCompany: company,
+            inputSubKeywords: subKeywords,
+            inputDirection: direction,
             title: fallbackScenario.titleCandidates[0].title,
             titleCandidates: fallbackScenario.titleCandidates,
             sources: fallbackScenario.sources,
@@ -2374,6 +2576,8 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
             factVerification: fallbackScenario.factVerification || (inspectTopicFactVerification ? inspectTopicFactVerification(keyword, company, (fallbackScenario.sources || []).length) : null),
             updatedAt: '방금 전'
           };
+      fallbackWork.inputSubKeywords = subKeywords;
+      fallbackWork.inputDirection = direction;
       state.currentWork = fallbackWork;
       state.works.unshift(fallbackWork);
       try {
@@ -2423,24 +2627,75 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
           </span>
         </div>
 
-        <!-- STEP 1: 키워드 · 기업명 입력 + 단 1개의 명확한 실행 버튼 -->
-        <div style="display: grid; grid-template-columns: 1.6fr 1fr auto; gap: 10px; align-items: end; margin-bottom: 18px;">
-          <div>
-            <label style="display:block; font-size:12px; font-weight:800; color:var(--text-primary); margin-bottom:5px;">
-              <span style="color: var(--mk-orange); margin-right: 4px;">STEP 1</span>트렌드 키워드 / 주제
-            </label>
-            <input type="text" class="input" id="homeKeywordInput" placeholder="예: 한남동 팔란티어 팝업 품절, 다이소 뷰티, 10월 10일 임산부의 날..." value="${escapeHtml(hi.keyword)}" style="padding: 11px 14px; font-size: 14px;" />
+        <!-- STEP 1: 메인 키워드 · 기업명 입력 + 바로 아래 서브 키워드 & 원하는 글의 방향·맥락 설정 -->
+        <div id="homeStep1Box" style="margin-bottom: 16px;">
+          <div style="display: grid; grid-template-columns: 1.6fr 1fr auto; gap: 10px; align-items: end; margin-bottom: 10px;">
+            <div>
+              <label style="display:block; font-size:12px; font-weight:800; color:var(--text-primary); margin-bottom:5px;">
+                <span style="color: var(--mk-orange); margin-right: 4px;">STEP 1</span>트렌드 키워드 / 주제
+              </label>
+              <input type="text" class="input" id="homeKeywordInput" placeholder="예: 이디야·맘스터치·메가커피 신메뉴, 빼빼로데이, 다이소 뷰티..." value="${escapeHtml(hi.keyword)}" style="padding: 11px 14px; font-size: 14px;" />
+            </div>
+            <div>
+              <label style="display:block; font-size:12px; font-weight:700; color:var(--text-secondary); margin-bottom:5px;">
+                기업·브랜드명 <span style="font-weight: 400; color: var(--text-muted);">(선택 · 쉼표로 복수 입력 가능)</span>
+              </label>
+              <input type="text" class="input" id="homeCompanyInput" placeholder="예: 이디야커피, 맘스터치, 메가MGC커피" value="${escapeHtml(hi.company)}" style="padding: 11px 14px; font-size: 14px;" />
+            </div>
+            <div>
+              <button class="btn btn-primary btn-lg" id="homeStartDynamicBtn" style="height: 44px; padding: 0 24px; font-size: 14.5px; font-weight: 800;" ${state.isSearchingNews ? 'disabled' : ''}>
+                ${state.isSearchingNews ? formatDraftRemainingInfo(state.draftElapsedSec || 0).shortBtnText : '✨ 초안 만들기 →'}
+              </button>
+            </div>
           </div>
-          <div>
-            <label style="display:block; font-size:12px; font-weight:700; color:var(--text-secondary); margin-bottom:5px;">
-              기업·브랜드명 <span style="font-weight: 400; color: var(--text-muted);">(선택 · 쉼표로 복수 입력 가능)</span>
-            </label>
-            <input type="text" class="input" id="homeCompanyInput" placeholder="예: 매일유업, 유한킴벌리" value="${escapeHtml(hi.company)}" style="padding: 11px 14px; font-size: 14px;" />
-          </div>
-          <div>
-            <button class="btn btn-primary btn-lg" id="homeStartDynamicBtn" style="height: 44px; padding: 0 24px; font-size: 14.5px; font-weight: 800;" ${state.isSearchingNews ? 'disabled' : ''}>
-              ${state.isSearchingNews ? formatDraftRemainingInfo(state.draftElapsedSec || 0).shortBtnText : '✨ 초안 만들기 →'}
-            </button>
+
+          <!-- 서브 키워드 & 편집자가 원하는 글의 방향·맥락 입력란 (키워드 바로 아래 배치) -->
+          <div style="padding: 12px 14px; background-color: #FFFDFB; border: 1px solid var(--mk-orange-border); border-radius: var(--radius-general);">
+            <div style="display: grid; grid-template-columns: 1fr 1.8fr; gap: 10px; align-items: start;">
+              <div>
+                <label style="display:block; font-size:12px; font-weight:800; color:var(--text-primary); margin-bottom:4px;">
+                  🏷️ 서브 키워드 <span style="font-weight: 500; color: var(--text-muted);">(선택 · 쉼표로 복수 입력)</span>
+                </label>
+                <input
+                  type="text"
+                  class="input"
+                  id="homeSubKeywordsInput"
+                  placeholder="예: 푸드·스낵 신메뉴, 가성비 세트, 출시 가격, 편의점 단독"
+                  value="${escapeHtml(hi.subKeywords || '')}"
+                  style="padding: 8px 12px; font-size: 13px; background-color: #FFFFFF;"
+                />
+              </div>
+              <div>
+                <label style="display:block; font-size:12px; font-weight:800; color:var(--text-primary); margin-bottom:4px;">
+                  🧭 원하는 글의 방향 · 맥락 <span style="font-weight: 500; color: var(--text-muted);">(편집자 기획 의도에 맞춰 초안이 생성됩니다)</span>
+                </label>
+                <input
+                  type="text"
+                  class="input"
+                  id="homeDirectionInput"
+                  placeholder="예: 각 브랜드가 실제로 출시한 대표 신메뉴 이름·가격·특징을 비교하고 소비자 추천 조합을 소개해줘"
+                  value="${escapeHtml(hi.direction || '')}"
+                  style="padding: 8px 12px; font-size: 13px; background-color: #FFFFFF;"
+                />
+              </div>
+            </div>
+            <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 8px;">
+              <span style="font-size: 11px; font-weight: 700; color: var(--text-muted);">빠른 방향 예시 클릭:</span>
+              <button type="button" class="text-action-orange" data-home-quick-dir="각 브랜드가 실제로 출시한 대표 신메뉴·신상품의 정확한 명칭, 가격, 핵심 특징을 1:1로 비교하고 추천 가이드를 정리해줘" style="font-size: 11px; background: #FFFFFF; border: 1px solid #FFD8A8; padding: 2px 8px; border-radius: 99px;">
+                + 브랜드별 실제 신메뉴·제품 스펙 비교
+              </button>
+              <button type="button" class="text-action-orange" data-home-quick-dir="2030 소비자와 SNS에서 왜 지금 이 키워드가 화제인지 최신 트렌드 배경과 실제 소비자 반응을 중심으로 작성해줘" style="font-size: 11px; background: #FFFFFF; border: 1px solid #FFD8A8; padding: 2px 8px; border-radius: 99px;">
+                + 2030 인기 배경·SNS 트렌드 분석
+              </button>
+              <button type="button" class="text-action-orange" data-home-quick-dir="독자가 바로 활용할 수 있는 할인 프로모션 일정, 결제 혜택, 구매처, 실전 체크포인트를 중심으로 정리해줘" style="font-size: 11px; background: #FFFFFF; border: 1px solid #FFD8A8; padding: 2px 8px; border-radius: 99px;">
+                + 소비자 할인 혜택·구매 팁 중심
+              </button>
+              ${(hi.subKeywords || hi.direction) ? `
+                <button type="button" class="text-action" id="clearHomeSubAndDirBtn" style="font-size: 11px; color: var(--text-muted); margin-left: auto;">
+                  서브키워드·방향 비우기 ✕
+                </button>
+              ` : ''}
+            </div>
           </div>
         </div>
 
@@ -2683,6 +2938,16 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
                       >
                         팩트 검색 ↗
                       </a>
+                      <button
+                        type="button"
+                        data-stage-trend-kw="${escapeHtml(item.keyword)}"
+                        data-stage-trend-comp="${escapeHtml(item.company || '')}"
+                        data-stage-trend-type="${matchedTypeId}"
+                        style="font-size: 11px; font-weight: 700; color: var(--text-secondary); background-color: #FFFFFF; border: var(--border-thin); padding: 3px 7px; border-radius: 4px; cursor: pointer; white-space: nowrap; font-family: inherit;"
+                        title="이 키워드를 위 STEP 1 입력창에 담고 서브 키워드·원하는 글의 방향을 직접 입력한 뒤 생성합니다"
+                      >
+                        ↑ 방향 설정
+                      </button>
                       <span ${isThisRowGenerating ? 'data-active-generating-badge="1"' : ''} style="font-size: 12px; font-weight: 800; color: var(--mk-orange); white-space: nowrap; ${isThisRowGenerating ? 'background-color: #FFFFFF; padding: 3px 9px; border-radius: 99px; border: 1px solid var(--mk-orange);' : ''}">
                         ${isThisRowGenerating ? escapeHtml(formatDraftRemainingInfo(state.draftElapsedSec || 0).shortBtnText) : '초안 생성 →'}
                       </span>
@@ -2899,6 +3164,8 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
     function syncHomeInputs() {
       hi.keyword = document.getElementById('homeKeywordInput')?.value || '';
       hi.company = document.getElementById('homeCompanyInput')?.value || '';
+      hi.subKeywords = document.getElementById('homeSubKeywordsInput')?.value || '';
+      hi.direction = document.getElementById('homeDirectionInput')?.value || '';
       if (state.showRawPasteInput) {
         hi.url = document.getElementById('homeUrlInput')?.value || '';
         hi.rawText = document.getElementById('homeRawTextInput')?.value || '';
@@ -2907,13 +3174,61 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
 
     document.getElementById('homeKeywordInput')?.addEventListener('input', e => {
       hi.keyword = e.target.value;
-      const autoDetected = detectBestContentType(hi.keyword, hi.company, hi.rawText, hi.typeId);
+      const autoDetected = detectBestContentType(hi.keyword, hi.company, `${hi.rawText} ${hi.direction} ${hi.subKeywords}`, hi.typeId);
       if (hi.keyword.trim().length >= 2 && hi.typeId !== autoDetected) {
         hi.typeId = autoDetected;
       }
     });
 
-    document.getElementById('homeKeywordInput')?.addEventListener('keydown', e => {
+    document.getElementById('homeSubKeywordsInput')?.addEventListener('input', e => {
+      hi.subKeywords = e.target.value;
+    });
+
+    document.getElementById('homeDirectionInput')?.addEventListener('input', e => {
+      hi.direction = e.target.value;
+    });
+
+    root.querySelectorAll('[data-home-quick-dir]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        syncHomeInputs();
+        const dirText = btn.getAttribute('data-home-quick-dir') || '';
+        hi.direction = dirText;
+        const dirEl = document.getElementById('homeDirectionInput');
+        if (dirEl) {
+          dirEl.value = dirText;
+          dirEl.focus();
+        }
+        showToast('✓ 원하는 글의 방향·맥락이 입력되었습니다. 키워드를 확인하고 [✨ 초안 만들기 →]를 누르세요.');
+      });
+    });
+
+    document.getElementById('clearHomeSubAndDirBtn')?.addEventListener('click', () => {
+      syncHomeInputs();
+      hi.subKeywords = '';
+      hi.direction = '';
+      render(true);
+    });
+
+    root.querySelectorAll('[data-stage-trend-kw]').forEach(btn => {
+      btn.addEventListener('click', e => {
+        e.stopPropagation();
+        syncHomeInputs();
+        const kw = btn.getAttribute('data-stage-trend-kw') || '';
+        const comp = extractBrandFromTopic ? extractBrandFromTopic(kw, btn.getAttribute('data-stage-trend-comp') || '') : (btn.getAttribute('data-stage-trend-comp') || '');
+        const matchedType = Number(btn.getAttribute('data-stage-trend-type')) || 4;
+        hi.keyword = kw;
+        hi.company = comp;
+        hi.typeId = matchedType;
+        render(false);
+        setTimeout(() => {
+          flashElement('homeStep1Box');
+          document.getElementById('homeDirectionInput')?.focus();
+        }, 60);
+        showToast(`✓ '${kw}' 키워드가 상단 STEP 1에 담겼습니다. 원하는 글의 방향이나 서브 키워드를 입력한 뒤 [✨ 초안 만들기 →]를 누르세요!`);
+      });
+    });
+
+    const handleHomeEnterKey = e => {
       if (e.key === 'Enter') {
         e.preventDefault();
         syncHomeInputs();
@@ -2921,9 +3236,13 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
           showToast('트렌드 키워드나 주제를 입력해 주세요!');
           return;
         }
-        startWorkWithKeyword(hi.keyword, hi.typeId, hi.company, false);
+        startWorkWithKeyword(hi.keyword, hi.typeId, hi.company, false, hi.subKeywords, hi.direction);
       }
-    });
+    };
+
+    document.getElementById('homeKeywordInput')?.addEventListener('keydown', handleHomeEnterKey);
+    document.getElementById('homeSubKeywordsInput')?.addEventListener('keydown', handleHomeEnterKey);
+    document.getElementById('homeDirectionInput')?.addEventListener('keydown', handleHomeEnterKey);
 
     document.getElementById('toggleRawPasteBtn')?.addEventListener('click', () => {
       syncHomeInputs();
@@ -3317,9 +3636,15 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
                     </select>
                   </div>
 
-                  <div class="flex-row mb-8" style="gap: 6px;">
+                  <div class="flex-row mb-6" style="gap: 6px;">
                     <input type="text" class="input" id="leftSearchKwInput" value="${escapeHtml(w.keyword)}" placeholder="새 키워드 직접 입력" style="flex: 1; padding: 7px 10px;" />
                     <input type="text" class="input" id="leftSearchCompInput" value="${escapeHtml(w.inputCompany || '')}" placeholder="기업명(선택)" style="width: 92px; padding: 7px 10px;" />
+                  </div>
+                  <div class="mb-6">
+                    <input type="text" class="input" id="leftSearchSubKwInput" value="${escapeHtml(w.inputSubKeywords || '')}" placeholder="🎯 서브 키워드 (선택 · 쉼표로 구분)" style="width: 100%; padding: 6px 10px; font-size: 12px;" />
+                  </div>
+                  <div class="mb-8">
+                    <input type="text" class="input" id="leftSearchDirectionInput" value="${escapeHtml(w.inputDirection || '')}" placeholder="🧭 원하는 글의 방향·맥락 (예: 브랜드별 신메뉴·가격 비교 중심으로)" style="width: 100%; padding: 6px 10px; font-size: 12px;" />
                   </div>
 
                   <button
@@ -3329,7 +3654,7 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
                     style="width: 100%; justify-content: center; padding: 8px 12px; font-weight: 800;"
                     ${state.isRefreshingInEditor ? 'disabled' : ''}
                   >
-                    ${state.isRefreshingInEditor ? '⏳ 실시간 뉴스·Perplexity로 기사 새로 작성 중...' : '🔄 위 키워드로 오른쪽 기사 전체 새로 쓰기 →'}
+                    ${state.isRefreshingInEditor ? '⏳ 실시간 뉴스·Perplexity로 기사 새로 작성 중...' : '🔄 위 키워드·방향으로 오른쪽 기사 전체 새로 쓰기 →'}
                   </button>
                 </div>
 
@@ -3642,9 +3967,14 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
                 </div>
               ` : ''}
 
-              <h1 style="font-size: 26px; font-weight: 800; line-height: 1.38; color: var(--text-primary); margin-bottom: 18px; letter-spacing: -0.5px;">
+              <h1 style="font-size: 26px; font-weight: 800; line-height: 1.38; color: var(--text-primary); margin-bottom: ${sb.oneLineSubtitle ? '8px' : '18px'}; letter-spacing: -0.5px;">
                 ${escapeHtml(w.title)}
               </h1>
+              ${sb.oneLineSubtitle ? `
+                <div style="font-size: 16.5px; font-weight: 700; color: var(--mk-orange); line-height: 1.45; margin-bottom: 16px;">
+                  ${escapeHtml(sb.oneLineSubtitle)}
+                </div>
+              ` : ''}
 
               <div class="article-ai-box">
                 <div style="font-size: 12.5px; font-weight: 800; color: var(--mk-orange); margin-bottom: 6px;">AI 팩트 체크 요약</div>
@@ -3850,37 +4180,104 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
                 </div>
               </section>
 
-              <!-- STEP 02: 메인 헤드라인 & 추천 제목 5선 -->
+              <!-- STEP 02: 메인 헤드라인 & 추천 제목 5선 (MK Pick 메인 2줄 최대 40자 제한 & 한줄 소제목 분리) -->
               <section class="editor-block-section" id="block-step-2">
-                <div class="editor-step-header">
-                  <div class="flex-row" style="gap: 8px;">
-                    <span class="editor-step-badge">STEP 02 · 기사 헤드라인</span>
-                    <span class="text-muted">큰따옴표(" ") 인용구 + 말줄임표(…) + 핵심 키워드 조합이 GEO 검색 노출에 유리합니다.</span>
-                  </div>
-                  <button type="button" class="text-action" data-copy-part="headline">📋 제목만 복사</button>
-                </div>
-
-                <textarea class="doc-editable-textarea doc-headline-input mb-12" id="docMainHeadline" rows="2" placeholder="기사 제목을 입력하세요">${escapeHtml(w.title)}</textarea>
-
-                <div style="background-color: var(--bg-subtle); border: var(--border-thin); border-radius: var(--radius-general); padding: 10px 12px;">
-                  <div style="font-size: 12px; font-weight: 800; color: var(--text-secondary); margin-bottom: 6px;">
-                    💡 AI 추천 헤드라인 5선 (원하는 제목을 클릭하면 위 제목칸에 즉시 적용됩니다)
-                  </div>
-                  ${(w.titleCandidates || []).map((tc, i) => {
-                    const isSelected = (w.title || '').trim() === (tc.title || '').trim();
-                    return `
-                      <div class="headline-pick-row ${isSelected ? 'active' : ''}" data-pick-headline-idx="${i}">
-                        <span style="font-size: 13px; font-weight: ${isSelected ? '800' : '500'}; color: var(--text-primary);">
-                          <span style="color: var(--mk-orange); font-weight: 800; margin-right: 6px;">0${i + 1}</span>
-                          ${escapeHtml(tc.title)}
-                        </span>
-                        <span style="font-size: 11.5px; font-weight: 700; color: ${isSelected ? 'var(--mk-orange)' : 'var(--text-muted)'}; white-space: nowrap; flex-shrink: 0;">
-                          ${isSelected ? '✓ 현재 적용됨' : '이 제목으로 교체 →'}
+                ${(() => {
+                  const maxHeadlineLen = MAX_HEADLINE_CHARS || 40;
+                  const curTitle = String(w.title || '');
+                  const curLen = curTitle.length;
+                  const isOverLimit = curLen > maxHeadlineLen;
+                  const oneLineSubVal = sb.oneLineSubtitle !== undefined
+                    ? sb.oneLineSubtitle
+                    : ((sb.subtitle || '').split('\n')[0] || '');
+                  return `
+                    <div class="editor-step-header">
+                      <div class="flex-row" style="gap: 8px; flex-wrap: wrap;">
+                        <span class="editor-step-badge">STEP 02 · 기사 헤드라인</span>
+                        <span
+                          id="headlineCharBadge"
+                          style="font-size: 12px; font-weight: 800; padding: 2px 9px; border-radius: 99px; border: 1px solid ${isOverLimit ? '#F03E3E' : '#2B8A3E'}; background-color: ${isOverLimit ? '#FFF5F5' : '#EBFBEE'}; color: ${isOverLimit ? '#C92A2A' : '#1B7F3B'};"
+                        >
+                          ${isOverLimit ? `⚠️ ${curLen} / ${maxHeadlineLen}자 (${curLen - maxHeadlineLen}자 초과 · 메인 2줄 잘림 주의)` : `✓ 공백 포함 ${curLen} / ${maxHeadlineLen}자 (MK Pick 메인 2줄 노출 안전)`}
                         </span>
                       </div>
-                    `;
-                  }).join('')}
-                </div>
+                      <div class="flex-row" style="gap: 8px;">
+                        <button
+                          type="button"
+                          class="btn btn-sm btn-outline-orange"
+                          id="splitHeadlineToSubtitleBtn"
+                          style="padding: 3px 10px; font-size: 11.5px; font-weight: 800;"
+                          title="${maxHeadlineLen}자를 넘는 뒷부분이나 부연 설명을 아래 한줄 소제목 칸으로 깔끔하게 내려보냅니다"
+                        >
+                          ✂️ ${maxHeadlineLen}자 초과분 아래 한줄 소제목으로 자동 분리 ↓
+                        </button>
+                        <button type="button" class="text-action" data-copy-part="headline">📋 제목만 복사</button>
+                      </div>
+                    </div>
+
+                    <textarea class="doc-editable-textarea doc-headline-input mb-8" id="docMainHeadline" rows="2" placeholder="기사 메인 헤드라인을 입력하세요 (MK Pick 메인 화면 2줄 노출 기준 최대 40자 권장)">${escapeHtml(w.title)}</textarea>
+
+                    <!-- 헤드라인 바로 아래 1줄 소제목 (40자 초과 시 자동 분리되거나 편집자가 직접 한 줄 요약 부제를 입력하는 칸) -->
+                    <div style="margin-bottom: 10px; padding: 9px 12px; background-color: #FFFDF9; border: 1px dashed var(--mk-orange-border); border-radius: var(--radius-general);">
+                      <div class="flex-between mb-4" style="flex-wrap: wrap; gap: 6px;">
+                        <label for="docOneLineSubtitle" style="font-size: 12px; font-weight: 800; color: var(--mk-orange);">
+                          📌 헤드라인 아래 한줄 소제목 <span style="font-weight: 600; color: var(--text-secondary);">(헤드라인이 40자를 넘을 때 초과 내용을 이곳 한줄 소제목으로 내려 작성하세요)</span>
+                        </label>
+                        <span id="oneLineSubCharCount" style="font-size: 11px; font-weight: 700; color: var(--text-muted);">${String(oneLineSubVal || '').length}자</span>
+                      </div>
+                      <input
+                        type="text"
+                        class="doc-editable-input"
+                        id="docOneLineSubtitle"
+                        value="${escapeHtml(oneLineSubVal)}"
+                        placeholder="예: 이디야·맘스터치·메가MGC커피 신메뉴 라인업과 가격·핵심 특징 한눈에 비교"
+                        style="font-size: 13.5px; font-weight: 700; color: var(--text-primary); background-color: #FFFFFF;"
+                      />
+                    </div>
+
+                    <!-- MK Pick 메인 화면 피드 카드 2줄 노출 실시간 시뮬레이션 -->
+                    <div style="margin-bottom: 12px; padding: 8px 12px; background-color: var(--bg-subtle); border: var(--border-thin); border-radius: 6px; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;">
+                      <div style="flex: 1; min-width: 240px;">
+                        <div style="font-size: 11px; font-weight: 800; color: var(--text-muted); margin-bottom: 2px;">
+                          📱 MK Pick 메인 화면 피드 노출 미리보기 (최대 2줄 · ${maxHeadlineLen}자 이내면 '...' 잘림 없음)
+                        </div>
+                        <div
+                          id="headlineMainFeedPreview"
+                          style="max-width: 440px; font-size: 15px; font-weight: 800; line-height: 1.4; color: #111827; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; text-overflow: ellipsis;"
+                        >
+                          ${escapeHtml(curTitle.slice(0, maxHeadlineLen))}${isOverLimit ? `<span style="color: #F03E3E; text-decoration: line-through;" title="메인 화면에서 잘릴 수 있는 초과 글자">${escapeHtml(curTitle.slice(maxHeadlineLen))}</span>` : ''}
+                        </div>
+                      </div>
+                      ${isOverLimit ? `
+                        <span style="font-size: 11.5px; font-weight: 800; color: #C92A2A; background: #FFF5F5; border: 1px solid #FFA8A8; padding: 4px 10px; border-radius: 6px;">
+                          ⚠️ 우측 상단 [✂️ 40자 초과분 아래 한줄 소제목으로 자동 분리 ↓] 버튼을 누르면 즉시 해결됩니다!
+                        </span>
+                      ` : ''}
+                    </div>
+
+                    <div style="background-color: var(--bg-subtle); border: var(--border-thin); border-radius: var(--radius-general); padding: 10px 12px;">
+                      <div style="font-size: 12px; font-weight: 800; color: var(--text-secondary); margin-bottom: 6px;">
+                        💡 AI 추천 헤드라인 5선 (전부 ${maxHeadlineLen}자 이내 맞춤 · 클릭하면 위 제목칸에 즉시 적용됩니다)
+                      </div>
+                      ${(w.titleCandidates || []).map((tc, i) => {
+                        const isSelected = (w.title || '').trim() === (tc.title || '').trim();
+                        const tcLen = (tc.title || '').length;
+                        return `
+                          <div class="headline-pick-row ${isSelected ? 'active' : ''}" data-pick-headline-idx="${i}">
+                            <span style="font-size: 13px; font-weight: ${isSelected ? '800' : '500'}; color: var(--text-primary);">
+                              <span style="color: var(--mk-orange); font-weight: 800; margin-right: 6px;">0${i + 1}</span>
+                              ${escapeHtml(tc.title)}
+                              <span style="font-size: 11px; font-weight: 700; color: ${tcLen <= maxHeadlineLen ? '#2B8A3E' : '#C92A2A'}; margin-left: 6px;">(${tcLen}자)</span>
+                            </span>
+                            <span style="font-size: 11.5px; font-weight: 700; color: ${isSelected ? 'var(--mk-orange)' : 'var(--text-muted)'}; white-space: nowrap; flex-shrink: 0;">
+                              ${isSelected ? '✓ 현재 적용됨' : '이 제목으로 교체 →'}
+                            </span>
+                          </div>
+                        `;
+                      }).join('')}
+                    </div>
+                  `;
+                })()}
               </section>
 
               <!-- STEP 03 & 04: AI 팩트 체크 3줄 요약 + 리드 부제(Subtitle) -->
@@ -4063,10 +4460,19 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
                   <div class="flex-row" style="gap: 8px; flex-wrap: wrap;">
                     <span class="editor-step-badge">STEP 07 · 독자 자연어 FAQ (${(sb.faqs || []).length}문항)</span>
                     <span style="font-size: 11.5px; font-weight: 800; color: #1B7F3B; background-color: #EBFBEE; border: 1px solid #B2F2BB; padding: 2px 8px; border-radius: 99px;">
-                      🔄 본문 수정·삭제 시 자동 연동됨
+                      🔄 본문 문맥 순서 연동 & 자유 이동 지원
                     </span>
                   </div>
-                  <div class="flex-row" style="gap: 10px; flex-wrap: wrap;">
+                  <div class="flex-row" style="gap: 8px; flex-wrap: wrap;">
+                    <button
+                      type="button"
+                      class="btn btn-sm"
+                      id="sortFaqsByContextBtn"
+                      style="padding: 3px 10px; font-size: 11.5px; font-weight: 800; border: 1px solid var(--mk-orange-border); background-color: var(--mk-orange-light); color: var(--mk-orange);"
+                      title="위 본문(단락 01 → 02 → 03 → 04)의 흐름과 문맥 순서에 맞춰 FAQ 순서를 자동으로 정렬합니다"
+                    >
+                      ⇅ 본문 문맥 순서(단락 01→0${(w.draftSections || []).length || 4})로 자동 정렬
+                    </button>
                     <button
                       type="button"
                       class="btn btn-sm btn-outline-orange"
@@ -4091,7 +4497,7 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
                   <div style="margin-bottom: 12px; padding: 8px 12px; background-color: #EBFBEE; border: 1px solid #8CE99A; border-radius: 6px; font-size: 12px; color: #1B7F3B; font-weight: 700; display: flex; align-items: center; justify-content: space-between; gap: 8px;">
                     <span>
                       ✓ [${escapeHtml(state.lastFaqAutoSyncInfo.time)}] 본문 편집·삭제 내용이 하단 FAQ에 자동 반영되었습니다!
-                      ${state.lastFaqAutoSyncInfo.removedFaqCount > 0 ? `(본문에서 삭제된 내용 관련 FAQ ${state.lastFaqAutoSyncInfo.removedFaqCount}문항 자동 제거 완료)` : '(현재 본문 내용 기준으로 FAQ 동기화 완료)'}
+                      ${state.lastFaqAutoSyncInfo.removedFaqCount > 0 ? `(본문에서 삭제된 내용 관련 FAQ ${state.lastFaqAutoSyncInfo.removedFaqCount}문항 자동 제거 완료)` : '(현재 본문 문맥 순서 기준으로 FAQ 동기화 완료)'}
                     </span>
                   </div>
                 ` : ''}
@@ -4101,7 +4507,7 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
                     <div class="flex-between mb-6" style="padding-bottom: 6px; border-bottom: 0.5px solid var(--mk-orange-border);">
                       <div>
                         <span style="font-size: 12.5px; font-weight: 800; color: var(--mk-orange);">💡 팬아웃 쿼리(Query Fan-out) 연관 추천 질문 ${sb.fanoutQuestions.length}선</span>
-                        <span style="font-size: 12px; color: var(--text-secondary); margin-left: 6px;">· 클릭하면 아래 기사 FAQ 목록에 즉시 추가됩니다.</span>
+                        <span style="font-size: 12px; color: var(--text-secondary); margin-left: 6px;">· 클릭하면 아래 기사 FAQ 목록에 즉시 추가되고 본문 문맥 순서에 맞춰 번호가 정렬됩니다.</span>
                       </div>
                     </div>
                     ${sb.fanoutQuestions.map((fq, fIdx) => `
@@ -4119,16 +4525,48 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
                   </div>
                 ` : ''}
 
-                <div>
-                  ${(sb.faqs || []).map((faq, idx) => `
-                    <div style="padding: 10px 12px; margin-bottom: 10px; background-color: var(--bg-subtle); border: var(--border-thin); border-radius: var(--radius-general);">
-                      <div class="flex-between mb-6">
-                        <input type="text" class="doc-editable-input" data-doc-faq-q="${idx}" value="${escapeHtml(faq.q)}" style="font-weight: 800; font-size: 14px; background-color: var(--white);" />
-                        <button type="button" class="text-action" data-doc-del-faq="${idx}" style="font-size: 12px; color: var(--text-muted);">삭제</button>
+                <div id="docFaqsContainer">
+                  ${(sb.faqs || []).map((faq, idx) => {
+                    const relInfo = inferFaqRelatedSectionInfo(faq, w);
+                    return `
+                      <div
+                        class="faq-draggable-card"
+                        draggable="true"
+                        data-faq-card-idx="${idx}"
+                        style="padding: 10px 12px; margin-bottom: 10px; background-color: var(--bg-subtle); border: var(--border-thin); border-radius: var(--radius-general); transition: all 0.15s;"
+                      >
+                        <div class="flex-between mb-6" style="gap: 8px; flex-wrap: wrap;">
+                          <div class="flex-row" style="gap: 6px; flex-wrap: wrap;">
+                            <span
+                              style="font-size: 11.5px; font-weight: 800; color: var(--text-secondary); background-color: #FFFFFF; border: var(--border-thin); padding: 2px 8px; border-radius: 4px; cursor: grab; user-select: none;"
+                              title="마우스로 이 카드를 잡고 위·아래로 끌어서 FAQ 순서를 자유롭게 바꿀 수 있습니다"
+                            >
+                              ⠿ 드래그 이동 · Q${idx + 1}
+                            </span>
+                            ${relInfo.secId ? `
+                              <button
+                                type="button"
+                                data-jump-block="secWrap-${escapeHtml(relInfo.secId)}"
+                                style="font-size: 11px; font-weight: 800; color: var(--mk-orange); background-color: var(--mk-orange-light); border: 1px solid var(--mk-orange-border); padding: 2px 8px; border-radius: 99px; cursor: pointer; font-family: inherit;"
+                                title="클릭하면 이 FAQ와 연결된 본문 [${escapeHtml(relInfo.secLabel)}: ${escapeHtml(relInfo.secTitle)}] 위치로 이동합니다"
+                              >
+                                📍 본문 ${escapeHtml(relInfo.secLabel)} 문맥 ↗
+                              </button>
+                            ` : ''}
+                          </div>
+                          <div class="flex-row" style="gap: 8px;">
+                            ${idx > 0 ? `<button type="button" class="text-action" data-move-faq-up="${idx}" title="이 FAQ를 위로 이동">↑ 위로</button>` : ''}
+                            ${idx < (sb.faqs || []).length - 1 ? `<button type="button" class="text-action" data-move-faq-down="${idx}" title="이 FAQ를 아래로 이동">↓ 아래로</button>` : ''}
+                            <button type="button" class="text-action" data-doc-del-faq="${idx}" style="font-size: 12px; color: var(--text-muted);">삭제</button>
+                          </div>
+                        </div>
+                        <div class="mb-6">
+                          <input type="text" class="doc-editable-input" data-doc-faq-q="${idx}" value="${escapeHtml(faq.q)}" style="font-weight: 800; font-size: 14px; background-color: var(--white);" />
+                        </div>
+                        <textarea class="doc-editable-textarea" data-doc-faq-a="${idx}" rows="2" style="font-size: 13.5px; color: var(--text-secondary); line-height: 1.6; background-color: var(--white);">${escapeHtml(faq.a)}</textarea>
                       </div>
-                      <textarea class="doc-editable-textarea" data-doc-faq-a="${idx}" rows="2" style="font-size: 13.5px; color: var(--text-secondary); line-height: 1.6; background-color: var(--white);">${escapeHtml(faq.a)}</textarea>
-                    </div>
-                  `).join('')}
+                    `;
+                  }).join('')}
                 </div>
               </section>
 
@@ -4374,8 +4812,12 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
     async function triggerLiveNewsRefresh(rebuildDraft, customKeyword, keepCurrentType = false) {
       const kwEl = document.getElementById('leftSearchKwInput');
       const compEl = document.getElementById('leftSearchCompInput');
+      const subKwEl = document.getElementById('leftSearchSubKwInput');
+      const dirEl = document.getElementById('leftSearchDirectionInput');
       const rawKw = (customKeyword || (kwEl ? kwEl.value : w.keyword)).trim();
       const rawComp = compEl ? compEl.value.trim() : (w.inputCompany || '');
+      const subKeywords = subKwEl ? subKwEl.value.trim() : (w.inputSubKeywords || '');
+      const direction = dirEl ? dirEl.value.trim() : (w.inputDirection || '');
       const kw = cleanTrendTopicKeyword ? cleanTrendTopicKeyword(rawKw) : rawKw;
       const comp = extractBrandFromTopic ? extractBrandFromTopic(kw, rawComp) : rawComp;
       if (!kw) {
@@ -4383,7 +4825,7 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
         return;
       }
       const shouldAutoMatch = rebuildDraft && !keepCurrentType;
-      const nextTypeId = shouldAutoMatch ? detectBestContentType(kw, comp, '', w.typeId) : w.typeId;
+      const nextTypeId = shouldAutoMatch ? detectBestContentType(kw, comp, `${subKeywords} ${direction}`, w.typeId) : w.typeId;
       const nextTypeName = CONTENT_TYPES[nextTypeId]?.shortName || '맞춤 유형';
       state.isRefreshingInEditor = true;
       const stopEditorTimer = startDraftProgressTimer(kw, nextTypeName);
@@ -4394,6 +4836,8 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
           body: JSON.stringify({
             keyword: kw,
             company: comp,
+            subKeywords,
+            direction,
             typeId: nextTypeId,
             autoMatchType: shouldAutoMatch,
             rebuildDraft,
@@ -4441,6 +4885,8 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
           let baseScen = (buildDynamicScenario || buildPresetScenario)({
             keyword: kw,
             company: comp,
+            subKeywords,
+            direction,
             url: w.inputUrl || '',
             rawText: w.inputRawText || '',
             typeId: nextTypeId,
@@ -4452,6 +4898,8 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
                 apiKey: clientKey,
                 keyword: kw,
                 company: comp,
+                subKeywords,
+                direction,
                 url: w.inputUrl || '',
                 rawText: w.inputRawText || '',
                 typeId: nextTypeId,
@@ -4464,6 +4912,8 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
           await loadConfig();
           w.keyword = kw;
           w.inputCompany = comp;
+          w.inputSubKeywords = subKeywords;
+          w.inputDirection = direction;
           w.typeId = nextTypeId;
           if (rebuildDraft) {
             w.sources = baseScen.sources;
@@ -4793,8 +5243,73 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
     document.getElementById('docMainHeadline')?.addEventListener('input', e => {
       w.title = e.target.value;
       autoResizeTextarea(e.target);
+      const maxLen = MAX_HEADLINE_CHARS || 40;
+      const curTitle = String(w.title || '');
+      const curLen = curTitle.length;
+      const isOver = curLen > maxLen;
+      const badgeEl = document.getElementById('headlineCharBadge');
+      if (badgeEl) {
+        badgeEl.style.borderColor = isOver ? '#F03E3E' : '#2B8A3E';
+        badgeEl.style.backgroundColor = isOver ? '#FFF5F5' : '#EBFBEE';
+        badgeEl.style.color = isOver ? '#C92A2A' : '#1B7F3B';
+        badgeEl.textContent = isOver
+          ? `⚠️ ${curLen} / ${maxLen}자 (${curLen - maxLen}자 초과 · 메인 2줄 잘림 주의)`
+          : `✓ 공백 포함 ${curLen} / ${maxLen}자 (MK Pick 메인 2줄 노출 안전)`;
+      }
+      const previewEl = document.getElementById('headlineMainFeedPreview');
+      if (previewEl) {
+        previewEl.innerHTML = `${escapeHtml(curTitle.slice(0, maxLen))}${isOver ? `<span style="color: #F03E3E; text-decoration: line-through;" title="메인 화면에서 잘릴 수 있는 초과 글자">${escapeHtml(curTitle.slice(maxLen))}</span>` : ''}`;
+      }
       saveCurrentWork(true);
     });
+
+    // STEP 02: 헤드라인 아래 한줄 소제목 입력 및 40자 초과분 자동 분리 버튼
+    document.getElementById('docOneLineSubtitle')?.addEventListener('input', e => {
+      sb.oneLineSubtitle = e.target.value;
+      const cntEl = document.getElementById('oneLineSubCharCount');
+      if (cntEl) cntEl.textContent = `${String(e.target.value || '').length}자`;
+      saveCurrentWork(true);
+    });
+
+    document.getElementById('splitHeadlineToSubtitleBtn')?.addEventListener('click', () => {
+      const maxLen = MAX_HEADLINE_CHARS || 40;
+      const curTitle = String(w.title || '').trim();
+      if (!curTitle) return;
+      if (splitLongHeadlineToSubtitle) {
+        const currentOneLine = sb.oneLineSubtitle || '';
+        const splitRes = splitLongHeadlineToSubtitle(curTitle, currentOneLine, maxLen);
+        if (splitRes.wasSplit) {
+          w.title = splitRes.headline;
+          sb.oneLineSubtitle = splitRes.overflowLine || splitRes.subtitle || currentOneLine;
+          if (!sb.subtitle || !sb.subtitle.includes(splitRes.overflowLine)) {
+            sb.subtitle = splitRes.subtitle || sb.subtitle;
+          }
+          saveCurrentWork(false);
+          render(true);
+          flashElement('docOneLineSubtitle');
+          showToast(`✂️ 헤드라인을 ${w.title.length}자로 맞추고 초과한 뒷부분을 아래 '한줄 소제목'으로 내려 작성했습니다!`);
+          return;
+        }
+      }
+      // 40자 이내라도 말줄임표(…)나 공백 기준으로 뒷부분을 한줄 소제목으로 분리하고 싶을 때
+      const ellipsisIdx = curTitle.indexOf('…') !== -1 ? curTitle.indexOf('…') : curTitle.indexOf('...');
+      if (ellipsisIdx > 8 && ellipsisIdx < curTitle.length - 4) {
+        const sepLen = curTitle[ellipsisIdx] === '…' ? 1 : 3;
+        const headPart = curTitle.slice(0, ellipsisIdx + sepLen).trim();
+        const tailPart = curTitle.slice(ellipsisIdx + sepLen).trim();
+        if (tailPart) {
+          w.title = headPart;
+          sb.oneLineSubtitle = sb.oneLineSubtitle ? `${tailPart} · ${sb.oneLineSubtitle}` : tailPart;
+          saveCurrentWork(false);
+          render(true);
+          flashElement('docOneLineSubtitle');
+          showToast('✂️ 헤드라인 뒷부분을 아래 한줄 소제목으로 분리했습니다!');
+          return;
+        }
+      }
+      showToast(`현재 헤드라인(${curTitle.length}자)은 이미 ${maxLen}자 이내로 메인 화면에서 잘리지 않습니다.`);
+    });
+
     document.getElementById('docAiSummary')?.addEventListener('input', e => {
       sb.aiFactSummary = e.target.value.split('\n').filter(line => line.trim().length > 0);
       autoResizeTextarea(e.target);
@@ -4884,7 +5399,7 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
       });
     });
 
-    // 본문 단락 순서 위로 / 아래로 이동
+    // 본문 단락 순서 위로 / 아래로 이동 (단락 순서가 바뀌면 하단 FAQ도 새 본문 문맥 순서에 맞춰 자동 정렬)
     root.querySelectorAll('[data-move-sec-up]').forEach(btn => {
       btn.addEventListener('click', () => {
         const idx = Number(btn.getAttribute('data-move-sec-up'));
@@ -4892,9 +5407,10 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
           const temp = w.draftSections[idx - 1];
           w.draftSections[idx - 1] = w.draftSections[idx];
           w.draftSections[idx] = temp;
+          sortFaqsByBodyContextOrder(w);
           saveCurrentWork(false);
           render(true);
-          showToast('단락 순서를 위로 이동했습니다.');
+          showToast('단락 순서를 위로 이동하고 하단 FAQ 순서도 본문 문맥에 맞춰 정렬했습니다.');
         }
       });
     });
@@ -4906,9 +5422,10 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
           const temp = w.draftSections[idx + 1];
           w.draftSections[idx + 1] = w.draftSections[idx];
           w.draftSections[idx] = temp;
+          sortFaqsByBodyContextOrder(w);
           saveCurrentWork(false);
           render(true);
-          showToast('단락 순서를 아래로 이동했습니다.');
+          showToast('단락 순서를 아래로 이동하고 하단 FAQ 순서도 본문 문맥에 맞춰 정렬했습니다.');
         }
       });
     });
@@ -4944,6 +5461,15 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
           showToast('🗑️ 선택한 본문 단락을 삭제하고 하단 FAQ와 동기화했습니다.');
         }
       });
+    });
+
+    // STEP 07: [⇅ 본문 문맥 순서(단락 01→04)로 자동 정렬] 버튼 클릭
+    document.getElementById('sortFaqsByContextBtn')?.addEventListener('click', () => {
+      sortFaqsByBodyContextOrder(w);
+      saveCurrentWork(false);
+      render(true);
+      flashElement('block-step-7');
+      showToast('⇅ 위 본문(단락 01 → 02 → 03 → 04) 문맥 순서에 맞춰 FAQ를 정렬하고 Q1~Q5 번호를 매겼습니다!');
     });
 
     // STEP 07: [🔄 현재 본문 기준으로 FAQ·요약표 AI 재동기화] 버튼 클릭
@@ -5060,7 +5586,7 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
       });
     });
 
-    // FAQ 인라인 편집
+    // FAQ 인라인 편집 및 자유로운 순서 이동 (↑ 위로 / ↓ 아래로 / 마우스 드래그 앤 드롭)
     const fanoutBtn = document.getElementById('docToggleFanoutBtn');
     if (fanoutBtn) {
       fanoutBtn.addEventListener('click', () => {
@@ -5080,8 +5606,9 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
           a: fq.a
         });
         sb.fanoutQuestions.splice(fIdx, 1);
+        sortFaqsByBodyContextOrder(w);
         saveCurrentWork(false);
-        showToast('선택한 질문이 FAQ에 추가되었습니다.');
+        showToast('선택한 질문이 FAQ에 추가되고 본문 문맥 순서에 맞춰 정렬되었습니다.');
         render(true);
       });
     });
@@ -5092,8 +5619,86 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
         q: `Q${nextNum}. 새로운 질문을 입력하세요?`,
         a: '답변을 "~합니다" 체로 입력하세요.'
       });
+      renumberFaqPrefixes(sb.faqs);
       saveCurrentWork(false);
       render(true);
+    });
+
+    // FAQ 위로 / 아래로 이동 버튼
+    root.querySelectorAll('[data-move-faq-up]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const idx = Number(btn.getAttribute('data-move-faq-up'));
+        if (idx > 0 && Array.isArray(sb.faqs)) {
+          const temp = sb.faqs[idx - 1];
+          sb.faqs[idx - 1] = sb.faqs[idx];
+          sb.faqs[idx] = temp;
+          renumberFaqPrefixes(sb.faqs);
+          saveCurrentWork(false);
+          render(true);
+          showToast(`FAQ Q${idx + 1} 문항을 위로 이동했습니다.`);
+        }
+      });
+    });
+
+    root.querySelectorAll('[data-move-faq-down]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const idx = Number(btn.getAttribute('data-move-faq-down'));
+        if (Array.isArray(sb.faqs) && idx < sb.faqs.length - 1) {
+          const temp = sb.faqs[idx + 1];
+          sb.faqs[idx + 1] = sb.faqs[idx];
+          sb.faqs[idx] = temp;
+          renumberFaqPrefixes(sb.faqs);
+          saveCurrentWork(false);
+          render(true);
+          showToast(`FAQ Q${idx + 1} 문항을 아래로 이동했습니다.`);
+        }
+      });
+    });
+
+    // FAQ 카드 마우스 드래그 앤 드롭으로 순서 자유 이동
+    let draggedFaqIdx = null;
+    root.querySelectorAll('[data-faq-card-idx]').forEach(card => {
+      card.addEventListener('dragstart', e => {
+        // 입력창 내부 텍스트 선택 드래그와 구분
+        const tag = (e.target && e.target.tagName) ? e.target.tagName.toLowerCase() : '';
+        if (tag === 'input' || tag === 'textarea') {
+          e.preventDefault();
+          return;
+        }
+        draggedFaqIdx = Number(card.getAttribute('data-faq-card-idx'));
+        card.style.opacity = '0.55';
+        if (e.dataTransfer) {
+          e.dataTransfer.effectAllowed = 'move';
+          e.dataTransfer.setData('text/plain', String(draggedFaqIdx));
+        }
+      });
+      card.addEventListener('dragend', () => {
+        card.style.opacity = '1';
+        card.style.borderColor = '';
+        draggedFaqIdx = null;
+      });
+      card.addEventListener('dragover', e => {
+        if (draggedFaqIdx === null) return;
+        e.preventDefault();
+        card.style.borderColor = 'var(--mk-orange)';
+      });
+      card.addEventListener('dragleave', () => {
+        card.style.borderColor = '';
+      });
+      card.addEventListener('drop', e => {
+        e.preventDefault();
+        card.style.borderColor = '';
+        const targetIdx = Number(card.getAttribute('data-faq-card-idx'));
+        if (draggedFaqIdx === null || isNaN(targetIdx) || draggedFaqIdx === targetIdx) return;
+        if (!Array.isArray(sb.faqs)) return;
+        const [movedFaq] = sb.faqs.splice(draggedFaqIdx, 1);
+        sb.faqs.splice(targetIdx, 0, movedFaq);
+        renumberFaqPrefixes(sb.faqs);
+        draggedFaqIdx = null;
+        saveCurrentWork(false);
+        render(true);
+        showToast('✓ 드래그한 위치로 FAQ 순서를 이동하고 Q 번호를 자동으로 맞췄습니다.');
+      });
     });
 
     root.querySelectorAll('[data-doc-faq-q]').forEach(inp => {
@@ -5121,6 +5726,7 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
       btn.addEventListener('click', () => {
         const idx = Number(btn.getAttribute('data-doc-del-faq'));
         sb.faqs.splice(idx, 1);
+        renumberFaqPrefixes(sb.faqs);
         saveCurrentWork(false);
         render(true);
       });

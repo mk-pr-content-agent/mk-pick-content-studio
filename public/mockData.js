@@ -672,54 +672,208 @@ function cleanTrendTopicKeyword(rawTitle = '', fullContext = '') {
   return acc || s.slice(0, 28);
 }
 
-// 키워드·설명에서 핵심 기업/브랜드명을 자동 추출하는 헬퍼
+// 키워드·설명에서 핵심 기업/브랜드명을 자동 추출하는 헬퍼 (복수 브랜드 키워드 시 모든 브랜드 추출!)
+const BRAND_DETECTION_RULES = [
+  { pattern: /한정선/, tokenPattern: /^한정선$/, name: '한정선' },
+  { pattern: /올리브영|올영/, tokenPattern: /^(?:CJ)?올리브영$|^올영$/, name: '올리브영' },
+  { pattern: /다이소/, tokenPattern: /^(?:아성)?다이소$/, name: '다이소' },
+  { pattern: /세븐일레븐/, tokenPattern: /^세븐일레븐$/, name: '세븐일레븐' },
+  { pattern: /GS25/i, tokenPattern: /^GS25$/i, name: 'GS25' },
+  { pattern: /(^|[^A-Za-z])CU([^A-Za-z]|$)/, tokenPattern: /^CU$/, name: 'CU' },
+  { pattern: /이마트24/, tokenPattern: /^이마트24$/, name: '이마트24' },
+  { pattern: /더현대\s*대구|대구\s*더현대/, tokenPattern: /^(?:더현대\s*대구|대구\s*더현대)$/, name: '더현대 대구' },
+  { pattern: /더현대/, tokenPattern: /^더현대(?:서울)?$/, name: '더현대' },
+  { pattern: /무신사/, tokenPattern: /^무신사$/, name: '무신사' },
+  { pattern: /이디야/, tokenPattern: /^이디야(?:커피)?$/, name: '이디야커피' },
+  { pattern: /맘스터치/, tokenPattern: /^맘스터치$/, name: '맘스터치' },
+  { pattern: /메가MGC커피|메가커피/, tokenPattern: /^메가(?:MGC)?커피$/, name: '메가MGC커피' },
+  { pattern: /컴포즈/, tokenPattern: /^컴포즈(?:커피)?$/, name: '컴포즈커피' },
+  { pattern: /빽다방/, tokenPattern: /^빽다방$/, name: '빽다방' },
+  { pattern: /스타벅스/, tokenPattern: /^스타벅스(?:코리아)?$/, name: '스타벅스' },
+  { pattern: /투썸/, tokenPattern: /^투썸(?:플레이스)?$/, name: '투썸플레이스' },
+  { pattern: /할리스/, tokenPattern: /^할리스$/, name: '할리스' },
+  { pattern: /폴바셋/, tokenPattern: /^폴바셋$/, name: '폴바셋' },
+  { pattern: /맥도날드/, tokenPattern: /^(?:한국)?맥도날드$/, name: '맥도날드' },
+  { pattern: /버거킹/, tokenPattern: /^버거킹$/, name: '버거킹' },
+  { pattern: /롯데리아/, tokenPattern: /^롯데리아$/, name: '롯데리아' },
+  { pattern: /배스킨라빈스/, tokenPattern: /^배스킨라빈스$/, name: '배스킨라빈스' },
+  { pattern: /던킨/, tokenPattern: /^던킨(?:도너츠)?$/, name: '던킨' },
+  { pattern: /파리바게뜨/, tokenPattern: /^파리바게뜨$/, name: '파리바게뜨' },
+  { pattern: /뚜레쥬르/, tokenPattern: /^뚜레쥬르$/, name: '뚜레쥬르' },
+  { pattern: /성심당/, tokenPattern: /^성심당$/, name: '성심당' },
+  { pattern: /하인즈/, tokenPattern: /^하인즈$/, name: '하인즈' },
+  { pattern: /농심/, tokenPattern: /^농심$/, name: '농심' },
+  { pattern: /오뚜기/, tokenPattern: /^오뚜기$/, name: '오뚜기' },
+  { pattern: /삼양/, tokenPattern: /^삼양(?:식품)?$/, name: '삼양식품' },
+  { pattern: /롯데웰푸드/, tokenPattern: /^롯데웰푸드$/, name: '롯데웰푸드' },
+  { pattern: /CJ제일제당/, tokenPattern: /^CJ제일제당$/, name: 'CJ제일제당' },
+  { pattern: /풀무원/, tokenPattern: /^풀무원$/, name: '풀무원' },
+  { pattern: /교촌/, tokenPattern: /^교촌(?:치킨)?$/, name: '교촌치킨' },
+  { pattern: /BBQ/i, tokenPattern: /^BBQ$/i, name: 'BBQ' },
+  { pattern: /bhc/i, tokenPattern: /^bhc$/i, name: 'bhc' },
+  { pattern: /아모레퍼시픽|아모레/, tokenPattern: /^아모레(?:퍼시픽)?$/, name: '아모레퍼시픽' },
+  { pattern: /아이오페/, tokenPattern: /^아이오페$/, name: '아이오페' },
+  { pattern: /헤라/, tokenPattern: /^헤라$/, name: '헤라' },
+  { pattern: /LG생활건강/, tokenPattern: /^LG생활건강$/, name: 'LG생활건강' },
+  { pattern: /삼성전자|갤럭시/, tokenPattern: /^삼성전자$/, name: '삼성전자' },
+  { pattern: /LG전자/, tokenPattern: /^LG전자$/, name: 'LG전자' },
+  { pattern: /오늘의집/, tokenPattern: /^오늘의집$/, name: '오늘의집' },
+  { pattern: /컬리/, tokenPattern: /^(?:마켓)?컬리$/, name: '컬리' },
+  { pattern: /쿠팡/, tokenPattern: /^쿠팡$/, name: '쿠팡' },
+  { pattern: /이마트(?!24)/, tokenPattern: /^이마트$/, name: '이마트' },
+  { pattern: /롯데마트/, tokenPattern: /^롯데마트$/, name: '롯데마트' },
+  { pattern: /롯데백화점/, tokenPattern: /^롯데백화점$/, name: '롯데백화점' },
+  { pattern: /신세계백화점|신세계/, tokenPattern: /^신세계(?:백화점)?$/, name: '신세계백화점' },
+  { pattern: /현대백화점/, tokenPattern: /^현대백화점$/, name: '현대백화점' }
+];
+
+function normalizeBrandName(raw = '') {
+  const s = String(raw || '').trim();
+  if (!s) return '';
+  for (const rule of BRAND_DETECTION_RULES) {
+    if (rule.tokenPattern && rule.tokenPattern.test(s)) return rule.name;
+  }
+  return s;
+}
+
 function extractBrandFromTopic(text = '', existingCompany = '') {
-  const existing = String(existingCompany || '').trim();
-  if (existing) return existing;
   const src = String(text || '');
+  const existingRaw = String(existingCompany || '').trim();
   // '한정선 마이쮸'처럼 가상 AI 합성 밈 키워드인 경우 실제 미출시 콜라보로 오인하지 않도록 '한정선'만 추출
   if (/한정선/.test(src) && /마이쮸/.test(src)) {
     return '한정선';
   }
   const found = [];
-  const brandRules = [
-    { pattern: /한정선/, name: '한정선' },
-    { pattern: /올리브영|올영/, name: '올리브영' },
-    { pattern: /다이소/, name: '다이소' },
-    { pattern: /세븐일레븐/, name: '세븐일레븐' },
-    { pattern: /GS25/i, name: 'GS25' },
-    { pattern: /(^|[^A-Za-z])CU([^A-Za-z]|$)/, name: 'CU' },
-    { pattern: /더현대\s*대구|대구\s*더현대/, name: '더현대 대구' },
-    { pattern: /더현대/, name: '더현대' },
-    { pattern: /무신사/, name: '무신사' },
-    { pattern: /이디야/, name: '이디야커피' },
-    { pattern: /하인즈/, name: '하인즈' },
-    { pattern: /스타벅스/, name: '스타벅스' },
-    { pattern: /투썸/, name: '투썸플레이스' },
-    { pattern: /메가커피/, name: '메가MGC커피' },
-    { pattern: /농심/, name: '농심' },
-    { pattern: /오뚜기/, name: '오뚜기' },
-    { pattern: /삼양/, name: '삼양식품' },
-    { pattern: /롯데웰푸드/, name: '롯데웰푸드' },
-    { pattern: /성심당/, name: '성심당' },
-    { pattern: /아모레/, name: '아모레퍼시픽' },
-    { pattern: /LG생활건강/, name: 'LG생활건강' },
-    { pattern: /삼성전자|갤럭시/, name: '삼성전자' },
-    { pattern: /LG전자/, name: 'LG전자' },
-    { pattern: /오늘의집/, name: '오늘의집' },
-    { pattern: /컬리/, name: '컬리' },
-    { pattern: /이마트/, name: '이마트' },
-    { pattern: /롯데백화점/, name: '롯데백화점' },
-    { pattern: /신세계/, name: '신세계백화점' }
-  ];
-  for (const rule of brandRules) {
+  if (existingRaw) {
+    existingRaw.split(/[,·/]+/).map(s => normalizeBrandName(s)).filter(Boolean).forEach(b => {
+      if (!found.includes(b)) found.push(b);
+    });
+  }
+  for (const rule of BRAND_DETECTION_RULES) {
     if (rule.pattern.test(src) && !found.includes(rule.name)) {
       if (rule.name === '더현대' && found.includes('더현대 대구')) continue;
+      // 이미 동일 계열 세부 브랜드가 있으면 중복 방지
+      if (rule.name === '아모레퍼시픽' && (found.includes('아이오페') || found.includes('헤라'))) continue;
       found.push(rule.name);
-      if (found.length >= 2) break;
+      if (found.length >= 4) break;
     }
   }
   return found.join(', ');
+}
+
+// '이디야, 맘스터치, 메가커피 푸드 스낵 신메뉴 강화' 또는 '이디야·맘스터치·메가커피 푸드·스낵 신메뉴 강화'처럼
+// 다중 브랜드와 핵심 주제가 결합된 키워드를 [브랜드 배열] + [순수 주제] + [서브 키워드]로 정교하게 분리하는 헬퍼
+function splitKeywordIntoBrandsAndTopic(keyword = '', company = '', subKeywords = '') {
+  const rawKw = String(keyword || '').trim();
+  const detectedCompStr = extractBrandFromTopic(rawKw, company);
+  const brands = detectedCompStr
+    ? detectedCompStr.split(',').map(s => s.trim()).filter(Boolean)
+    : [];
+
+  // 키워드 문자열에서 브랜드명 토큰을 제거하여 순수 주제(coreTopic) 추출 (한글에서는 \b가 동작하지 않으므로 직접 매칭)
+  let topicRest = rawKw
+    .replace(/(?:이디야커피|이디야|맘스터치|메가MGC커피|메가커피|컴포즈커피|컴포즈|빽다방|스타벅스|투썸플레이스|투썸|할리스|폴바셋|맥도날드|버거킹|롯데리아|배스킨라빈스|던킨|파리바게뜨|뚜레쥬르|성심당|하인즈|농심|오뚜기|삼양식품|롯데웰푸드|올리브영|다이소|무신사|세븐일레븐|GS25|CU|이마트24)/gi, ' ')
+    .replace(/[,·/]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  const coreTopic = topicRest.length >= 2 ? topicRest : rawKw;
+
+  // 사용자가 직접 입력한 서브 키워드 목록
+  const explicitSubs = String(subKeywords || '')
+    .split(/[,/·]+/)
+    .map(s => s.trim())
+    .filter(Boolean);
+
+  // 소단락/비교표에서 집중 조명할 핵심 축 결정:
+  // 1순위: 복수 브랜드(예: 이디야커피, 맘스터치, 메가MGC커피)가 있으면 브랜드별 신메뉴·전략 비교!
+  // 2순위: 사용자가 입력한 서브 키워드가 2개 이상이면 해당 서브 키워드 중심!
+  let focusEntities = [];
+  if (brands.length >= 2) {
+    focusEntities = brands;
+  } else if (explicitSubs.length >= 2) {
+    focusEntities = explicitSubs;
+  }
+
+  return {
+    brands,
+    companyStr: brands.join(', '),
+    coreTopic,
+    explicitSubs,
+    focusEntities,
+    isMultiBrand: brands.length >= 2
+  };
+}
+
+// MK Pick 메인 피드 노출 시 제목이 잘리지 않도록 공백 포함 최대 글자수(기본 38~40자) 이내로 맞추고 초과분은 한줄 소제목으로 분리하는 헬퍼
+const MAX_HEADLINE_CHARS = 40;
+
+function splitLongHeadlineToSubtitle(title = '', existingSubtitle = '', maxChars = MAX_HEADLINE_CHARS) {
+  const cleanTitle = String(title || '').replace(/\s+/g, ' ').trim();
+  const cleanSub = String(existingSubtitle || '').trim();
+  if (cleanTitle.length <= maxChars) {
+    return { headline: cleanTitle, overflowSubhead: '', combinedSubtitle: cleanSub };
+  }
+
+  // 1순위: 말줄임표(… 또는 ...)가 있고 앞부분 또는 뒷부분이 적당한 길이일 때
+  const ellipsisIdx = cleanTitle.indexOf('…') !== -1 ? cleanTitle.indexOf('…') : cleanTitle.indexOf('...');
+  if (ellipsisIdx !== -1) {
+    const sepLen = cleanTitle[ellipsisIdx] === '…' ? 1 : 3;
+    const quotePart = cleanTitle.slice(0, ellipsisIdx + sepLen).trim();
+    const tailPart = cleanTitle.slice(ellipsisIdx + sepLen).trim();
+    // 만약 뒷부분(핵심 팩트 제목)이 16~maxChars 사이면 인용구를 간결화하거나 뒷부분 일부를 부제로 분리
+    const commaInTail = tailPart.search(/[,·]|(?:\s+(?:유래부터|배경부터|비교부터|특징부터|출시와|통해|맞아)\s+)/);
+    if (commaInTail > 6 && (quotePart.length + commaInTail) <= maxChars) {
+      const shortMain = `${quotePart} ${tailPart.slice(0, commaInTail).trim()}`.trim();
+      const overflow = tailPart.slice(commaInTail).replace(/^[,·\s]+/, '').trim();
+      if (shortMain.length <= maxChars) {
+        return {
+          headline: shortMain,
+          overflowSubhead: overflow,
+          combinedSubtitle: overflow && !cleanSub.includes(overflow) ? (cleanSub ? `${overflow}\n${cleanSub}` : overflow) : cleanSub
+        };
+      }
+    }
+    // 어절 단위로 maxChars 이내까지 자르고 나머지를 한줄 소제목으로 이동
+    const words = cleanTitle.split(' ');
+    let acc = '';
+    let restWords = [];
+    for (let i = 0; i < words.length; i++) {
+      const next = (acc ? acc + ' ' : '') + words[i];
+      if (next.length <= maxChars || !acc) {
+        acc = next;
+      } else {
+        restWords = words.slice(i);
+        break;
+      }
+    }
+    const overflow = restWords.join(' ').trim();
+    return {
+      headline: acc.slice(0, maxChars).trim(),
+      overflowSubhead: overflow,
+      combinedSubtitle: overflow && !cleanSub.includes(overflow) ? (cleanSub ? `${overflow}\n${cleanSub}` : overflow) : cleanSub
+    };
+  }
+
+  // 일반 긴 제목: 어절 단위로 maxChars 이내로 자르고 뒷부분을 한줄 소제목으로 이동
+  const words = cleanTitle.split(' ');
+  let acc = '';
+  let restWords = [];
+  for (let i = 0; i < words.length; i++) {
+    const next = (acc ? acc + ' ' : '') + words[i];
+    if (next.length <= maxChars || !acc) {
+      acc = next;
+    } else {
+      restWords = words.slice(i);
+      break;
+    }
+  }
+  const overflow = restWords.join(' ').trim();
+  return {
+    headline: acc.slice(0, maxChars).trim(),
+    overflowSubhead: overflow,
+    combinedSubtitle: overflow && !cleanSub.includes(overflow) ? (cleanSub ? `${overflow}\n${cleanSub}` : overflow) : cleanSub
+  };
 }
 
 // 키워드·이슈가 실제 공식 출시·보도된 팩트인지, 아니면 AI 합성 밈·가상 콘텐츠·미확인 루머인지 판별하는 팩트체크 헬퍼
@@ -764,11 +918,16 @@ function isVirtualIdolQuery(kw = '', comp = '') {
 }
 
 // 실시간 뉴스 검색 결과(newsItems)에서 타 언론사 문장을 그대로 복사하지 않고, 핵심 팩트만 추출·재구성해 MK Pick 초안 생성
-function buildDynamicWorkFromNews({ keyword, company, url, rawText, typeId, newsItems = [] }) {
+function buildDynamicWorkFromNews({ keyword, company, subKeywords = '', direction = '', url, rawText, typeId, newsItems = [] }) {
   const kw = cleanTrendTopicKeyword((keyword || '최신 소비 트렌드').trim());
-  const comp = extractBrandFromTopic(kw, (company || '').trim());
+  const parsedTopic = splitKeywordIntoBrandsAndTopic(kw, (company || '').trim(), subKeywords);
+  const comp = parsedTopic.companyStr;
+  const coreTopic = parsedTopic.coreTopic || kw;
+  const focusEntities = parsedTopic.focusEntities; // 복수 브랜드 또는 사용자 지정 서브 키워드
+  const hasFocusEntities = focusEntities.length >= 2;
+  const userDirection = String(direction || '').trim();
+  const userSubKeywordsStr = parsedTopic.explicitSubs.join(', ');
   const tId = Number(typeId) || 2;
-  const mainEntity = comp ? `${comp} · ${kw}` : kw;
   const initialFactVerification = inspectTopicFactVerification(kw, comp, Array.isArray(newsItems) && newsItems.length > 0 ? newsItems.length : -1);
 
   if (isVirtualIdolQuery(kw, comp)) {
@@ -777,6 +936,8 @@ function buildDynamicWorkFromNews({ keyword, company, url, rawText, typeId, news
 
   if (
     (!newsItems || newsItems.length === 0) &&
+    !userDirection &&
+    !userSubKeywordsStr &&
     (kw.includes('임산부') || kw.includes('결혼') || kw.includes('민음사') || kw.includes('번개장터'))
   ) {
     return buildPresetScenario({ keyword: kw, company: comp, url, selectedType: tId });
@@ -803,7 +964,8 @@ function buildDynamicWorkFromNews({ keyword, company, url, rawText, typeId, news
       category: '직접 입력한 보도자료·취재 팩트',
       fact: rawText.trim(),
       rawReference: '사용자 직접 입력 자료',
-      sourceIds: url ? ['src-user-url'] : []
+      sourceIds: url ? ['src-user-url'] : [],
+      usedInSection: 1
     });
     paraphrasedFacts.push(rawText.trim());
   }
@@ -841,23 +1003,65 @@ function buildDynamicWorkFromNews({ keyword, company, url, rawText, typeId, news
     });
   }
 
-  const fact1 = paraphrasedFacts[0] || `최근 소비 시장에서는 '${kw}' 관련 차별화된 상품과 서비스를 앞세운 브랜드들이 2030 소비자의 호응을 얻고 있습니다.`;
-  const fact2 = paraphrasedFacts[1] || `유통·서비스 업계에서도 '${kw}' 수요를 겨냥한 전용 라인업과 온·오프라인 프로모션을 잇달아 확대하고 있습니다.`;
-  const fact3 = paraphrasedFacts[2] || `소비자들은 단순 가격 비교를 넘어 본인의 취향에 맞는 맞춤형 구성과 검증된 품질을 핵심 선택 기준으로 삼고 있습니다.`;
+  const isFnbTopic = /(?:커피|이디야|스타벅스|투썸|메가|컴포즈|빽다방|맘스터치|맥도날드|버거킹|롯데리아|피자|설기|떡|치즈|디저트|베이커리|간식|스낵|푸드|음료|메뉴|맛집|식당|카페|소스|치킨|버거|라면|과자|초콜릿|쿠키|외식|식품)/.test(`${kw} ${comp} ${userSubKeywordsStr}`);
+  const isBeautyTopic = !isFnbTopic && /(?:뷰티|화장품|스킨케어|패치|앰플|세럼|크림|마스크팩|올리브영|클렌징|선크림|메이크업|피부|보습|장벽)/.test(`${kw} ${comp} ${userSubKeywordsStr}`);
+
+  // 브랜드별 알려진 대표 푸드·스낵·신메뉴 시그니처 팩트 (뉴스 검색이 비어 있을 때도 정확한 도메인 팩트 제공)
+  const KNOWN_BRAND_MENU_FACTS = {
+    '이디야커피': '이디야커피는 글로벌 소스 브랜드 하인즈(Heinz)와 협업한 피자설기·콘치즈설기 2종을 비롯해 붕어빵·호떡·옥수수 등 간편하게 즐길 수 있는 길거리 간식과 베이커리·스낵 라인업을 대폭 강화했습니다.',
+    '맘스터치': '맘스터치는 시그니처 싸이버거 패티 노하우를 접목한 치킨·스낵 신메뉴와 치즈볼·감자튀김 등 가성비 사이드 메뉴 구성을 넓히며 식사 대용과 간식 수요를 동시에 공략하고 있습니다.',
+    '메가MGC커피': '메가MGC커피는 대용량 음료와 함께 한 끼 식사나 간식으로 곁들이기 좋은 겨울 시즌 간식꾸러미, 핫도그·크로크무슈·디저트 베이커리 등 푸드·스낵 신메뉴를 잇달아 출시하며 디저트 매출 비중을 높이고 있습니다.',
+    '컴포즈커피': '컴포즈커피는 음료와 페어링하기 좋은 와플·크루아상·쿠키 등 가성비 베이커리 및 겨울철 시즌 디저트 라인업을 확대하고 있습니다.',
+    '스타벅스': '스타벅스는 시즌 한정 음료와 함께 지역 특산물을 활용한 베이커리 및 프리미엄 디저트 푸드 라인업을 지속적으로 선보이고 있습니다.'
+  };
+
+  const fact1 = paraphrasedFacts[0] || (isFnbTopic
+    ? `최근 외식·카페 업계에서는 음료나 단일 주력 메뉴를 넘어 식사 대용과 간식 수요를 동시에 잡는 '${coreTopic}' 경쟁이 한층 치열해지고 있습니다.`
+    : `최근 소비 시장에서는 '${kw}' 관련 차별화된 상품과 서비스를 앞세운 브랜드들이 2030 소비자의 호응을 얻고 있습니다.`);
+  const fact2 = paraphrasedFacts[1] || (isFnbTopic
+    ? `${comp || '주요 식음료 브랜드'} 등은 고물가 속 가성비와 이색적인 맛 조합을 앞세운 신메뉴 라인업을 잇달아 선보이며 객단가와 매장 방문율을 높이고 있습니다.`
+    : `유통·서비스 업계에서도 '${kw}' 수요를 겨냥한 전용 라인업과 온·오프라인 프로모션을 잇달아 확대하고 있습니다.`);
+  const fact3 = paraphrasedFacts[2] || (userDirection
+    ? `특히 ${userDirection} 흐름에 맞춰 소비자 체감 만족도를 높인 실속형 구성이 주목받고 있습니다.`
+    : `소비자들은 단순 가격 비교를 넘어 본인의 취향에 맞는 맞춤형 구성과 검증된 품질을 핵심 선택 기준으로 삼고 있습니다.`);
 
   if (researchItems.length === 0) {
-    researchItems.push({
-      id: 'ri-fallback-1',
-      category: `${kw} 핵심 동향 요약`,
-      fact: fact1,
-      rawReference: '업계 동향 종합',
-      sourceIds: [sources[0].id]
-    });
+    if (parsedTopic.isMultiBrand && isFnbTopic) {
+      parsedTopic.brands.forEach((bName, bIdx) => {
+        researchItems.push({
+          id: `ri-brand-${bIdx + 1}`,
+          category: `${bName} 신메뉴 · 핵심 동향`,
+          fact: KNOWN_BRAND_MENU_FACTS[bName] || `${bName}는 최근 '${coreTopic}' 트렌드에 발맞춰 음료·주력 메뉴와 함께 즐길 수 있는 특화 신메뉴와 프로모션을 강화하고 있습니다.`,
+          rawReference: `${bName} 공식 발표 및 업계 동향`,
+          sourceIds: [sources[0].id],
+          usedInSection: Math.min(bIdx + 2, 4)
+        });
+      });
+    } else {
+      researchItems.push({
+        id: 'ri-fallback-1',
+        category: `${kw} 핵심 동향 요약`,
+        fact: fact1,
+        rawReference: '업계 동향 종합',
+        sourceIds: [sources[0].id],
+        usedInSection: 1
+      });
+    }
   }
 
-  // -------------------------------------------------------------------------
-  // 5가지 콘텐츠 유형별로 서로 다른 제목 후보, 본문 단락 흐름, 요약표, FAQ 질문 구성!
-  // -------------------------------------------------------------------------
+  // 짧은 제목용 핵심 키워드 (MK Pick 메인 노출 38~40자 제한 준수)
+  const compactBrandStr = parsedTopic.brands.length >= 2
+    ? parsedTopic.brands.map(b => b.replace(/커피|MGC커피/g, match => (match === 'MGC커피' ? '커피' : ''))).join('·')
+    : (parsedTopic.brands[0] || '');
+  const compactTopicStr = coreTopic.replace(/\s*신메뉴\s*강화\s*$/, '').replace(/\s*강화\s*$/, '').trim() || coreTopic;
+  const shortKw = kw.length > 15
+    ? (compactBrandStr
+        ? `${compactBrandStr} ${compactTopicStr}`.slice(0, 17).trim()
+        : kw.slice(0, 15).trim())
+    : kw;
+  const directionNote = userDirection ? `\n[편집자 기획 포인트] ${userDirection}` : '';
+  const subKwNote = userSubKeywordsStr ? ` (핵심 키워드: ${userSubKeywordsStr})` : '';
+
   let titleCandidates = [];
   let draftSections = [];
   let subtitleText = '';
@@ -866,27 +1070,26 @@ function buildDynamicWorkFromNews({ keyword, company, url, rawText, typeId, news
   let oneLineSummary = '';
 
   if (tId === 1) {
-    // [유형 1] 파트너사·서비스 비교 기획 콘텐츠 (가상 알파벳 브랜드 A/B/C 사용 금지)
-    const partnerName = comp || `${kw} 대표 서비스`;
+    const partnerName = comp || `${shortKw} 주요 서비스`;
     titleCandidates = [
-      { id: 'tc-1', title: `"내 상황에 딱 맞는 선택은?"…'${kw}' 핵심 트렌드와 ${partnerName} 등 주요 서비스 비교`, totalScore: 96 },
-      { id: 'tc-2', title: `"거품 빼고 실속만 챙겼습니다"…'${kw}' 최신 소비 흐름부터 선택 기준 Q&A`, totalScore: 93 },
-      { id: 'tc-3', title: `"알고 쓰면 체감 혜택이 다릅니다"…한눈에 보는 '${kw}' 주요 특징과 활용 팁`, totalScore: 90 },
-      { id: 'tc-4', title: `"어떤 기준으로 골라야 할까?"…'${kw}' 핵심 비교표와 자주 묻는 질문 정리`, totalScore: 88 },
-      { id: 'tc-5', title: `"실속과 만족도를 동시에"…'${kw}' 최신 동향과 맞춤형 활용 가이드`, totalScore: 85 }
+      { id: 'tc-1', title: `“내게 맞는 선택은?”…‘${shortKw}’ 핵심 혜택 비교`, totalScore: 96 },
+      { id: 'tc-2', title: `“거품 빼고 실속만”…‘${shortKw}’ 선택 기준 Q&A`, totalScore: 93 },
+      { id: 'tc-3', title: `“알고 쓰면 혜택이 두 배”…‘${shortKw}’ 활용 팁`, totalScore: 90 },
+      { id: 'tc-4', title: `“무엇을 먼저 볼까”…‘${shortKw}’ 비교표 총정리`, totalScore: 88 },
+      { id: 'tc-5', title: `“실속·만족도 다 잡았다”…‘${shortKw}’ 최신 가이드`, totalScore: 85 }
     ];
-    subtitleText = `'${kw}' 관련 최신 소비 트렌드와 핵심 서비스 특징 집중 분석\n선택 전 반드시 확인해야 할 비교 기준부터 실전 활용 Q&A까지 한눈에 정리`;
+    subtitleText = `'${kw}' 관련 최신 소비 트렌드와 ${partnerName} 핵심 특징 집중 분석${subKwNote}\n선택 전 반드시 확인해야 할 비교 기준부터 실전 활용 Q&A까지 한눈에 정리${directionNote}`;
     draftSections = [
       {
         id: 'sec-1',
         title: `왜 요즘 '${kw}'에서 맞춤형 선택과 꼼꼼한 비교가 중요해졌을까요?`,
-        content: `최근 '${kw}'을 준비하거나 알아보면서 어떤 기준으로 선택해야 할지 고민해 보신 적 없으신가요?\n\n소비자들의 라이프스타일과 니즈가 세분화되면서, 정형화된 방식 대신 본인의 예산과 우선순위에 맞춰 핵심 요소만 합리적으로 선택하려는 흐름이 뚜렷해지고 있습니다. ${fact1}`,
+        content: `최근 '${kw}'을 준비하거나 알아보면서 어떤 기준으로 선택해야 할지 고민해 보신 적 없으신가요?\n\n소비자들의 라이프스타일과 니즈가 세분화되면서, 정형화된 방식 대신 본인의 예산과 우선순위에 맞춰 핵심 요소만 합리적으로 선택하려는 흐름이 뚜렷해지고 있습니다. ${fact1}${userDirection ? `\n\n특히 ${userDirection} 관점에서 실질적인 조건과 구성을 꼼꼼히 따져보는 소비자가 늘고 있습니다.` : ''}`,
         sourceIds: [sources[0]?.id].filter(Boolean)
       },
       {
         id: 'sec-2',
         title: `'${kw}' 관련 주목받는 핵심 서비스와 주요 특징은 무엇인가요?`,
-        content: `달라진 소비자 눈높이에 맞춰 관련 업계와 ${partnerName} 등도 실질적인 체감 혜택을 강화하고 있습니다. ${fact2}\n\n특히 투명한 정보 공개와 맞춤형 큐레이션, 이용 편의성을 높인 온·오프라인 연계 구성을 통해 소비자들의 만족도를 높이고 있습니다. ${fact3}`,
+        content: `달라진 소비자 눈높이에 맞춰 관련 업계와 ${partnerName} 등도 실질적인 체감 혜택을 강화하고 있습니다. ${fact2}\n\n특히 투명한 정보 공개와 맞춤형 큐레이션${userSubKeywordsStr ? `(${userSubKeywordsStr})` : ''}, 이용 편의성을 높인 온·오프라인 연계 구성을 통해 소비자들의 만족도를 높이고 있습니다. ${fact3}`,
         sourceIds: sources.slice(0, 3).map(s => s.id)
       },
       {
@@ -900,43 +1103,42 @@ function buildDynamicWorkFromNews({ keyword, company, url, rawText, typeId, news
       title: `[요약표] '${kw}' 핵심 유형 및 체크포인트 비교`,
       headers: ['구분', '핵심 내용 및 특징', '주요 강점 · 혜택', '추천 대상 및 활용 팁'],
       rows: [
-        [partnerName, `${kw} 맞춤형 핵심 구성`, '핵심 기능 및 전용 프로모션 혜택 집중 제공', '검증된 품질과 실용성을 중시하는 소비자'],
+        [partnerName, `${coreTopic} 맞춤형 핵심 구성`, '핵심 기능 및 전용 프로모션 혜택 집중 제공', '검증된 품질과 실용성을 중시하는 소비자'],
         ['실속형 구성', '필수 항목 중심의 합리적 구성', '불필요한 부가 비용 절감 및 높은 가성비', '예산 효율성을 최우선으로 고려하는 이용자'],
-        ['프리미엄·특화 구성', '심화 혜택 및 맞춤형 케어 강화', '차별화된 품질과 부가 서비스 연계 지원', '완성도 높은 구성을 선호하는 소비자'],
+        ['프리미엄·특화 구성', '심화 혜택 및 맞춤형 서비스 강화', '차별화된 품질과 부가 서비스 연계 지원', '완성도 높은 구성을 선호하는 소비자'],
         ['사전 체크포인트', '세부 조건 · 일정 · 유의사항 확인', '공식 채널 안내 및 중복 할인 적용 여부 점검', '이용 전 조건을 꼼꼼히 비교하려는 독자']
       ]
     };
     faqs = [
-      { q: `Q1. '${kw}'이 최근 소비자들 사이에서 주목받는 핵심 이유는 무엇인가요?`, a: `획일적인 기준 대신 본인의 실제 상황과 예산에 맞춰 실속 있게 선택하려는 합리적 소비 트렌드와 맞물려 관심이 높아지고 있습니다.` },
-      { q: `Q2. ${partnerName} 등 관련 서비스나 혜택을 이용할 때 가장 먼저 확인해야 할 점은 무엇인가요?`, a: `공식 채널에서 안내하는 적용 대상, 진행 일정, 기본 포함 범위와 추가 조건을 사전에 확인하는 것이 좋습니다.` },
-      { q: `Q3. 비용 부담은 줄이면서 만족도를 높이는 실전 선택 팁이 있을까요?`, a: `가장 우선순위가 높은 핵심 기능을 먼저 정한 뒤, 기간 한정 프로모션이나 제휴 혜택을 교차 비교해 활용하는 것이 효과적입니다.` },
-      { q: `Q4. 온라인과 오프라인 중 어디서 정보를 확인하고 이용하는 것이 유리한가요?`, a: `공식 홈페이지나 모바일 앱에서 세부 사양과 후기를 먼저 비교한 뒤, 현장 체험이나 추가 상담이 필요한 경우 오프라인 채널을 병행하는 방법을 권장합니다.` },
-      { q: `Q5. 프로모션 혜택이나 사전 예약 일정을 놓치지 않으려면 어떻게 해야 하나요?`, a: `주요 일정 전후로 조기 마감되는 경우가 많으므로 공식 안내 페이지의 알림 설정이나 사전 공지를 미리 확인해 두는 것이 안전합니다.` }
+      { q: `Q1. '${kw}'이 최근 소비자들 사이에서 주목받는 핵심 이유는 무엇인가요?`, a: `획일적인 기준 대신 본인의 실제 상황과 예산에 맞춰 실속 있게 선택하려는 합리적 소비 트렌드와 맞물려 관심이 높아지고 있습니다.`, relatedSection: 1 },
+      { q: `Q2. ${partnerName} 등 관련 서비스나 상품을 이용할 때 가장 먼저 확인해야 할 점은 무엇인가요?`, a: `공식 채널에서 안내하는 적용 대상, 진행 일정, 기본 포함 범위와 추가 조건을 사전에 확인하는 것이 좋습니다.`, relatedSection: 2 },
+      { q: `Q3. 다른 구성과 비교했을 때 최근 라인업의 가장 큰 차별점은 무엇인가요?`, a: `소비자 선호도가 높은 핵심 구성을 강화하고 온·오프라인 연계 혜택을 넓혀 체감 만족도를 높인 점이 특징입니다.`, relatedSection: 2 },
+      { q: `Q4. 비용 부담은 줄이면서 만족도를 높이는 실전 선택 팁이 있을까요?`, a: `가장 우선순위가 높은 핵심 항목을 먼저 정한 뒤, 기간 한정 프로모션이나 제휴 혜택을 교차 비교해 활용하는 것이 효과적입니다.`, relatedSection: 3 },
+      { q: `Q5. 프로모션 혜택이나 사전 예약 일정을 놓치지 않으려면 어떻게 해야 하나요?`, a: `주요 일정 전후로 조기 마감되는 경우가 많으므로 공식 안내 페이지의 공지를 미리 확인해 두는 것이 안전합니다.`, relatedSection: 3 }
     ];
     oneLineSummary = `한 줄 요약! '${kw}'은 최신 트렌드와 핵심 비교 기준을 바탕으로 나에게 꼭 맞는 구성을 꼼꼼히 따져 선택하는 것이 핵심입니다.`;
 
   } else if (tId === 2) {
-    // [유형 2] 시즌·기념일·주요 일정 이슈 콘텐츠 (가상 브랜드 A/B/C/D/E 및 억지 정부24 바우처 문구 전면 제거!)
     const targetBrands = comp || '주요 유통·식음료·관련 업계';
     titleCandidates = [
-      { id: 'tc-1', title: `"올해 무엇이 달라졌을까?"…'${kw}' 핵심 포인트부터 주요 업계 동향 총정리`, totalScore: 96 },
-      { id: 'tc-2', title: `"알아두면 유익한 실전 정보"…'${kw}' 맞이 주요 트렌드와 혜택·체크포인트 비교`, totalScore: 92 },
-      { id: 'tc-3', title: `"놓치면 아쉬운 핵심 일정과 혜택"…한눈에 보는 '${kw}' 주요 이슈와 활용 가이드`, totalScore: 89 },
-      { id: 'tc-4', title: `"소비자와 업계가 주목하는 이유"…'${kw}' 핵심 배경부터 자주 묻는 질문 Q&A`, totalScore: 86 },
-      { id: 'tc-5', title: `"핵심만 콕 짚어 정리했습니다"…'${kw}' 주요 쟁점과 실생활 활용 팁`, totalScore: 83 }
+      { id: 'tc-1', title: `“올해 무엇이 달라졌나”…‘${shortKw}’ 핵심 총정리`, totalScore: 96 },
+      { id: 'tc-2', title: `“놓치면 아쉬운 혜택”…‘${shortKw}’ 트렌드·체크포인트`, totalScore: 92 },
+      { id: 'tc-3', title: `“핵심 일정부터 혜택까지”…한눈에 보는 ‘${shortKw}’`, totalScore: 89 },
+      { id: 'tc-4', title: `“왜 지금 주목받을까”…‘${shortKw}’ 주요 이슈 Q&A`, totalScore: 86 },
+      { id: 'tc-5', title: `“실속 있게 챙기는 법”…‘${shortKw}’ 필수 활용 가이드`, totalScore: 83 }
     ];
-    subtitleText = `'${kw}'의 핵심 배경과 올해 주목해야 할 주요 변화·트렌드 집중 조명\n${targetBrands}의 최신 동향부터 독자가 꼭 알아야 할 실전 체크포인트까지 한눈에 정리`;
+    subtitleText = `'${kw}'의 핵심 배경과 올해 주목해야 할 주요 변화·트렌드 집중 조명${subKwNote}\n${targetBrands}의 최신 동향부터 독자가 꼭 알아야 할 실전 체크포인트까지 한눈에 정리${directionNote}`;
     draftSections = [
       {
         id: 'sec-1',
         title: `왜 지금 '${kw}'에 대한 관심과 업계의 움직임이 활발해지고 있을까요?`,
-        content: `최근 '${kw}'을 앞두고 올해는 어떤 변화와 새로운 소식이 있는지 궁금해하신 적 없으신가요?\n\n'${kw}'은 시의성 높은 사회적 관심사이자 소비자와 관련 업계 모두가 주목하는 주요 일정입니다. 특히 올해는 변화된 트렌드와 실용적인 니즈가 맞물리면서 예년보다 한층 세분화된 움직임이 나타나고 있습니다. ${fact1}`,
+        content: `최근 '${kw}'을 앞두고 올해는 어떤 변화와 새로운 소식이 있는지 궁금해하신 적 없으신가요?\n\n'${kw}'은 시의성 높은 사회적 관심사이자 소비자와 관련 업계 모두가 주목하는 주요 일정입니다. 특히 올해는 변화된 트렌드와 실용적인 니즈가 맞물리면서 예년보다 한층 세분화된 움직임이 나타나고 있습니다. ${fact1}${userDirection ? `\n\n아울러 ${userDirection} 흐름에 맞춘 실용적인 정보 탐색도 활발히 이뤄지고 있습니다.` : ''}`,
         sourceIds: [sources[0]?.id].filter(Boolean)
       },
       {
         id: 'sec-2',
         title: `'${kw}' 관련 올해 가장 주목해야 할 핵심 이슈와 현장 동향은 무엇인가요?`,
-        content: `이번 '${kw}'과 관련해 가장 눈에 띄는 부분은 실질적인 체감 가치와 맞춤형 정보다운 접근입니다. ${fact2}\n\n${targetBrands} 등 관련 분야에서도 일회성 이벤트에 그치지 않고, 실제 수요자의 눈높이에 맞춘 실속형 구성과 차별화된 프로그램을 잇달아 선보이며 호응을 얻고 있습니다. ${fact3}`,
+        content: `이번 '${kw}'과 관련해 가장 눈에 띄는 부분은 실질적인 체감 가치와 맞춤형 구성입니다. ${fact2}\n\n${targetBrands} 등 관련 분야에서도 일회성 이벤트에 그치지 않고, 실제 수요자의 눈높이에 맞춘 실속형 구성${userSubKeywordsStr ? `(${userSubKeywordsStr})` : ''}과 차별화된 프로그램을 잇달아 선보이며 호응을 얻고 있습니다. ${fact3}`,
         sourceIds: sources.slice(0, 2).map(s => s.id)
       },
       {
@@ -957,50 +1159,74 @@ function buildDynamicWorkFromNews({ keyword, company, url, rawText, typeId, news
       ]
     };
     faqs = [
-      { q: `Q1. 올해 '${kw}'에서 가장 먼저 확인해야 할 핵심 포인트는 무엇인가요?`, a: `공식 일정과 함께 올해 새롭게 달라진 세부 기준이나 주요 업계(${targetBrands})에서 제공하는 맞춤형 프로그램·혜택 조건을 먼저 확인하는 것이 중요합니다.` },
-      { q: `Q2. '${kw}' 관련 프로모션이나 지원·혜택을 챙기려면 무엇을 준비해야 하나요?`, a: `대부분 공식 홈페이지나 전용 앱, 혹은 현장 인증(수험표·멤버십 등 해당 조건)을 통해 참여할 수 있으므로 사전 준비물과 적용 기간을 미리 확인해 두는 것이 좋습니다.` },
-      { q: `Q3. 예년과 비교했을 때 올해 '${kw}' 트렌드는 어떤 점이 달라졌나요?`, a: `보여주기식 행사보다 실제 당사자와 소비자가 체감할 수 있는 실속형 혜택과 세분화된 맞춤형 구성이 한층 강화된 것이 특징입니다.` },
-      { q: `Q4. 온라인과 오프라인 중 어디서 관련 정보를 확인하는 것이 가장 정확한가요?`, a: `각 주관 기관이나 브랜드의 공식 홈페이지·모바일 앱 공지사항을 통해 실시간으로 업데이트되는 세부 조건을 확인하는 것이 가장 정확합니다.` },
-      { q: `Q5. '${kw}' 관련 혜택이나 일정을 놓치지 않으려면 어떤 점을 주의해야 할까요?`, a: `항목마다 신청·진행 기한과 선착순 마감 여부가 다를 수 있으므로 본문 요약표의 체크포인트를 참고해 미리 일정을 챙기시기 바랍니다.` }
+      { q: `Q1. 올해 '${kw}'에 대한 관심이 특히 높아진 배경과 핵심 포인트는 무엇인가요?`, a: `공식 일정과 함께 올해 새롭게 달라진 세부 기준 및 실수요자 맞춤형 혜택에 대한 관심이 집중되고 있기 때문입니다.`, relatedSection: 1 },
+      { q: `Q2. ${targetBrands} 등 관련 업계에서는 올해 어떤 프로모션이나 프로그램을 선보이고 있나요?`, a: `보여주기식 행사보다 실제 소비자가 체감할 수 있는 실속형 할인, 한정 기획 세트, 맞춤형 이벤트 구성을 대폭 강화했습니다.`, relatedSection: 2 },
+      { q: `Q3. '${kw}' 관련 프로모션이나 혜택을 챙기려면 무엇을 준비해야 하나요?`, a: `대부분 공식 홈페이지나 전용 앱, 혹은 현장 인증(수험표·멤버십 등 해당 조건)을 통해 참여할 수 있으므로 사전 준비물과 적용 기간을 미리 확인해 두는 것이 좋습니다.`, relatedSection: 2 },
+      { q: `Q4. 온라인과 오프라인 중 어디서 관련 정보를 확인하는 것이 가장 정확한가요?`, a: `각 주관 기관이나 브랜드의 공식 홈페이지·모바일 앱 공지사항을 통해 실시간으로 업데이트되는 세부 조건을 확인하는 것이 가장 정확합니다.`, relatedSection: 3 },
+      { q: `Q5. '${kw}' 관련 혜택이나 일정을 놓치지 않으려면 어떤 점을 주의해야 할까요?`, a: `항목마다 신청·진행 기한과 선착순 마감 여부가 다를 수 있으므로 본문 요약표의 체크포인트를 참고해 미리 일정을 챙기시기 바랍니다.`, relatedSection: 3 }
     ];
     oneLineSummary = `한 줄 요약! '${kw}'의 핵심 변화와 실전 체크포인트를 미리 확인해 필요한 정보와 혜택을 빠짐없이 챙기시기 바랍니다.`;
 
-  } else if (tId === 3) {
-    // [유형 3] 최신 트렌드 반영 콘텐츠 1 (소비·문화 트렌드 심층 분석 및 대표 사례 조명)
+  } else if (tId === 3 || tId === 4) {
+    // [유형 3 & 4] 최신 트렌드·신메뉴·신상품·브랜드별 비교 분석 (화장품 하드코딩 완전 제거 & 다중 브랜드 신메뉴 완벽 지원!)
     if (isVirtualIdolQuery(kw, comp)) {
       return getVirtualIdolScenario(kw);
     }
 
-    const subKeywords = kw.split(/[,/·]+/).map(s => s.trim()).filter(Boolean);
-    const hasSubKeywords = subKeywords.length >= 2;
+    titleCandidates = isFnbTopic
+      ? [
+          { id: 'tc-1', title: `“음료만 팔던 시대 끝”…‘${shortKw}’ 신메뉴 열전`, totalScore: 96 },
+          { id: 'tc-2', title: `“간식부터 한 끼까지”…주목받는 ‘${shortKw}’ 비교`, totalScore: 93 },
+          { id: 'tc-3', title: `“가성비·이색 조합 통했다”…‘${shortKw}’ 인기 비결`, totalScore: 90 },
+          { id: 'tc-4', title: `“어떤 메뉴 골라볼까”…브랜드별 ‘${shortKw}’ 분석`, totalScore: 88 },
+          { id: 'tc-5', title: `“디저트·스낵이 효자”…외식업계 ‘${shortKw}’ 총정리`, totalScore: 85 }
+        ]
+      : [
+          { id: 'tc-1', title: `“왜 요즘 대세일까?”…‘${shortKw}’ 인기 비결 총정리`, totalScore: 96 },
+          { id: 'tc-2', title: `“작은 차이가 만족도 좌우”…‘${shortKw}’ 핵심 비교`, totalScore: 93 },
+          { id: 'tc-3', title: `“꼼꼼히 따져봤습니다”…‘${shortKw}’ 특징과 활용법`, totalScore: 90 },
+          { id: 'tc-4', title: `“선택 전 필수 확인”…‘${shortKw}’ 비교표와 Q&A`, totalScore: 87 },
+          { id: 'tc-5', title: `“취향·실속 모두 잡았다”…‘${shortKw}’ 대표 라인업`, totalScore: 85 }
+        ];
 
-    titleCandidates = [
-      { id: 'tc-1', title: `"왜 요즘 다들 여기에 열광할까?"…데이터와 사례로 읽는 '${kw}' 트렌드 총정리`, totalScore: 96 },
-      { id: 'tc-2', title: `"단순 유행인 줄 알았는데"…2030 소비 지형을 바꾼 '${kw}' 열풍의 배경과 핵심 포인트`, totalScore: 93 },
-      { id: 'tc-3', title: `"알고 즐기면 두 배 더 유익합니다"…'${kw}' 주요 특징부터 대표 사례 비교까지`, totalScore: 90 },
-      { id: 'tc-4', title: `"비교표와 핵심 용어로 한눈에"…소비자가 가장 궁금해하는 '${kw}' Q&A`, totalScore: 87 },
-      { id: 'tc-5', title: `"취향과 실속을 동시에 잡았다"…시장 판도 흔드는 '${kw}' 인기 비결 분석`, totalScore: 85 }
-    ];
-    subtitleText = `'${kw}' 트렌드가 급부상한 배경과 소비자 니즈 변화 집중 분석\n주요 카테고리·대표 사례별 특징 비교표부터 실전 활용 Q&A까지 한눈에 정리`;
+    subtitleText = `${comp ? comp + ' 등 ' : ''}소비자 니즈를 겨냥한 '${coreTopic}' 핵심 배경과 대표 라인업 집중 분석${subKwNote}\n브랜드·카테고리별 주요 특징 비교표부터 구매·이용 전 필수 FAQ까지 한눈에 정리${directionNote}`;
 
-    if (hasSubKeywords) {
+    if (hasFocusEntities) {
       draftSections = [
         {
           id: 'sec-1',
-          title: `왜 지금 '${kw}' 키워드가 소비자들의 눈길을 사로잡고 있을까요?`,
-          content: `최근 SNS와 온라인 커뮤니티, 쇼핑 플랫폼에서 '${kw}' 관련 소식을 자주 접해 보신 적 없으신가요?\n\n소비자들의 라이프스타일과 계절·환경 변화가 맞물리면서, 기존의 획일적인 방식 대신 보다 세분화되고 체감 효과가 확실한 솔루션을 찾는 수요가 빠르게 늘고 있습니다. ${fact1}`,
+          title: isFnbTopic
+            ? `왜 지금 ${comp || '외식·카페 업계'}에서 '${coreTopic}' 경쟁에 불이 붙었을까요?`
+            : `왜 지금 '${kw}' 트렌드와 주요 라인업에 소비자들이 주목할까요?`,
+          content: isFnbTopic
+            ? `최근 카페나 외식 매장을 찾았을 때 음료나 단품 메뉴 못지않게 다채로운 푸드·스낵 신메뉴가 눈길을 사로잡는다고 느껴보신 적 없으신가요?\n\n고물가 기조 속에서 합리적인 가격으로 간편한 한 끼나 이색 간식을 해결하려는 소비자가 늘어나면서, ${comp || '주요 프랜차이즈 브랜드'}들이 앞다퉈 '${coreTopic}' 전략에 힘을 싣고 있습니다. ${fact1}${userDirection ? `\n\n특히 ${userDirection} 흐름이 맞물리며 각 브랜드의 시그니처 신메뉴 경쟁이 한층 치열해지고 있습니다.` : ''}`
+            : `최근 일상 속이나 온라인에서 '${kw}' 관련 소식을 자주 접해 보신 적 없으신가요?\n\n소비자들의 취향과 니즈가 세분화되면서 실질적인 만족도와 차별화된 구성을 앞세운 '${coreTopic}' 관련 상품들이 큰 호응을 얻고 있습니다. ${fact1}${userDirection ? `\n\n특히 ${userDirection} 관점에서 브랜드별 핵심 차별점이 주목받고 있습니다.` : ''}`,
           sourceIds: [sources[0]?.id].filter(Boolean)
         },
-        ...subKeywords.map((subKw, idx) => ({
-          id: `sec-spot-${idx + 1}`,
-          title: `핵심 포인트 ${idx + 1} : '${subKw}'이 주목받는 이유와 차별점`,
-          content: `'${subKw}'은 이번 트렌드를 구성하는 핵심 축으로 꼽힙니다. ${paraphrasedFacts[idx % paraphrasedFacts.length] || fact2}\n\n특히 소비자들이 일상에서 겪던 구체적인 불편함을 간편하고 직관적으로 해결해 주면서, 관련 브랜드와 제품군 전반으로 인기가 확산하고 있습니다.`,
-          sourceIds: [sources[idx % sources.length]?.id].filter(Boolean)
-        })),
+        ...focusEntities.map((entityName, idx) => {
+          const matchedFact = paraphrasedFacts.find(f => f.includes(entityName.replace(/커피|MGC/g, '')))
+            || KNOWN_BRAND_MENU_FACTS[entityName]
+            || paraphrasedFacts[idx % Math.max(1, paraphrasedFacts.length)]
+            || fact2;
+          return {
+            id: `sec-item-${idx + 1}`,
+            title: isFnbTopic
+              ? `핵심 포인트 ${idx + 1} : '${entityName}'의 주력 신메뉴 특징과 차별화 전략`
+              : `핵심 포인트 ${idx + 1} : '${entityName}'의 주요 특징과 차별화 포인트`,
+            content: isFnbTopic
+              ? `${matchedFact}\n\n특히 '${entityName}'는 기존 주력 메뉴와 자연스럽게 어우러지는 페어링 구성과 간편한 조리·섭취 편의성을 앞세워 매장 방문객과 배달·포장 수요를 폭넓게 흡수하고 있습니다.`
+              : `'${entityName}'은 이번 '${coreTopic}' 흐름을 이끄는 핵심 축으로 꼽힙니다. ${matchedFact}\n\n소비자들이 실제로 원하는 핵심 기능과 합리적인 구성을 결합해 높은 체감 만족도를 이끌어내고 있는 것이 특징입니다.`,
+            sourceIds: [sources[idx % sources.length]?.id].filter(Boolean)
+          };
+        }),
         {
           id: 'sec-closing-guide',
-          title: `'${kw}' 트렌드, 나에게 맞게 현명하게 활용하려면 무엇을 확인해야 할까요?`,
-          content: `열풍이 거셀수록 본인의 실제 필요와 사용 환경에 맞는 기준을 세우는 것이 중요합니다. ${fact3}\n\n아래 핵심 비교 요약표와 자주 묻는 질문(FAQ)을 통해 세부 조건과 체크포인트를 한눈에 비교해 보세요.`,
+          title: isFnbTopic
+            ? `브랜드별 '${coreTopic}' 메뉴, 더 맛있고 알뜰하게 즐기는 활용 팁`
+            : `'${kw}' 인기 라인업, 나에게 맞게 고르고 제대로 활용하는 팁`,
+          content: isFnbTopic
+            ? `각 브랜드마다 주력으로 내세우는 메뉴의 식감과 맛 조합, 세트 할인 구성이 뚜렷하게 구분되는 만큼 방문 목적과 취향에 맞춰 선택하는 것이 좋습니다. ${fact3}\n\n아래 브랜드별 핵심 비교 요약표와 자주 묻는 질문(FAQ)을 통해 대표 메뉴 특징과 이용 팁을 한눈에 확인해 보세요.`
+            : `선택지가 다양해진 만큼 구매나 이용 전 브랜드별 핵심 특징과 구성, 프로모션 조건을 꼼꼼히 비교해 보는 것이 좋습니다. ${fact3}\n\n아래 핵심 비교 요약표와 자주 묻는 질문(FAQ)을 통해 나에게 가장 잘 맞는 구성을 확인해 보세요.`,
           sourceIds: [sources[0]?.id].filter(Boolean)
         }
       ];
@@ -1008,128 +1234,100 @@ function buildDynamicWorkFromNews({ keyword, company, url, rawText, typeId, news
       draftSections = [
         {
           id: 'sec-1',
-          title: `왜 요즘 '${kw}' 트렌드에 소비자들이 주목하고 있을까요?`,
-          content: `최근 일상 속이나 온라인에서 '${kw}'에 관한 이야기를 자주 들어보신 적 없으신가요?\n\n소비자들의 취향이 세분화되고 실용성과 경험 가치를 동시에 추구하는 흐름이 강해지면서 '${kw}'이 새로운 대세 트렌드로 자리 잡고 있습니다. ${fact1}`,
+          title: `왜 요즘 '${kw}' 트렌드와 신상품 라인업에 소비자들이 주목할까요?`,
+          content: `최근 일상 속이나 온라인에서 '${kw}'에 관한 이야기를 자주 접해 보신 적 없으신가요?\n\n소비자들의 취향이 세분화되고 실용성과 경험 가치를 동시에 추구하는 흐름이 강해지면서 '${kw}'이 주목받고 있습니다. ${fact1}${userDirection ? `\n\n특히 ${userDirection} 흐름에 맞춰 관련 브랜드들의 움직임도 빨라지고 있습니다.` : ''}`,
           sourceIds: [sources[0]?.id].filter(Boolean)
         },
         {
           id: 'sec-2',
-          title: `기존 방식과 비교했을 때 '${kw}'만의 핵심 매력과 대표 사례는 무엇인가요?`,
-          content: `과거의 정형화된 소비 패턴과 달리 최근의 '${kw}' 트렌드는 소비자가 직접 비교하고 체감할 수 있는 실질적인 효능과 재미를 앞세우는 것이 특징입니다. ${fact2}\n\n주요 브랜드와 플랫폼들도 이에 발맞춰 전용 라인업과 맞춤형 서비스를 잇달아 선보이며 소비자 선택의 폭을 넓히고 있습니다. ${fact3}`,
-          sourceIds: sources.slice(0, 2).map(s => s.id)
+          title: `${comp ? comp + ' 등 ' : ''}주요 브랜드별 대표 특징과 차별화 포인트는 무엇인가요?`,
+          content: `같은 '${kw}' 카테고리 안에서도 브랜드마다 내세우는 핵심 구성과 타깃 포인트는 뚜렷하게 구분됩니다. ${fact2}\n\n아울러 ${fact3}${userSubKeywordsStr ? ` 특히 ${userSubKeywordsStr} 등 세부 요소를 강화하며 소비자 선택의 폭을 넓히고 있습니다.` : ''}`,
+          sourceIds: sources.slice(0, 3).map(s => s.id)
         },
         {
           id: 'sec-3',
-          title: `실패 없이 '${kw}'을 선택하고 활용하려면 어떤 기준을 살펴봐야 할까요?`,
-          content: `선택지가 다양해진 만큼 구매나 이용 전 핵심 성분·사양, 사용 목적, 가격 대비 구성비를 꼼꼼히 따져보는 것이 좋습니다. 아래 요약표와 FAQ에서 꼭 확인해야 할 핵심 기준을 정리했습니다.`,
+          title: `실패 없이 '${kw}'을 선택하고 알뜰하게 활용하는 체크포인트`,
+          content: `만족도를 높이려면 본인의 이용 목적과 세부 구성, 그리고 공식 채널의 프로모션 혜택을 미리 확인하는 것이 중요합니다. 아래 비교 요약표와 자주 묻는 질문(FAQ)을 통해 핵심 기준을 한눈에 확인해 보세요.`,
           sourceIds: [sources[0]?.id].filter(Boolean)
         }
       ];
     }
 
     summaryTable = {
-      title: `[ '${kw}' 핵심 구성 및 주요 특징 비교 ]`,
-      headers: ['구분', '핵심 역할 및 특징', '주요 소구 포인트', '추천 대상 및 활용법'],
-      rows: hasSubKeywords
-        ? subKeywords.map((subKw, i) => [
-            subKw,
-            `${subKw} 중심 맞춤형 케어·솔루션`,
-            paraphrasedFacts[i % paraphrasedFacts.length]?.slice(0, 42) + '...' || '편의성과 체감 효과를 높인 특화 구성',
-            `${subKw} 니즈가 높은 소비자 및 일상 루틴 활용`
-          ])
+      title: `[요약표] '${kw}' 주요 브랜드 · 항목별 핵심 특징 비교`,
+      headers: isFnbTopic
+        ? ['브랜드 · 구분', '주력 신메뉴 · 핵심 라인업', '맛 · 조리 · 기획 특징', '추천 조합 및 이용 팁']
+        : ['구분', '핵심 특징 및 구성 포인트', '주요 강점 · 차별점', '추천 대상 및 활용 가이드'],
+      rows: hasFocusEntities
+        ? focusEntities.map((entityName, idx) => {
+            const rawFactText = KNOWN_BRAND_MENU_FACTS[entityName]
+              || paraphrasedFacts[idx % Math.max(1, paraphrasedFacts.length)]
+              || '';
+            const concisePoint = rawFactText
+              ? (rawFactText.length > 44 ? rawFactText.slice(0, 44).trim() + '...' : rawFactText)
+              : `${entityName}만의 차별화된 구성과 실용성 강화`;
+            return isFnbTopic
+              ? [
+                  entityName,
+                  `${entityName} 특화 푸드·스낵·베이커리 신메뉴`,
+                  concisePoint,
+                  '대표 음료·세트 페어링 및 앱 프로모션 확인'
+                ]
+              : [
+                  entityName,
+                  `${entityName} 중심 맞춤형 라인업 및 핵심 구성`,
+                  concisePoint,
+                  `${entityName} 선호 소비자 및 실생활 맞춤 활용`
+                ];
+          })
         : [
-            ['핵심 트렌드 배경', '소비자 페인포인트 맞춤형 해결', '실용성과 직관적인 사용 편의성 결합', '일상 속 빠른 체감 효과를 원하는 소비자'],
-            ['주력 제품·서비스군', '세분화된 라인업 및 대용량·고효능 구성', '합리적 가격대와 검증된 핵심 성분·기능', '가성비와 품질을 동시에 따지는 실속파'],
-            ['선택·활용 체크포인트', '사용 목적·환경별 맞춤 조합', '공식 채널 성분·사양 및 실사용자 후기 대조', '구매 전 요약표 및 FAQ 기준 확인 권장']
+            [comp || '주력 대표 라인업', `${coreTopic} 맞춤형 핵심 상품·메뉴 구성`, '차별화된 기획과 검증된 품질로 높은 호응', '핵심 신상품을 가장 먼저 경험하려는 소비자'],
+            ['가성비 · 세트 구성', '실속 있는 용량·세트 결합 라인업', '합리적 가격대와 높은 활용도 동시 충족', '가성비와 실용성을 중시하는 2030 소비자'],
+            ['이용 · 구매 체크포인트', '온·오프라인 매장 및 전용 앱 프로모션', '출시 기념 할인·쿠폰 및 한정 수량 여부 확인', '방문·구매 전 공식 채널 이벤트 사전 점검']
           ]
     };
-    faqs = [
-      { q: `Q1. 최근 '${kw}'이 소비자들 사이에서 빠르게 입소문을 타는 이유는 무엇인가요?`, a: `일상이나 계절 변화 속에서 소비자들이 겪는 구체적인 고민을 간편하고 효과적으로 해결해 주며 높은 체감 만족도를 제공하고 있기 때문입니다.` },
-      { q: `Q2. 기존 제품이나 서비스와 비교했을 때 가장 크게 달라진 점은 무엇인가요?`, a: `단일 기능에 머물지 않고 크기·용량·성분·활용 범위를 넓혀 여러 부위나 상황에 멀티로 활용할 수 있도록 설계된 점이 핵심 차이입니다.` },
-      { q: `Q3. 처음 선택할 때 실패하지 않으려면 어떤 항목을 가장 먼저 확인해야 하나요?`, a: `본인의 주된 고민이나 사용 목적에 부합하는 핵심 성분·규격이 포함되어 있는지, 그리고 자극이나 불편함 없이 꾸준히 사용할 수 있는 구성인지 확인하는 것이 좋습니다.` },
-      { q: `Q4. 여러 아이템을 함께 조합해서 사용할 때 시너지를 높이는 팁이 있나요?`, a: `집중 케어가 필요한 순간에는 고효능 밀착 아이템을 활용하고, 평소 데일리 루틴에서는 기초 보습·유지력이 좋은 기본 아이템을 단계별로 병행하면 효과가 배가됩니다.` },
-      { q: `Q5. 온·오프라인 구매 시 혜택을 잘 챙기는 방법이 있을까요?`, a: `브랜드 공식 몰이나 주요 헬스앤뷰티·유통 채널의 시즌 기획전 기간을 활용하면 본품 추가 증정이나 세트 할인가로 더욱 합리적인 구매가 가능합니다.` }
-    ];
-    oneLineSummary = `한 줄 요약! '${kw}' 트렌드는 소비자의 실질적인 고민을 세심하게 해결하며 인기를 끌고 있는 만큼, 본인의 상황과 목적에 맞는 조합을 선택해 현명하게 활용해 보시기 바랍니다.`;
 
-  } else if (tId === 4) {
-    // [유형 4] 최신 트렌드 반영 콘텐츠 2 (신제품·뷰티·유통 아이템 및 시즌별 핵심 루틴·라인업 분석)
-    const subKeywords = kw.split(/[,/·]+/).map(s => s.trim()).filter(Boolean);
-    const hasSubKeywords = subKeywords.length >= 2;
-
-    titleCandidates = [
-      { id: 'tc-1', title: `"요즘 왜 이 조합이 대세일까?"…'${kw}' 인기 배경부터 대표 아이템·활용법 총정리`, totalScore: 95 },
-      { id: 'tc-2', title: `"작은 차이가 만족도를 바꿉니다"…소비자 사로잡은 '${kw}' 핵심 제품군·특징 비교`, totalScore: 92 },
-      { id: 'tc-3', title: `"성분부터 크기·가성비까지 꼼꼼 비교"…${comp || '주요 브랜드'} '${kw}' 라인업 분석`, totalScore: 90 },
-      { id: 'tc-4', title: `"사기 전에 이 표부터 확인하세요"…데이터와 팩트로 본 '${kw}' 선택 가이드 Q&A`, totalScore: 87 },
-      { id: 'tc-5', title: `"고민 부위·상황별로 골라 쓴다"…브랜드별 '${kw}' 대표 상품 한눈에`, totalScore: 85 }
-    ];
-    subtitleText = `소비자 일상 고민을 겨냥한 '${kw}' 맞춤형 라인업과 핵심 소구점 집중 분석\n${comp ? comp + ' 등 ' : ''}주요 제품군·성분·차별점 비교표부터 구매 전 필수 FAQ까지`;
-    draftSections = [
-      {
-        id: 'sec-1',
-        title: `왜 요즘 '${kw}' 조합과 신상품 라인업에 소비자들이 주목할까요?`,
-        content: `계절이 바뀌거나 일상의 컨디션이 달라질 때면 "지금 내 상황에 딱 맞는 아이템은 무엇일까?" 고민해 보신 적 없으신가요?\n\n최근 유통·뷰티·라이프스타일 시장에서는 소비자들의 세분화된 고민을 직관적으로 해결해 주는 '${kw}' 관련 특화 제품들이 큰 호응을 얻고 있습니다. ${fact1}`,
-        sourceIds: [sources[0]?.id].filter(Boolean)
-      },
-      ...(hasSubKeywords
-        ? subKeywords.map((subKw, idx) => ({
-            id: `sec-item-${idx + 1}`,
-            title: `핵심 포인트 ${idx + 1} : '${subKw}' 라인업의 특징과 대표 제품 차별점`,
-            content: `'${subKw}' 카테고리에서는 기존 제품의 아쉬움을 보완한 설계와 핵심 성분이 돋보입니다. ${paraphrasedFacts[idx % paraphrasedFacts.length] || fact2}\n\n단순히 외형만 바꾼 것이 아니라 실제 사용 편의성과 밀착력·지속력을 높여 소비자들이 즉각적인 변화를 체감할 수 있도록 기획된 것이 특징입니다.`,
-            sourceIds: [sources[idx % sources.length]?.id].filter(Boolean)
-          }))
-        : [
-            {
-              id: 'sec-2',
-              title: `${comp ? comp + ' 등 ' : ''}주요 브랜드와 제품군별로 어떤 차별화 포인트가 있을까요?`,
-              content: `같은 '${kw}' 카테고리 안에서도 브랜드마다 내세우는 핵심 사양과 타깃 포인트는 뚜렷하게 구분됩니다. ${fact2}\n\n아울러 ${fact3} 소비자 고민 부위와 사용 시간대에 맞춰 세분화된 라인업을 선보이며 선택의 폭을 넓히고 있습니다.`,
-              sourceIds: sources.slice(0, 3).map(s => s.id)
-            }
-          ]),
-      {
-        id: 'sec-3',
-        title: `실패 없이 '${kw}' 인기 아이템을 고르고 제대로 활용하는 팁은 무엇일까요?`,
-        content: `만족도를 높이려면 본인의 사용 목적과 핵심 성분·규격, 그리고 단계별 사용 순서를 미리 확인하는 것이 중요합니다. 아래 제품군별 비교 요약표와 자주 묻는 질문(FAQ)을 통해 나에게 가장 잘 맞는 구성을 확인해 보세요.`,
-        sourceIds: [sources[0]?.id].filter(Boolean)
-      }
-    ];
-    summaryTable = {
-      title: `[요약표] '${kw}' 주요 카테고리 · 제품별 핵심 특징 및 선택 가이드`,
-      headers: ['구분', '핵심 특징 및 설계 포인트', '주요 성분 · 사양', '추천 활용법 및 체크포인트'],
-      rows: hasSubKeywords
-        ? subKeywords.map((subKw, idx) => [
-            subKw,
-            `${subKw} 특화 집중 케어 및 편의성 강화`,
-            paraphrasedFacts[idx % paraphrasedFacts.length]?.slice(0, 38) + '...' || '핵심 유효 성분 및 사용성 최적화',
-            '고민 부위·상황에 맞춘 단계별 루틴 적용'
-          ])
-        : [
-            [comp || '집중 케어 라인업', '넓은 면적 커버 및 고농축 밀착 설계', '콜라겐·히알루론산·진정 성분 배합', '고민 부위 집중 부착 및 스페셜 케어'],
-            ['데일리 기초 라인업', '피부 장벽 강화 및 속건조·유수분 밸런스 케어', '세라마이드·판테놀·알란토인 등 저자극 성분', '아침·저녁 반복 도포 및 데일리 루틴 활용'],
-            ['채널별 기획 세트', '대용량·멀티팩 구성으로 가성비 극대화', '본품+리필 또는 부위별 겸용 패키지', '온·오프라인 기획전 할인 및 성분표 확인']
-          ]
-    };
-    faqs = [
-      { q: `Q1. 왜 요즘 '${kw}' 관련 제품들이 기존 제품보다 더 큰 인기를 끌고 있나요?`, a: `국소 부위만 케어하던 기존 방식에서 벗어나 넓은 고민 부위를 한 번에 관리하거나 장벽·보습·진정을 동시에 챙길 수 있도록 실용성을 높였기 때문입니다.` },
-      { q: `Q2. '${kw}' 제품들을 고를 때 꼭 확인해야 할 핵심 성분이나 스펙은 무엇인가요?`, a: `진정·보습·장벽 관리에 도움을 주는 세라마이드, 판테놀, 콜라겐, 히알루론산 등의 함유 여부와 본인의 사용 부위에 맞는 크기·제형을 확인하는 것이 좋습니다.` },
-      { q: `Q3. 여러 제품을 함께 사용할 때 어떤 순서로 적용하는 것이 가장 효과적인가요?`, a: `세안이나 기초 정돈 후 수분·유효 성분이 풍부한 패치나 앰플로 집중 케어를 해주고, 이어서 장벽 크림이나 로션으로 수분 증발을 막아주는 순서가 효과적입니다.` },
-      { q: `Q4. 민감성 피부나 일상 속 데일리 루틴으로 매일 사용해도 부담이 없을까요?`, a: `대부분 저자극 테스트를 거친 데일리 포뮬러로 출시되지만, 고농축 패치나 특수 케어 제품은 권장 부착 시간과 사용 주기를 지켜 사용하는 것이 바람직합니다.` },
-      { q: `Q5. 합리적인 가격으로 구매하려면 어떤 유통 채널이나 프로모션을 활용하는 게 좋나요?`, a: `올리브영 등 헬스앤뷰티 스토어의 시즌 세일이나 브랜드 공식 스마트스토어의 대용량·더블 기획 세트를 활용하면 단가를 크게 낮출 수 있습니다.` }
-    ];
-    oneLineSummary = `한 줄 요약! '${kw}' 트렌드의 핵심은 내 고민 부위와 상황에 맞는 똑똑한 제품 선택과 기초 루틴 관리에 있는 만큼, 성분과 특징 비교표를 참고해 최적의 조합을 찾아보시기 바랍니다.`;
+    // 본문 문맥 순서(단락 01 -> 단락 02/03 -> 마지막 단락)에 100% 맞춘 FAQ 생성!
+    if (hasFocusEntities && isFnbTopic) {
+      faqs = [
+        {
+          q: `Q1. 최근 ${comp || '카페·외식 업계'}가 음료 외에 '${coreTopic}'에 집중하는 이유는 무엇인가요?`,
+          a: `고물가 속 간편한 식사 대용이나 가성비 간식을 찾는 소비자 수요를 흡수하고, 음료와의 세트 판매를 통해 매장 객단가와 체류 만족도를 동시에 높일 수 있기 때문입니다.`,
+          relatedSection: 1
+        },
+        ...focusEntities.slice(0, 3).map((entityName, idx) => ({
+          q: `Q${idx + 2}. '${entityName}'가 선보인 이번 푸드·스낵 신메뉴의 핵심 특징은 무엇인가요?`,
+          a: KNOWN_BRAND_MENU_FACTS[entityName] || `'${entityName}'는 시그니처 음료·메뉴와 잘 어울리는 간편 스낵 및 베이커리 라인업을 강화해 소비자들의 선택 폭을 넓혔습니다.`,
+          relatedSection: idx + 2
+        })),
+        {
+          q: `Q${Math.min(focusEntities.length + 2, 5)}. 각 브랜드의 신메뉴를 더 합리적인 가격에 즐기려면 어떻게 이용하는 것이 좋나요?`,
+          a: `브랜드별 공식 모바일 앱(멤버십)에서 제공하는 신메뉴 출시 기념 할인 쿠폰이나 음료·사이드 세트 메뉴 구성을 활용하면 단품 구매보다 알뜰하게 즐길 수 있습니다.`,
+          relatedSection: draftSections.length
+        }
+      ];
+    } else {
+      faqs = [
+        { q: `Q1. 최근 '${kw}'이 소비자들 사이에서 빠르게 주목받는 배경은 무엇인가요?`, a: `일상 속 세분화된 소비자 취향과 가성비·경험 가치를 동시에 중시하는 소비 흐름에 맞춰 차별화된 상품과 구성이 잇달아 출시되고 있기 때문입니다.`, relatedSection: 1 },
+        { q: `Q2. ${comp || '주요 브랜드'}에서 선보인 이번 '${coreTopic}' 라인업의 가장 큰 특징은 무엇인가요?`, a: `소비자 선호도가 높은 핵심 요소${userSubKeywordsStr ? `(${userSubKeywordsStr})` : ''}를 중심으로 실용성과 완성도를 한층 높여 체감 만족도를 강화한 점이 특징입니다.`, relatedSection: 2 },
+        { q: `Q3. 기존 상품·메뉴들과 비교했을 때 어떤 차별화 포인트가 있나요?`, a: `단순 일회성 기획에 그치지 않고 실제 소비자의 이용 상황과 취향에 맞춰 선택 폭을 다변화하고 품질 경쟁력을 높였습니다.`, relatedSection: 2 },
+        { q: `Q4. 처음 선택하거나 이용할 때 어떤 기준을 먼저 확인하는 것이 좋나요?`, a: `본인의 이용 목적과 취향에 맞는 대표 라인업인지, 그리고 매장·채널별 제공 조건과 구성이 어떠한지 본문 비교표를 통해 먼저 확인하는 것이 좋습니다.`, relatedSection: draftSections.length },
+        { q: `Q5. 출시 프로모션이나 할인 혜택을 잘 챙기는 방법이 있을까요?`, a: `각 브랜드의 공식 앱이나 온·오프라인 시즌 기획전을 활용하면 출시 기념 쿠폰이나 세트 할인 혜택을 적용받아 더욱 합리적으로 이용할 수 있습니다.`, relatedSection: draftSections.length }
+      ];
+    }
+    oneLineSummary = `한 줄 요약! '${kw}' 트렌드는 브랜드별 차별화된 기획과 실속 있는 구성으로 소비자 선택 폭을 넓히고 있는 만큼, 비교표와 FAQ를 참고해 취향에 맞는 메뉴·상품을 즐겨보시기 바랍니다.`;
 
   } else {
     // [유형 5] 영업 기업 맞춤 기획 콘텐츠: 도입 1문단 뒤 본문 전체가 Q1~Q7 문답(FAQ) 구조 + 마지막 Q7에서 영업 타깃 기업 집중 소개
-    const targetCompany = comp || `${kw} 선도 기업`;
+    const targetCompany = comp || `${shortKw} 선도 기업`;
     titleCandidates = [
-      { id: 'tc-1', title: `"왜 요즘 이 시장이 뜰까?"…2026년 '${kw}' 메가 트렌드부터 ${targetCompany} 핵심 경쟁력까지 7문 7답`, totalScore: 96 },
-      { id: 'tc-2', title: `"소비자 불편을 기술로 풀었습니다"…'${kw}' 시장 재편하는 ${targetCompany}의 성장 전략 Q&A`, totalScore: 92 },
-      { id: 'tc-3', title: `"단순 가격 경쟁 시대는 끝났다"…신뢰와 품질로 승부하는 ${targetCompany} 핵심 서비스 분석`, totalScore: 89 },
-      { id: 'tc-4', title: `"이용 전 꼭 알아야 할 체크포인트는?"…문답으로 읽는 '${kw}' 동향과 ${targetCompany} 활용법`, totalScore: 86 },
-      { id: 'tc-5', title: `"시장 성장을 이끄는 비결은 무엇일까"…'${kw}' 트렌드와 ${targetCompany} 솔루션 총정리`, totalScore: 84 }
+      { id: 'tc-1', title: `“왜 이 시장이 뜰까?”…‘${shortKw}’ 트렌드 7문 7답`, totalScore: 96 },
+      { id: 'tc-2', title: `“소비자 불편 풀었다”…${targetCompany.split(',')[0]} 성장 전략 Q&A`, totalScore: 92 },
+      { id: 'tc-3', title: `“품질로 승부합니다”…‘${shortKw}’ 핵심 경쟁력 분석`, totalScore: 89 },
+      { id: 'tc-4', title: `“이용 전 필수 체크”…문답으로 본 ‘${shortKw}’ 동향`, totalScore: 86 },
+      { id: 'tc-5', title: `“시장 재편 비결은?”…‘${shortKw}’ 솔루션 총정리`, totalScore: 84 }
     ];
-    subtitleText = `문답(Q&A) 7개로 짚어본 2026년 '${kw}' 메가 트렌드와 소비자 페인포인트\n시장의 빈틈을 해결하는 ${targetCompany}의 차별화 서비스와 기대효과 집중 분석`;
+    subtitleText = `문답(Q&A) 7개로 짚어본 2026년 '${kw}' 메가 트렌드와 소비자 페인포인트${subKwNote}\n시장의 빈틈을 해결하는 ${targetCompany}의 차별화 서비스와 기대효과 집중 분석${directionNote}`;
     draftSections = [
       {
         id: 'sec-1',
@@ -1154,45 +1352,69 @@ function buildDynamicWorkFromNews({ keyword, company, url, rawText, typeId, news
       ]
     };
     faqs = [
-      { q: `Q1. 최근 '${kw}' 시장이 급성장한 가장 큰 원동력은 무엇인가요?`, a: `합리적 비용으로 검증된 품질과 맞춤형 경험을 누리려는 가치 소비 트렌드가 확산했기 때문입니다.` },
-      { q: `Q2. 기존 서비스 이용 시 소비자들이 겪던 대표적인 불편 사항은 무엇인가요?`, a: `업체별 품질 편차와 불투명한 가격 정보, 번거로운 확인 절차가 주요 페인포인트였습니다.` },
-      { q: `Q3. ${targetCompany}는 이러한 문제를 어떻게 해결하고 있나요?`, a: `체계적인 사전 검증 시스템과 투명한 정보 공개, 고객 맞춤형 큐레이션을 통해 신뢰도를 높이고 있습니다.` },
-      { q: `Q4. ${targetCompany}의 주요 서비스는 어떤 채널에서 이용할 수 있나요?`, a: `공식 홈페이지와 모바일 앱, 오프라인 거점 채널을 통해 간편하게 조회하고 신청할 수 있습니다.` },
-      { q: `Q5. 처음 이용하는 고객을 위한 전용 혜택이나 프로모션이 있나요?`, a: `신규 가입 고객을 위한 웰컴 쿠폰팩과 시즌별 한정 기획전 혜택이 상시 운영되고 있습니다.` },
-      { q: `Q6. 기업 제휴나 대량 이용 문의도 가능한가요?`, a: `공식 채널 내 비즈니스 문의 창구를 통해 파트너사 맞춤형 제휴 및 단체 프로그램을 별도로 지원하고 있습니다.` },
-      { q: `Q7. 향후 ${targetCompany}가 준비 중인 서비스 고도화 방향은 무엇인가요?`, a: `고객 데이터 기반의 정교한 추천 기능과 사후 관리 인프라를 지속 확대해 시장 내 리더십을 강화할 계획입니다.` }
+      { q: `Q1. 최근 '${kw}' 시장이 급성장한 가장 큰 원동력은 무엇인가요?`, a: `합리적 비용으로 검증된 품질과 맞춤형 경험을 누리려는 가치 소비 트렌드가 확산했기 때문입니다.`, relatedSection: 1 },
+      { q: `Q2. 기존 서비스 이용 시 소비자들이 겪던 대표적인 불편 사항은 무엇인가요?`, a: `업체별 품질 편차와 불투명한 가격 정보, 번거로운 확인 절차가 주요 페인포인트였습니다.`, relatedSection: 1 },
+      { q: `Q3. ${targetCompany}는 이러한 문제를 어떻게 해결하고 있나요?`, a: `체계적인 사전 검증 시스템과 투명한 정보 공개, 고객 맞춤형 큐레이션을 통해 신뢰도를 높이고 있습니다.`, relatedSection: 2 },
+      { q: `Q4. ${targetCompany}의 주요 서비스는 어떤 채널에서 이용할 수 있나요?`, a: `공식 홈페이지와 모바일 앱, 오프라인 거점 채널을 통해 간편하게 조회하고 신청할 수 있습니다.`, relatedSection: 2 },
+      { q: `Q5. 처음 이용하는 고객을 위한 전용 혜택이나 프로모션이 있나요?`, a: `신규 가입 고객을 위한 웰컴 쿠폰팩과 시즌별 한정 기획전 혜택이 상시 운영되고 있습니다.`, relatedSection: 2 },
+      { q: `Q6. 기업 제휴나 대량 이용 문의도 가능한가요?`, a: `공식 채널 내 비즈니스 문의 창구를 통해 파트너사 맞춤형 제휴 및 단체 프로그램을 별도로 지원하고 있습니다.`, relatedSection: 2 },
+      { q: `Q7. 향후 ${targetCompany}가 준비 중인 서비스 고도화 방향은 무엇인가요?`, a: `고객 데이터 기반의 정교한 추천 기능과 사후 관리 인프라를 지속 확대해 시장 내 리더십을 강화할 계획입니다.`, relatedSection: 2 }
     ];
     oneLineSummary = `한 줄 요약! '${kw}' 시장이 신뢰와 맞춤형 가치 중심으로 재편되면서, 체계적인 솔루션으로 소비자 불편을 해결한 ${targetCompany}의 경쟁력이 주목받고 있습니다.`;
   }
 
+  // 모든 제목 후보가 MAX_HEADLINE_CHARS(40자)를 넘지 않도록 자동 보정
+  titleCandidates = titleCandidates.map(tc => {
+    const rawT = tc.title || tc.text || '';
+    if (rawT.length <= MAX_HEADLINE_CHARS) return { ...tc, title: rawT };
+    const splitRes = splitLongHeadlineToSubtitle(rawT, subtitleText, MAX_HEADLINE_CHARS);
+    return { ...tc, title: splitRes.headline, overflowSubhead: splitRes.overflowSubhead };
+  });
+
   const catInfo = recommendMkPickCategory(kw, tId, comp);
+
+  const glossaryItems = hasFocusEntities
+    ? [
+        ...focusEntities.map(ent => ({
+          term: ent,
+          desc: isFnbTopic
+            ? `'${coreTopic}' 트렌드에 발맞춰 차별화된 푸드·스낵·음료 신메뉴와 페어링 구성을 선보이고 있는 주요 외식·카페 브랜드입니다.`
+            : `'${kw}' 기사에서 다루는 핵심 브랜드·주제로, 소비자의 실질적인 니즈 해결과 체감 만족도를 높이는 주요 축입니다.`
+        })),
+        {
+          term: coreTopic,
+          desc: `최근 소비 시장과 관련 업계에서 주목받는 핵심 트렌드로, 가성비와 차별화된 경험 가치를 동시에 추구하는 흐름입니다.`
+        }
+      ]
+    : [
+        { term: `${kw} (핵심 키워드)`, desc: `이번 기사에서 다루는 핵심 트렌드·소재로, 소비자의 세분화된 니즈와 실용적 가치를 반영하는 대표 개념입니다.` },
+        { term: '맞춤형 큐레이션 (Curation)', desc: '소비자의 상황·계절·취향에 맞춰 가장 적합한 상품이나 솔루션 조합을 선별해 제안하는 방식입니다.' },
+        { term: '체감 만족도 · 실속 소비', desc: '단순 브랜드 인지도보다 실제 이용 시 느껴지는 직관적인 만족도와 합리적인 가격·구성을 중시하는 소비 흐름입니다.' }
+      ];
 
   const summaryBlocks = {
     mkCategory: catInfo.recommendedCategory,
     mkCategoryReason: catInfo.categoryReason,
     byline: `${catInfo.recommendedCategory} | 남궁선희 기자 | 입력 2026.10.23 10:00`,
-    companyTags: comp ? [comp, kw] : [kw],
+    companyTags: [
+      ...(parsedTopic.brands || []),
+      ...(parsedTopic.explicitSubs || []),
+      coreTopic !== kw ? coreTopic : kw
+    ].filter((v, i, a) => v && a.indexOf(v) === i),
     subtitle: subtitleText,
+    oneLineSubtitle: titleCandidates[0]?.overflowSubhead || `${comp ? comp + ' · ' : ''}'${coreTopic}' 핵심 특징·가격·체크포인트 한줄 요약`,
+    oneLineSubhead: titleCandidates[0]?.overflowSubhead || '',
     aiFactSummary: [
       `1. ${fact1}`,
       `2. ${fact2}`,
-      `3. ${tId === 5 ? `${comp || kw + ' 주요 기업'}은 체계적인 품질 검증과 맞춤형 서비스를 앞세워 시장 성장을 견인하고 있습니다.` : `소비자들은 이용 전 요약표와 FAQ를 통해 브랜드별 조건·기간과 핵심 체크포인트를 확인하는 것이 유리합니다.`}`
+      `3. ${tId === 5 ? `${comp || kw + ' 주요 기업'}은 체계적인 품질 검증과 맞춤형 서비스를 앞세워 시장 성장을 견인하고 있습니다.` : `소비자들은 이용 전 요약표와 FAQ를 통해 브랜드별 주요 특징·조건과 핵심 체크포인트를 확인하는 것이 유리합니다.`}`
     ],
     summaryTable,
     glossaryTitle: `'${kw}' 주제를 더 깊이 이해하는 용어 사전`,
-    glossary: kw.split(/[,/·]+/).map(s => s.trim()).filter(Boolean).length >= 2
-      ? kw.split(/[,/·]+/).map(s => s.trim()).filter(Boolean).map(sub => ({
-          term: sub,
-          desc: `'${kw}' 기사에서 다루는 핵심 구성 요소로, 소비자의 실제 고민 해결과 체감 만족도를 높이는 주요 포인트입니다.`
-        }))
-      : [
-          { term: `${kw} (핵심 키워드)`, desc: `이번 기사에서 다루는 핵심 트렌드·소재로, 소비자의 세분화된 니즈와 실용적 가치를 반영하는 대표 개념입니다.` },
-          { term: '맞춤형 큐레이션 (Curation)', desc: '소비자의 상황·계절·취향에 맞춰 가장 적합한 상품이나 솔루션 조합을 선별해 제안하는 방식입니다.' },
-          { term: '체감 효능 · 가성비 소비', desc: '단순 브랜드 인지도보다 실제 사용 시 느껴지는 직관적인 효과와 합리적인 용량·가격 구성을 중시하는 소비 흐름입니다.' }
-        ],
+    glossary: glossaryItems,
     faqs,
     fanoutQuestions: buildContextualFanoutQuestions(kw, comp, tId),
-    closingParagraph: `일상 속 작은 불편함과 고민에서 출발한 '${kw}' 트렌드는 이제 소비자의 라이프스타일을 한층 편리하고 풍요롭게 바꾸는 실용적인 해법으로 자리 잡고 있습니다. 본문에서 살펴본 핵심 포인트와 비교 기준을 참고해 나에게 꼭 맞는 현명한 선택을 해보시기 바랍니다.`,
+    closingParagraph: `일상 속 변화된 소비자 취향에서 출발한 '${kw}' 트렌드는 이제 관련 업계의 새로운 성장 동력이자 소비자의 선택 폭을 넓히는 실용적인 흐름으로 자리 잡고 있습니다. 본문에서 살펴본 핵심 포인트와 비교 기준을 참고해 나에게 꼭 맞는 현명한 선택을 해보시기 바랍니다.`,
     oneLineSummary,
     noticeText: '본 콘텐츠는 매경비즈 디지털뉴스룸이 공식 발표 자료와 보도자료를 바탕으로 작성했습니다.',
     imageRecommendations: [
@@ -2331,6 +2553,9 @@ if (typeof module !== 'undefined' && module.exports) {
     paraphraseNewsToMkFact,
     cleanTrendTopicKeyword,
     extractBrandFromTopic,
+    splitKeywordIntoBrandsAndTopic,
+    splitLongHeadlineToSubtitle,
+    MAX_HEADLINE_CHARS,
     inspectTopicFactVerification,
     isVirtualIdolQuery,
     getVirtualIdolScenario,
@@ -2352,6 +2577,9 @@ if (typeof module !== 'undefined' && module.exports) {
     paraphraseNewsToMkFact,
     cleanTrendTopicKeyword,
     extractBrandFromTopic,
+    splitKeywordIntoBrandsAndTopic,
+    splitLongHeadlineToSubtitle,
+    MAX_HEADLINE_CHARS,
     inspectTopicFactVerification,
     isVirtualIdolQuery,
     getVirtualIdolScenario,
