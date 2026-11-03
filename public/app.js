@@ -699,7 +699,7 @@
     for (const modelName of modelsToTry) {
       try {
         const isGpt5 = modelName.startsWith('openai/gpt-5');
-        const maxOutTokens = maxTokensOverride || (isGpt5 ? 14000 : 9000);
+        const maxOutTokens = maxTokensOverride || (isGpt5 ? 12000 : 6500);
         const bodyPayload = {
           model: modelName,
           instructions: systemPrompt,
@@ -717,7 +717,7 @@
             'Content-Type': 'application/json'
           },
           body: JSON.stringify(bodyPayload)
-        }, 180000, `2단계 집필 모델(${getWriterModelShortLabel(modelName)})`);
+        }, 240000, `2단계 집필 모델(${getWriterModelShortLabel(modelName)})`);
 
         if (!res.ok) {
           const errText = await res.text().catch(() => '');
@@ -945,100 +945,52 @@
       : { verdict: 'VERIFIED_FACT', isWarning: false, badgeLabel: '✓ 공식 언론 보도 및 실제 출시·트렌드 팩트 확인됨', summary: '' };
 
     const todayStr = new Date().toISOString().slice(0, 10);
-    const sys = `당신은 매일경제 MK Pick(GEO·AEO 최적화 매거진형 심층 기사) 수석 에디터이자 실시간 뉴스 팩트체크 데스크입니다.
-오늘(${todayStr}) 기준으로 메인 키워드('${keyword}')뿐만 아니라 **서브 키워드(${subKwList.join(', ') || '연관 키워드'}) 및 편집자의 자연어 기획 방향('${cleanDirection || '최신 트렌드'}')에 등장하는 핵심 소재들(예: 가래떡데이, 떡 디저트 유행 등)까지 함께** 최신 한국 뉴스 팩트를 기사 본문과 취재 팩트 메모장(researchFacts)에 100% 반영하세요!
-타 언론사 기사의 문장을 절대 그대로 베끼지 말고, 수치·브랜드명·신메뉴명·성분·출시일 등 핵심 팩트만 추출하여 모든 본문과 답변을 매일경제 고유의 정중하고 생동감 있는 "~합니다/습니다" 체로 작성하세요.
-[절대 준수 작성 원칙]
-0) [가장 중요 · 0순위 원칙] 실제 공식 출시·언론 보도 여부 팩트체크 및 가상(AI 생성) 밈·루머 엄격 판별 (절대 준수!):
-   - 기사를 작성하기 전에 입력된 키워드('${keyword}')가 **실제 기업·브랜드가 정식 출시·발표하고 언론에 보도된 실제 제품·트렌드**인지, 아니면 **유튜브 쇼츠·틱톡·릴스 등 SNS에서 인공지능(AI) 합성이나 상상력으로 만들어진 '가상(AI 생성) 밈·합성 콘텐츠·루머'**(예: 실제 정식 출시된 적 없는 '한정선 마이쮸 콜라보 찹쌀떡' 등)인지 반드시 먼저 검증하세요!
-   - 만약 공식 출시 사실이나 언론 보도 근거가 없는 **가상(AI 생성) 밈·합성 콘텐츠이거나 미출시 루머**라면:
-     ① **절대로 실제 출시된 신제품이거나 정식 콜라보인 것처럼 거짓으로 꾸며 쓰지 마세요!**
-     ② 반드시 JSON의 \`factVerification.verdict\`를 \`"AI_MEME_OR_VIRTUAL"\`, \`factVerification.isWarning\`을 \`true\`로 설정하세요.
-     ③ 기사 제목(\`titleCandidates\`), \`aiFactSummary\`(3줄 요약), 본문(\`draftSections\`) 첫 단락에서 **"해당 화제 키워드는 실제 정식 출시된 제품이 아니라 SNS·숏폼에서 확산된 가상(AI 생성) 밈·콘텐츠"**라는 사실을 명확히 팩트체크해 바로잡고, 대신 **실제 존재하는 원조 브랜드의 진짜 정식 메뉴와 검증된 시장 트렌드 팩트**를 중심으로 설명하세요.
-   - 실제 정식 출시·공식 발표 및 언론 보도가 확인된 정상적인 주제라면 \`factVerification.verdict\`를 \`"VERIFIED_FACT"\`, \`factVerification.isWarning\`을 \`false\`로 설정하고 확인된 공식 팩트 요약을 적어주세요.
-1) [편집자 자연어 기획 의도('원하는 글의 방향·맥락') 및 '서브 키워드' 1순위 절대 반영 — 고정 템플릿보다 항상 우선!]:
-   - 편집자가 자연어로 입력한 **'원하는 글의 방향·맥락'(${cleanDirection ? `"${cleanDirection}"` : '최신 언론 보도 및 실제 출시 제품·신메뉴 심층 소개'})**과 **'서브 키워드'(${subKwList.length > 0 ? subKwList.join(', ') : '핵심 연관 포인트'})**가 있다면, 어떤 콘텐츠 유형(01~05)이 선택되어 있더라도 **편집자의 자연어 기획 의도가 글 전체 구조의 최우선 설계도**가 됩니다!
-   - 예를 들어 메인 키워드가 '빼빼로데이', 서브 키워드가 '가래떡데이', 원하는 방향이 '빼빼로데이만 알고 있었던 사람들에게 가래떡데이도 알려줌, 요즘 떡 디저트가 유행이니 가래떡데이와 엮어서 쓰고 싶음'이라면, 기사 제목·소제목·본문 1~4단락(예: 1단락 막대과자 뒤에 숨겨진 11월 11일의 진짜 이름 가래떡데이 환기 → 2단락 농업인의 날 유래와 우리 쌀 캠페인 → 3단락 MZ세대를 사로잡은 K-떡 디저트 열풍과 이색 조합 → 4단락 11월 11일을 더 특별하게 즐기는 방법 & 구매 팁)·비교 요약표·용어사전·FAQ 전체를 그 자연어 스토리에 100% 맞춰 유기적으로 작성하세요!
-2) [MK Pick 레퍼런스 스타일의 자연스럽고 매력적인 단락 소제목(draftSections.title) 작성 원칙]:
-   - 절대로 모든 단락 소제목을 "왜 지금 ~할까요?", "~무엇인가요?" 같은 기계적이고 딱딱한 교과서 질문형으로만 도배하지 마세요!
-   - 매일경제 MK Pick 레퍼런스 기사처럼 독자의 호기심을 자극하고 단락의 핵심 메시지를 감각적으로 보여주는 **자연스러운 매거진형 소제목**(예: "막대 과자 뒤에 숨겨진 11월 11일의 진짜 이름", "전통 간식의 화려한 변신, MZ세대 사로잡은 떡 디저트", "가성비부터 프리미엄까지…취향 따라 고르는 이색 라인업")으로 생동감 있게 작성하세요.
-   - 각 본문 단락(\`content\`)은 읽기 편하도록 핵심 팩트와 스토리를 담아 **2문단(약 280~380자, ~합니다 체)**으로 밀도 있게 작성하세요.
-3) [복합·다중 브랜드 키워드('${keyword}') 정밀 분석 및 실제 신메뉴·제품 소개 원칙]:
-   - '이디야, 맘스터치, 메가커피 푸드 스낵 신메뉴 강화'처럼 **여러 브랜드(${brandList.join(', ') || '주요 브랜드'}) + 핵심 주제('${coreTopicText}')**가 결합된 문장형 키워드가 입력된 경우, 절대로 문장 뒷부분('푸드 스낵 신메뉴 강화' 등)을 또 하나의 브랜드나 제품 이름인 것처럼 쪼개서 표에 넣지 마세요!
-   - 등장하는 **각 브랜드(${brandList.join(', ') || '해당 브랜드들'})가 실제로 출시한 대표 신메뉴·신상품의 정확한 이름, 가격·구성, 특징**을 각각 구체적으로 찾아 본문 단락과 비교 요약표(summaryTable)에 1:1로 소개하세요.
-4) [메인 화면 노출용 헤드라인 글자수 제한 (최대 ${maxHeadlineLimit}자 이내 필수!)]:
-   - MK Pick 메인 화면 카드에 노출될 때 제목이 2줄을 넘어 잘리지 않도록, 모든 \`titleCandidates\`의 \`title\`은 **공백 포함 26~38자 이내(절대 최대 ${maxHeadlineLimit}자 이하!)**로 간결하고 임팩트 있게 작성하세요!
-5) [FAQ 본문 문맥 순서(단락 1 → 단락 2 → 단락 3 → 단락 4) 완벽 정렬]:
-   - \`faqs\` 배열의 질문(Q1~Q${faqCount})은 반드시 **본문(\`draftSections\`) 1단락부터 마지막 단락까지의 문맥 흐름 순서 그대로** 배치하고, 각 FAQ 항목마다 본문 몇 번째 단락(1~4)과 연결되는지 \`"relatedSection": 1\` ~ \`4\` 숫자를 명시하세요!
-6) 취재 팩트 메모장(researchFacts 6건)과 본문 단락(draftSections) 간의 1:1 반영 위치(usedInSection) 명시:
-   - 제공된 최신 뉴스 팩트 및 검색 결과를 바탕으로 \`researchFacts\` 6건을 작성하고, 각 팩트가 본문 몇 번째 단락(\`draftSections\`의 1~4번 중 어디)에 반영되었는지 \`"usedInSection": 1\`(숫자 1~4) 필드에 정확히 표기하세요.
-   - 각 항목의 \`sourceUrl\`에는 검색 결과에 나온 **해당 개별 기사의 정확한 원문 링크(https://...)**를 그대로 넣으세요.
-7) JSON 문자열 내부에 큰따옴표를 쓸 때는 반드시 유니코드 겹따옴표(“…”)나 작은따옴표('…')만 사용하여 JSON 파싱 오류가 절대 발생하지 않도록 하세요.`;
+    const sys = `당신은 매일경제 MK Pick(GEO·AEO 최적화 매거진형 기사) 수석 에디터입니다.
+핵심 작성 원칙:
+1) [기획 의도·서브 키워드 1순위 반영]: 편집자의 원하는 방향('${cleanDirection || '최신 트렌드 및 실제 출시 팩트 소개'}')과 서브 키워드(${subKwList.join(', ') || '연관 포인트'})를 글 전체(제목·소제목·본문 1~4단락·요약표·FAQ)의 최우선 설계도로 삼아 유기적으로 작성하세요. (고정 템플릿이나 브랜드 A/B/C 표기 절대 금지!)
+2) [자연스러운 MK Pick 매거진 소제목]: 단락 소제목(draftSections.title)은 기계적인 질문형(~할까요?) 대신 독자의 호기심을 자극하는 감각적인 매거진형 소제목(예: "막대 과자 뒤에 숨겨진 11월 11일의 진짜 이름", "전통 간식의 화려한 변신, MZ세대 사로잡은 떡 디저트")으로 작성하세요.
+3) [본문 분량 및 문체]: 각 단락 본문(content)은 핵심 팩트와 스토리를 담아 **2문단(약 240~320자, 정중한 ~합니다/습니다 체)**으로 간결하고 밀도 있게 작성하세요.
+4) [팩트체크]: 공식 출시·보도가 없는 가상(AI 합성) 밈이면 factVerification.verdict를 "AI_MEME_OR_VIRTUAL"(isWarning: true)로, 정상 보도 주제면 "VERIFIED_FACT"(isWarning: false)로 설정하세요.
+5) [헤드라인 글자수]: 모든 titleCandidates(5개)의 title은 **공백 포함 26~38자 이내(최대 ${maxHeadlineLimit}자 이하)**로 작성하세요.
+6) [FAQ 문맥 순서]: faqs(${faqCount}개)는 본문 1~4단락 순서대로 배치하고 relatedSection(1~4)을 표기하세요. JSON 문자열 내부 인용구는 작은따옴표('…')나 유니코드(“…”)만 사용하여 순수 JSON만 출력하세요.`;
 
-    const usr = `[작성 요청 정보]
-- 기준 일자: ${todayStr} (가장 최근 보도된 최신 뉴스·후속 보도 최우선 반영!)
-- 메인 키워드/주제: ${keyword}
-- 식별된 핵심 브랜드(${brandList.length}개): ${brandList.join(', ') || company || '관련 주요 브랜드·제품'}
-- 핵심 세부 주제: ${coreTopicText}
-- 서브 키워드(필수 연계): ${subKwList.length > 0 ? subKwList.join(', ') : '없음 (주제에 맞는 핵심 세부 키워드 자동 반영)'}
-- 편집자가 원하는 글의 방향·맥락(최우선 설계 지침!): ${cleanDirection || '최신 언론 보도와 실제 출시된 제품·신메뉴·트렌드 팩트를 중심으로 독자에게 유익한 정보 제공'}
-- 참고 URL: ${url || '없음'}
-- 추가 보도자료/메모: ${rawText || '없음'}
-- 선택된 콘텐츠 관점(유형 가이드): ${state.homeInput?.typeMode === 'manual' ? `[편집자 직접 선택] ${tInfo.shortName} (${tInfo.desc})` : `[AI 자동 맞춤 모드 - 추천 관점: ${tInfo.shortName}] 고정된 템플릿 틀에 끼워 넣지 말고, 편집자의 기획 방향과 키워드('${keyword}')의 실제 성격에 가장 잘 맞는 자연스러운 4단락 매거진 구조로 설계하세요.`}
-- 구성 지침(절대 기계적 틀에 억지로 끼워 맞추지 말고 편집자 기획 의도·최신 뉴스 맞춤형으로 작성): ${typeInstructions[typeId] || typeInstructions[4]}
-- 사전 팩트체크 시스템 진단(${preFactCheck.verdict}): ${preFactCheck.summary}
+    const usr = `[편집자 기획 입력]
+- 기준 일자: ${todayStr}
+- 메인 키워드: ${keyword}${brandList.length > 0 ? ` (핵심 브랜드: ${brandList.join(', ')})` : ''}
+- 서브 키워드(필수 연계): ${subKwList.length > 0 ? subKwList.join(', ') : '주제 맞춤 연관 키워드'}
+- 원하는 글의 방향·맥락(최우선 반영!): ${cleanDirection || '최신 언론 보도와 실제 출시·트렌드 팩트를 중심으로 유익한 정보 제공'}
+${url ? `- 참고 URL: ${url}\n` : ''}${rawText ? `- 추가 메모: ${rawText}\n` : ''}- 구성 가이드: ${typeInstructions[typeId] || typeInstructions[4]}
 
-아래 JSON 스키마에 맞춰 편집자의 기획 방향(${cleanDirection || '최신 팩트 중심'})과 서브 키워드(${subKwList.join(', ') || '핵심 포인트'})가 제목·소제목·본문 1~4단락·요약표·FAQ 전체에 자연스럽게 녹아든 한국어 기사를 작성하세요.
-⚠️ 필수 규칙:
-- 모든 \`titleCandidates\`(5개)의 \`title\`은 **반드시 공백 포함 ${maxHeadlineLimit}자 이내(권장 28~38자)**로 작성하세요.
-- \`draftSections\`(4개)의 \`title\`(소제목)은 MK Pick 레퍼런스처럼 자연스럽고 매력적인 매거진형 소제목으로 작성하고, 각 \`content\`는 **핵심 팩트 중심 2문단(약 250~330자, ~합니다 체)**으로 간결하고 밀도 있게 작성하세요.
-- 항목 개수: \`titleCandidates\` 5개, \`researchFacts\` 6개, \`summaryTable.rows\` 4행, \`glossary\` 4개, \`faqs\` 본문 1~4단락 순서대로 ${faqCount}개, \`fanoutQuestions\` 4개.
+출력 JSON 스키마 (필수 개수: titleCandidates 5개, researchFacts 5개, draftSections 4개, summaryTable.rows 4행, glossary 4개, faqs ${faqCount}개, fanoutQuestions 4개):
 {
-  "factVerification": {
-    "verdict": "VERIFIED_FACT | AI_MEME_OR_VIRTUAL | UNVERIFIED_VIRAL 중 택 1",
-    "isWarning": false,
-    "badgeLabel": "✓ 공식 보도·실제 출시 팩트 확인됨 또는 🚨 [팩트체크 경보] 가상(AI 생성) 밈 · 공식 미출시 주의",
-    "summary": "공식 보도·출시 팩트 확인 요약 1문장 (~합니다 체)"
-  },
-  "mkCategory": "산업 Q&A | 제품·기술 | 성공사례 | 기업뉴스 | 브랜드스토리(기업관) 중 택 1",
+  "factVerification": {"verdict": "VERIFIED_FACT", "isWarning": false, "badgeLabel": "✓ 공식 보도·실제 출시 팩트 확인됨", "summary": "공식 보도·트렌드 팩트 확인 1문장 (~합니다 체)"},
+  "mkCategory": "기업뉴스 | 산업 Q&A | 제품·기술 | 성공사례 | 브랜드스토리(기업관) 중 택 1",
   "mkCategoryReason": "추천 이유 1문장 (~합니다 체)",
   "titleCandidates": [
-    {"id": "tc-1", "title": "공백 포함 38자 이내 매력적인 MK Pick 헤드라인 (총 5개 작성)", "totalScore": 96}
+    {"id": "tc-1", "title": "공백 포함 38자 이내 매력적인 헤드라인 (총 5개)", "totalScore": 96}
   ],
   "researchFacts": [
-    {"category": "핵심 팩트 분류", "sourceTitle": "[언론사명 · YYYY-MM-DD] 실제 뉴스 제목", "sourceUrl": "실제 원문 URL (https://...)", "pubDate": "YYYY-MM-DD", "usedInSection": 1, "fact": "본문 단락에 반영된 최신 팩트 1문장 (~합니다 체, 총 6개 작성)"}
+    {"category": "핵심 팩트", "sourceTitle": "[언론사 · YYYY-MM-DD] 실제 기사 제목", "sourceUrl": "위 출처 목록의 실제 URL", "pubDate": "YYYY-MM-DD", "usedInSection": 1, "fact": "본문 반영 팩트 1문장 (~합니다 체, 총 5개)"}
   ],
-  "subtitle": "메인 헤드라인 바로 아래에 들어갈 핵심 한줄 소제목",
-  "aiFactSummary": [
-    "1. 핵심 팩트 요약 첫 번째 문장 (~합니다 체)",
-    "2. 핵심 팩트 요약 두 번째 문장 (~합니다 체)",
-    "3. 핵심 팩트 요약 세 번째 문장 (~합니다 체)"
-  ],
+  "subtitle": "메인 헤드라인 아래 한줄 소제목",
+  "aiFactSummary": ["1. 핵심 요약 1 (~합니다 체)", "2. 핵심 요약 2 (~합니다 체)", "3. 핵심 요약 3 (~합니다 체)"],
   "draftSections": [
-    {"id": "sec-1", "title": "1단락 자연스러운 매거진 소제목 (도입 화두·배경)", "content": "메인 키워드와 서브 키워드·기획 의도를 자연스럽게 연결하는 2문단 본문 (~합니다 체)", "imageCaption": "< 출처 : 관련 공식 자료 >"},
-    {"id": "sec-2", "title": "2단락 자연스러운 매거진 소제목 (핵심 배경·유래·주요 사례)", "content": "구체적인 유래·배경·수치·대표 사례를 생동감 있게 풀어낸 2문단 본문 (~합니다 체)", "imageCaption": "< 출처 : 관련 기관·기업 >"},
-    {"id": "sec-3", "title": "3단락 자연스러운 매거진 소제목 (서브 키워드·최신 유행 트렌드·라인업)", "content": "편집자가 요청한 방향과 최신 유행 아이템·브랜드·소비자 반응을 소개하는 2문단 본문 (~합니다 체)", "imageCaption": "< 출처 : 공식 채널 >"},
-    {"id": "sec-4", "title": "4단락 자연스러운 매거진 소제목 (특별한 활용법·추천 조합·실전 팁)", "content": "독자가 일상에서 바로 활용할 수 있는 추천 조합과 구매·선택 가이드를 정리한 2문단 본문 (~합니다 체)", "imageCaption": "< 출처 : 공식 채널 >"}
+    {"id": "sec-1", "title": "1단락 자연스러운 매거진 소제목", "content": "2문단 본문 (~합니다 체)", "imageCaption": "< 출처 : 관련 공식 자료 >"},
+    {"id": "sec-2", "title": "2단락 자연스러운 매거진 소제목", "content": "2문단 본문 (~합니다 체)", "imageCaption": "< 출처 : 관련 기관·기업 >"},
+    {"id": "sec-3", "title": "3단락 자연스러운 매거진 소제목", "content": "2문단 본문 (~합니다 체)", "imageCaption": "< 출처 : 공식 채널 >"},
+    {"id": "sec-4", "title": "4단락 자연스러운 매거진 소제목", "content": "2문단 본문 (~합니다 체)", "imageCaption": "< 출처 : 공식 채널 >"}
   ],
   "summaryTable": {
-    "title": "[요약표] 핵심 비교 및 한눈에 보는 체크포인트",
-    "headers": ["구분 · 핵심 항목", "주요 내용 및 대표 사례", "핵심 특징 · 매력 포인트", "추천 대상 및 실전 활용 팁"],
-    "rows": [
-      ["항목/키워드 (총 4행 작성)", "구체적인 내용·제품·사례", "핵심 특징 및 차별점", "추천 대상 및 즐기는 법"]
-    ]
+    "title": "[요약표] 핵심 비교 및 체크포인트",
+    "headers": ["구분", "주요 내용 및 대표 사례", "핵심 특징 · 매력 포인트", "추천 대상 및 활용 팁"],
+    "rows": [["항목 (총 4행)", "구체적 내용·사례", "핵심 특징", "추천 및 활용 팁"]]
   },
   "glossaryTitle": "주제를 더 깊이 이해하는 용어 사전",
-  "glossary": [
-    {"term": "핵심 용어 (총 4개 작성)", "desc": "누구나 이해하기 쉬운 1문장 개념 해설 (~합니다 체)"}
-  ],
-  "faqs": [
-    {"relatedSection": 1, "q": "Q1. 본문 1~4단락 순서에 맞춘 독자 자연어 질문 (총 ${faqCount}개 작성)", "a": "구체적인 2문장 완결형 답변 (~합니다 체)"}
-  ],
-  "fanoutQuestions": [
-    {"category": "핵심배경·비교", "q": "독자가 추가로 궁금해할 꼬리 질문 (총 4개 작성)", "a": "팩트 기반 답변 1~2문장 (~합니다 체)"}
-  ],
-  "closingParagraph": "기사 전체 핵심 메시지를 종합하며 독자에게 실질적인 통찰과 여운을 남기는 마무리 총평 2문장 (~합니다 체)",
-  "oneLineSummary": "한 줄 요약! “핵심 통찰 인용구” 독자가 꼭 기억해야 할 핵심 메시지입니다."
+  "glossary": [{"term": "핵심 용어 (총 4개)", "desc": "1문장 개념 해설 (~합니다 체)"}],
+  "faqs": [{"relatedSection": 1, "q": "Q1. 본문 1~4단락 순서 질문 (총 ${faqCount}개)", "a": "2문장 답변 (~합니다 체)"}],
+  "fanoutQuestions": [{"category": "트렌드·팁", "q": "추가 꼬리 질문 (총 4개)", "a": "1문장 답변 (~합니다 체)"}],
+  "closingParagraph": "마무리 총평 2문장 (~합니다 체)",
+  "oneLineSummary": "한 줄 요약! 핵심 메시지 (~입니다 체)"
 }`;
 
     const { parsed, citations, searchResults, activeModel, fallbackFromModel, fallbackReason } = await callPerplexityDirectFromBrowser(apiKey, sys, usr, 'month', 'draft');
