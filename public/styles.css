@@ -42,15 +42,18 @@ body {
   overflow-wrap: break-word;
 }
 
-/* 상단 고정 헤더 */
+/* 상단 고정 헤더 (창 크기를 늘리고 줄여도 절대 글자가 세로로 찌그러지거나 아래 바와 겹치지 않도록 반응형 래핑 지원) */
 .topbar {
   background-color: var(--white);
   border-bottom: var(--border-thin);
-  height: 58px;
+  min-height: 58px;
+  height: auto;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 24px;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  padding: 8px 24px;
   position: sticky;
   top: 0;
   z-index: 60;
@@ -61,12 +64,15 @@ body {
   align-items: center;
   gap: 10px;
   cursor: pointer;
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .brand-logo {
   height: 28px;
   width: auto;
   display: block;
+  flex-shrink: 0;
 }
 
 .brand-badge {
@@ -76,11 +82,13 @@ body {
   font-size: 13px;
   padding: 4px 10px;
   border-radius: var(--radius-general);
+  white-space: nowrap;
 }
 
 .brand-title {
   font-size: 16px;
   font-weight: 700;
+  white-space: nowrap;
 }
 
 .brand-version {
@@ -90,13 +98,26 @@ body {
   border: var(--border-thin);
   padding: 2px 8px;
   border-radius: var(--radius-general);
+  white-space: nowrap;
 }
 
-.topbar-nav,
+.topbar-nav {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  min-width: 0;
+  max-width: 100%;
+}
+
 .topbar-meta {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
+  max-width: 100%;
+  margin-left: auto;
 }
 
 /* 메인 컨테이너 */
@@ -370,6 +391,8 @@ body {
   color: var(--text-muted);
   cursor: pointer;
   font-family: inherit;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .trend-clean-tab.active {
@@ -494,28 +517,41 @@ body {
   align-items: start;
 }
 
-@media (max-width: 1280px) {
+.studio-split-layout > * {
+  min-width: 0;
+}
+
+/* 상단바 + 에디터 고정바 아래에 고정 */
+.left-panel-sticky,
+.right-panel-sticky {
+  position: sticky;
+  top: calc(var(--topbar-h, 58px) + 68px);
+  max-height: calc(100vh - var(--topbar-h, 58px) - 82px);
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #D4D4D4 transparent;
+  min-width: 0;
+}
+
+@media (max-width: 1440px) {
   .studio-split-layout {
-    grid-template-columns: 320px minmax(0, 1fr) 300px;
+    grid-template-columns: 300px minmax(0, 1fr) 285px;
     gap: 14px;
   }
 }
 
-@media (max-width: 1024px) {
+@media (max-width: 1180px) {
   .studio-split-layout {
     grid-template-columns: 1fr;
   }
-}
-
-/* 상단바(58px) + 에디터 고정바(60px) 아래에 정확히 고정되어 절대 겹치지 않도록 top: 126px 설정 */
-.left-panel-sticky,
-.right-panel-sticky {
-  position: sticky;
-  top: 126px;
-  max-height: calc(100vh - 140px);
-  overflow-y: auto;
-  scrollbar-width: thin;
-  scrollbar-color: #D4D4D4 transparent;
+  /* 창이 좁아져 1열로 쌓일 때는 sticky를 해제하여 패널이 본문을 덮거나 스크롤이 갇히는 현상 방지 */
+  .left-panel-sticky,
+  .right-panel-sticky {
+    position: static !important;
+    top: auto !important;
+    max-height: none !important;
+    overflow-y: visible !important;
+  }
 }
 
 .left-panel-sticky::-webkit-scrollbar,
@@ -568,7 +604,7 @@ body {
 /* 우측 상단 항상 고정된 액션 바 (실시간 글자수 + 모드 전환 + 전체 복사) */
 .editor-sticky-bar {
   position: sticky;
-  top: 58px;
+  top: var(--topbar-h, 58px);
   z-index: 50;
   background-color: var(--white);
   border: var(--border-thin);
@@ -580,6 +616,13 @@ body {
   justify-content: space-between;
   flex-wrap: wrap;
   gap: 10px;
+}
+
+@media (max-width: 1180px) {
+  .editor-sticky-bar {
+    position: static;
+    top: auto;
+  }
 }
 
 /* 편집 모드 vs 미리보기 모드 스위처 */
@@ -805,8 +848,62 @@ table.mk-table th {
 
 .grid-2 {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 14px;
+}
+
+/* 홈 화면 STEP 1 입력 그리드 & 캘린더 인라인 입력 그리드 (창 크기 조절 시 자연스럽게 줄바꿈) */
+.home-step1-main-grid {
+  display: grid;
+  grid-template-columns: 1.65fr 1fr auto;
+  gap: 10px;
+  align-items: end;
+  margin-bottom: 10px;
+}
+
+.home-step1-sub-grid {
+  display: grid;
+  grid-template-columns: 1fr 1.85fr;
+  gap: 12px;
+  align-items: start;
+}
+
+.cal-inline-input-grid {
+  display: grid;
+  grid-template-columns: 1fr 1.8fr;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+@media (max-width: 960px) {
+  .grid-2,
+  .home-step1-main-grid,
+  .home-step1-sub-grid,
+  .cal-inline-input-grid {
+    grid-template-columns: 1fr;
+  }
+  .home-step1-main-grid #homeStartDynamicBtn {
+    width: 100%;
+  }
+  .article-paper {
+    padding: 20px 18px;
+  }
+}
+
+@media (max-width: 768px) {
+  .topbar {
+    padding: 8px 14px;
+  }
+  .main-container {
+    padding: 14px 12px 48px;
+  }
+  .home-main-tab-bar {
+    padding: 0 12px;
+  }
+  .home-main-tab-btn {
+    padding: 12px 10px 10px;
+    font-size: 13px;
+  }
 }
 
 .mt-8 { margin-top: 8px; }

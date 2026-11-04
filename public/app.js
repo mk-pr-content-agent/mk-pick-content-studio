@@ -3021,18 +3021,28 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
     });
   }
 
+  function syncTopbarHeightCssVar() {
+    const header = document.querySelector('.topbar');
+    if (!header) return;
+    const h = Math.max(58, Math.round(header.getBoundingClientRect().height || 58));
+    document.documentElement.style.setProperty('--topbar-h', `${h}px`);
+  }
+
   function renderTopbar() {
     const nav = document.getElementById('topbarNav');
     const meta = document.getElementById('topbarMeta');
     if (!nav || !meta) return;
 
+    const rawKw = String(state.currentWork?.keyword || '').trim();
+    const shortKw = rawKw.length > 18 ? `${rawKw.slice(0, 18)}…` : rawKw;
+
     nav.innerHTML = `
-      <button type="button" class="trend-clean-tab ${state.screen === 'home' ? 'active' : ''}" id="topGoHomeBtn" style="border-bottom-width: 2px; padding: 16px 6px;">
+      <button type="button" class="trend-clean-tab ${state.screen === 'home' ? 'active' : ''}" id="topGoHomeBtn" style="border-bottom-width: 2px; padding: 7px 8px; white-space: nowrap;">
         홈 · 유형 및 트렌드 선택
       </button>
       ${state.currentWork ? `
-        <button type="button" class="trend-clean-tab ${state.screen === 'editor' ? 'active' : ''}" id="topGoEditorBtn" style="border-bottom-width: 2px; padding: 16px 6px; margin-left: 12px;">
-          편집 중인 기사 (${escapeHtml(state.currentWork.keyword)})
+        <button type="button" class="trend-clean-tab ${state.screen === 'editor' ? 'active' : ''}" id="topGoEditorBtn" title="편집 중인 기사 (${escapeHtml(rawKw)})" style="border-bottom-width: 2px; padding: 7px 8px; margin-left: 4px; white-space: nowrap; max-width: 280px; overflow: hidden; text-overflow: ellipsis;">
+          편집 중인 기사 (${escapeHtml(shortKw)})
         </button>
       ` : ''}
     `;
@@ -3041,8 +3051,8 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
     const krw = state.apiUsageStats?.estimatedCostKrw || 0;
     const activeWriterLabel = getWriterModelShortLabel();
     meta.innerHTML = `
-      <div class="flex-row" style="gap: 8px; flex-wrap: wrap;">
-        ${renderWriterModelSelectHtml()}
+      <div class="flex-row" style="gap: 6px; flex-wrap: wrap; max-width: 100%;">
+        ${renderWriterModelSelectHtml('max-width: 100%;')}
         ${state.hasPerplexityKey ? `
           <button type="button" class="btn btn-sm" id="topbarCopyShareLinkBtn" style="border-color: #8FD4B2; color: var(--status-green); background-color: #FFFFFF; font-weight: 800;" title="다른 사람의 브라우저에서도 API 키가 자동 연결되는 공유 링크를 복사합니다">
             🔗 API 공유 링크 복사
@@ -3051,7 +3061,7 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
         <button type="button" class="btn btn-sm" id="openUserGuideModalBtn" style="border-color: var(--mk-orange); color: var(--mk-orange); background-color: #FFFFFF; font-weight: 800;">
           📖 사용 가이드
         </button>
-        <button type="button" class="btn btn-sm" id="openApiKeyModalBtn" style="border-color: ${state.hasPerplexityKey ? '#8FD4B2' : 'var(--mk-orange)'}; color: ${state.hasPerplexityKey ? 'var(--status-green)' : 'var(--mk-orange)'}; background-color: ${state.hasPerplexityKey ? 'var(--status-green-bg)' : 'var(--mk-orange-light)'}; font-weight: 700;">
+        <button type="button" class="btn btn-sm" id="openApiKeyModalBtn" style="border-color: ${state.hasPerplexityKey ? '#8FD4B2' : 'var(--mk-orange)'}; color: ${state.hasPerplexityKey ? 'var(--status-green)' : 'var(--mk-orange)'}; background-color: ${state.hasPerplexityKey ? 'var(--status-green-bg)' : 'var(--mk-orange-light)'}; font-weight: 700; max-width: 100%; overflow: hidden; text-overflow: ellipsis;">
           ${state.hasPerplexityKey ? `🟢 Perplexity 검색 + ${escapeHtml(activeWriterLabel)} · 호출 ${calls}회 (약 ${krw}원)` : '⚙ Perplexity 하이브리드 설정'}
         </button>
       </div>
@@ -3080,6 +3090,19 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
         state.screen = 'editor';
         render();
       });
+    }
+
+    syncTopbarHeightCssVar();
+    if (!window.__mkTopbarResizeBound) {
+      window.__mkTopbarResizeBound = true;
+      window.addEventListener('resize', syncTopbarHeightCssVar);
+      if (typeof ResizeObserver !== 'undefined') {
+        const headerEl = document.querySelector('.topbar');
+        if (headerEl) {
+          const ro = new ResizeObserver(() => syncTopbarHeightCssVar());
+          ro.observe(headerEl);
+        }
+      }
     }
   }
 
@@ -3449,7 +3472,7 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
 
         <!-- STEP 1: 메인 키워드 · 기업명 입력 + 정돈된 서브 키워드 & 기획 방향 바 -->
         <div id="homeStep1Box" style="margin-bottom: 16px;">
-          <div style="display: grid; grid-template-columns: 1.65fr 1fr auto; gap: 10px; align-items: end; margin-bottom: 10px;">
+          <div class="home-step1-main-grid">
             <div>
               <label style="display: flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 800; color: var(--text-primary); margin-bottom: 6px;">
                 <span style="background-color: var(--mk-orange); color: #FFFFFF; font-size: 10.5px; font-weight: 800; padding: 1px 6px; border-radius: 4px;">STEP 1</span>
@@ -3472,7 +3495,7 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
 
           <!-- 서브 키워드 & 원하는 글의 방향·맥락 (중첩 테두리 피로감을 없앤 소프트 그레이 슬림 바) -->
           <div style="padding: 11px 14px; background-color: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 8px;">
-            <div style="display: grid; grid-template-columns: 1fr 1.85fr; gap: 12px; align-items: start;">
+            <div class="home-step1-sub-grid">
               <div>
                 <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 5px;">
                   <label style="font-size: 12px; font-weight: 800; color: var(--text-primary);">
@@ -3939,7 +3962,7 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
                             </button>
                           </div>
 
-                          <div style="display: grid; grid-template-columns: 1fr 1.8fr; gap: 8px; margin-bottom: 8px;">
+                          <div class="cal-inline-input-grid">
                             <div>
                               <label style="display: block; font-size: 11px; font-weight: 800; color: var(--text-secondary); margin-bottom: 3px;">
                                 🔗 서브 키워드 · 브랜드 (선택)
@@ -4651,9 +4674,9 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
     root.innerHTML = `
       <!-- 상단 고정 액션 바: 스크롤 시에도 왼쪽·오른쪽 본문을 가리지 않도록 정밀 고정 -->
       <div class="editor-sticky-bar">
-        <div class="flex-row" style="gap: 10px;">
+        <div class="flex-row" style="gap: 10px; min-width: 0; max-width: 100%;">
           <button type="button" class="btn btn-sm" id="backToHomeBtn" style="font-weight: 700;">← 홈 · 소재 선택</button>
-          <select class="select" id="editorTypeSelect" style="width: auto; padding: 5px 10px; font-weight: 700; background-color: var(--bg-subtle);">
+          <select class="select" id="editorTypeSelect" style="width: auto; max-width: 100%; min-width: 0; padding: 5px 10px; font-weight: 700; background-color: var(--bg-subtle); text-overflow: ellipsis;">
             ${Object.values(CONTENT_TYPES).map(t => `
               <option value="${t.id}" ${w.typeId === t.id ? 'selected' : ''}>${escapeHtml(t.shortName)}</option>
             `).join('')}
@@ -5537,9 +5560,9 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
 
                 <div>
                   ${(sb.glossary || []).map((gItem, gIdx) => `
-                    <div style="display: flex; align-items: flex-start; gap: 8px; padding: 8px 10px; margin-bottom: 8px; background-color: var(--bg-subtle); border: var(--border-thin); border-radius: var(--radius-general);">
-                      <input type="text" class="doc-editable-input" data-doc-glossary-term="${gIdx}" value="${escapeHtml(gItem.term || '')}" placeholder="핵심 용어명 (예: 버츄얼 아이돌)" style="width: 210px; flex-shrink: 0; font-weight: 800; font-size: 13px; background-color: var(--white);" />
-                      <textarea class="doc-editable-textarea" data-doc-glossary-desc="${gIdx}" rows="1" placeholder="용어에 대한 1~2문장 명쾌한 해설 ('~입니다' 체)" style="flex: 1; font-size: 13px; color: var(--text-secondary); background-color: var(--white);">${escapeHtml(gItem.desc || '')}</textarea>
+                    <div style="display: flex; align-items: flex-start; flex-wrap: wrap; gap: 8px; padding: 8px 10px; margin-bottom: 8px; background-color: var(--bg-subtle); border: var(--border-thin); border-radius: var(--radius-general);">
+                      <input type="text" class="doc-editable-input" data-doc-glossary-term="${gIdx}" value="${escapeHtml(gItem.term || '')}" placeholder="핵심 용어명 (예: 버츄얼 아이돌)" style="width: 210px; max-width: 100%; flex-shrink: 0; font-weight: 800; font-size: 13px; background-color: var(--white);" />
+                      <textarea class="doc-editable-textarea" data-doc-glossary-desc="${gIdx}" rows="1" placeholder="용어에 대한 1~2문장 명쾌한 해설 ('~입니다' 체)" style="flex: 1; min-width: 180px; font-size: 13px; color: var(--text-secondary); background-color: var(--white);">${escapeHtml(gItem.desc || '')}</textarea>
                       <button type="button" class="text-action" data-doc-del-glossary="${gIdx}" style="font-size: 12px; color: var(--text-muted); padding-top: 6px;">✕</button>
                     </div>
                   `).join('')}
