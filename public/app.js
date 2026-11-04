@@ -3554,8 +3554,18 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
       return '10월 개천절·한글날 연휴 나들이·여행 트렌드와 함께, 한글날의 의미를 되새기는 기업 무료 글꼴 배포 및 우리말 한정판 굿즈 열풍을 자연스럽게 엮어서 정리';
     }
 
-    // 8) 그 외 일반 카드: 억지스러운 "A만 알고 있던 독자들에게" 문구 대신 두 소재를 자연스럽게 연결
-    return `${mainInfo.phrase} 트렌드와 함께 ${sibInfo.phrase} 내용도 한 흐름으로 자연스럽게 엮어서 정리`;
+    // 8) 그 외 모든 월별(1~12월) 및 향후 추가 소재: 두 소재의 성격(기념일/빅이벤트/할인·선물/트렌드)을 자동 분석해 자연스러운 문장 생성
+    const hasCommemorativeMain = /(?:의\s*날|데이|절|입춘|정월대보름|동지|초복|중복|말복|설\s*명절|추석|어린이날|어버이날|스승의\s*날|성년의\s*날|부부의\s*날|현충일)/.test(mainInfo.phrase);
+    const hasCommemorativeSib = /(?:의\s*날|데이|절|입춘|정월대보름|동지|초복|중복|말복)/.test(sibInfo.phrase);
+    const hasPromoOrGiftSib = /(?:할인|특가|혜택|프로모션|선물|기프트|세일|패키지|케이크|간식|디저트|야식|먹거리|굿즈)/.test(sibInfo.phrase);
+
+    if (hasCommemorativeMain && hasCommemorativeSib) {
+      return `같은 시기에 찾아오는 '${mainInfo.phrase}'과 '${sibInfo.phrase}'의 의미·배경을 함께 조명하고, 주요 브랜드 프로모션과 최신 소비 트렌드를 자연스럽게 엮어서 소개`;
+    }
+    if (hasPromoOrGiftSib) {
+      return `${mainInfo.phrase} 시즌 트렌드와 함께 독자들이 실질적으로 챙길 수 있는 ${sibInfo.phrase} 정보·할인 혜택까지 한 흐름으로 자연스럽게 엮어서 정리`;
+    }
+    return `${mainInfo.phrase} 핵심 트렌드와 함께 ${sibInfo.phrase} 내용도 한 흐름으로 자연스럽게 엮어서 정리`;
   }
 
   function renderHomeScreen(root) {
