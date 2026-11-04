@@ -2685,13 +2685,14 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
       } catch (e) {}
       render();
       if (autoRetryFailedWork) {
-        // 이전 실패 기록을 지우고 무중단 240초 파이프라인으로 자동 재작성
+        // 이전 실패 기록 또는 '모범 예시 덮어쓰기 버그'로 오염된 기사를 원래 키워드·서브키워드·기획방향 그대로 즉시 자동 복원
         const targetW = autoRetryFailedWork;
         state.works = state.works.filter(item => item.id !== targetW.id);
+        showToast(`🔄 '${targetW.keyword}' 기사를 원래 설정하신 서브 키워드·기획 방향 그대로 자동 복원하고 있습니다...`);
         startWorkWithKeyword(
           targetW.keyword,
+          targetW.typeId || 4,
           targetW.inputCompany || '',
-          targetW.typeId || 2,
           false,
           targetW.inputSubKeywords || '',
           targetW.inputDirection || ''
@@ -2749,11 +2750,115 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
     }));
   }
 
-  // 이전 버전의 화장품·올리브영 하드코딩 템플릿이나 undefined... 버그로 오염되어 브라우저 localStorage에 남아 있는 기사를 즉시 자동 치료하는 함수
+  // 현재 작업 기사의 전체 본문·요약·메모 상태를 깊은 복사(Deep Clone)로 백업/복원하는 헬퍼
+  function captureWorkFullSnapshot(w) {
+    if (!w) return null;
+    return JSON.parse(JSON.stringify({
+      title: w.title || '',
+      titleCandidates: w.titleCandidates || [],
+      sources: w.sources || [],
+      researchItems: w.researchItems || [],
+      draftSections: w.draftSections || [],
+      summaryBlocks: w.summaryBlocks || {},
+      factChecks: w.factChecks || [],
+      factVerification: w.factVerification || null
+    }));
+  }
+
+  function applyWorkFullSnapshot(w, snap) {
+    if (!w || !snap) return false;
+    const cloned = JSON.parse(JSON.stringify(snap));
+    if (cloned.title) w.title = cloned.title;
+    if (Array.isArray(cloned.titleCandidates) && cloned.titleCandidates.length > 0) {
+      w.titleCandidates = cloned.titleCandidates;
+    }
+    if (Array.isArray(cloned.sources) && cloned.sources.length > 0) {
+      w.sources = cloned.sources;
+    }
+    if (Array.isArray(cloned.researchItems) && cloned.researchItems.length > 0) {
+      w.researchItems = cloned.researchItems;
+    }
+    if (Array.isArray(cloned.draftSections) && cloned.draftSections.length > 0) {
+      w.draftSections = cloned.draftSections;
+    }
+    if (cloned.summaryBlocks && Object.keys(cloned.summaryBlocks).length > 0) {
+      w.summaryBlocks = {
+        ...(w.summaryBlocks || {}),
+        ...cloned.summaryBlocks
+      };
+    }
+    w.factChecks = Array.isArray(cloned.factChecks) && cloned.factChecks.length > 0
+      ? cloned.factChecks
+      : extractFactSentencesFromSections(w.draftSections, w.sources);
+    if (cloned.factVerification) {
+      w.factVerification = cloned.factVerification;
+    }
+    return true;
+  }
+
+  // 이전 버전의 화장품·올리브영 하드코딩 템플릿, undefined... 버그, 또는 구버전 [초안 복원] 버튼이 고정 모범 예시('다이소 편의점 전용 맛 뷰티' 등)로 덮어쓴 기사를 즉시 감지·복구하는 함수
   function sanitizePoisonedWork(w) {
     if (!w || !w.keyword) return w;
     const kw = String(w.keyword || '');
     const comp = String(w.inputCompany || '');
+    const titleAndBody = `${w.title || ''} ${(w.draftSections || []).map(s => `${s.title || ''} ${s.content || ''}`).join(' ')}`;
+
+    // 1) 구버전 [↺ 초안 복원] 버튼이 현재 키워드(예: 수능 응원 선물 트렌드)와 무관한 유형별 고정 예시('다이소 편의점 전용 맛 뷰티' 등)로 덮어쓴 경우 감지
+    const isExampleDaisoOverwritten = !/다이소|편의점\s*전용\s*맛/.test(kw) && /다이소\s*편의점\s*전용\s*맛\s*뷰티|음료만\s*팔던\s*시대\s*끝/.test(titleAndBody);
+    const isExampleWeddingOverwritten = !/결혼|웨딩|스드메/.test(kw) && /스드메\s*패키지\s*대신/.test(titleAndBody);
+    const isExamplePregnantOverwritten = !/임산부/.test(kw) && /임산부의\s*날/.test(titleAndBody);
+    const isExampleBreadOverwritten = !/민음사빵|책갈피|국진이빵/.test(kw) && /민음사빵\s*책갈피/.test(titleAndBody);
+    const isExampleBunjangOverwritten = !/번개장터|리커머스/.test(kw) && /번개장터\s*정품\s*검수/.test(titleAndBody);
+    const hasExampleOverwriteBug = isExampleDaisoOverwritten || isExampleWeddingOverwritten || isExamplePregnantOverwritten || isExampleBreadOverwritten || isExampleBunjangOverwritten;
+
+    if (hasExampleOverwriteBug) {
+      // 백업 스냅샷이나 AI 편집 이력이 남아 있고 오염되지 않았다면 최우선으로 즉시 복원
+      const candidateSnaps = [
+        w.preRestoreSnapshot,
+        w.initialDraftSnapshot,
+        w.lastAiEdit?.afterSnapshot,
+        w.lastAiEdit?.beforeSnapshot,
+        ...((w.aiEditHistory || []).slice().reverse())
+      ].filter(Boolean);
+
+      const validSnap = candidateSnaps.find(sn => {
+        const snText = `${sn.title || ''} ${(sn.draftSections || []).map(s => s.content || '').join(' ')}`;
+        return snText.length > 40 && !/다이소\s*편의점\s*전용\s*맛\s*뷰티|음료만\s*팔던\s*시대\s*끝/.test(snText);
+      });
+
+      if (validSnap) {
+        applyWorkFullSnapshot(w, validSnap);
+        return w;
+      }
+
+      // 스냅샷이 없는 경우: 현재 키워드·서브키워드·기획방향으로 즉시 재구성하고, 새로고침 시 AI가 원래 기사를 자동 재집필하도록 표시
+      if (typeof buildDynamicScenario === 'function') {
+        const matchedNews = extractMatchingTrendNewsItems(kw, comp);
+        const cleanScen = buildDynamicScenario({
+          keyword: kw,
+          company: comp,
+          subKeywords: w.inputSubKeywords || '',
+          direction: w.inputDirection || '',
+          url: w.inputUrl || '',
+          rawText: w.inputRawText || '',
+          typeId: w.typeId || 4,
+          selectedType: w.typeId || 4,
+          newsItems: matchedNews
+        });
+        w.titleCandidates = cleanScen.titleCandidates;
+        w.title = cleanScen.titleCandidates?.[0]?.title || w.title;
+        w.sources = cleanScen.sources;
+        w.researchItems = cleanScen.researchItems;
+        w.draftSections = cleanScen.draftSections;
+        w.summaryBlocks = cleanScen.summaryBlocks;
+        w.factChecks = cleanScen.factChecks;
+        w.factVerification = cleanScen.factVerification || w.factVerification;
+        w.usedPerplexity = false;
+        w.initialDraftSnapshot = captureWorkFullSnapshot(w);
+      }
+      return w;
+    }
+
     const isGenuineBeauty = /(?:뷰티|화장품|스킨케어|패치|앰플|세럼|크림|마스크팩|올리브영|클렌징|선크림|메이크업|피부|보습|장벽)/.test(`${kw} ${comp}`);
     if (isGenuineBeauty) return w;
 
@@ -3329,6 +3434,10 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
       await loadConfig();
       state.isSearchingNews = false;
       const elapsed = stopTimer();
+      res.work.initialDraftSnapshot = captureWorkFullSnapshot(res.work);
+      res.work.preRestoreSnapshot = null;
+      res.work.isBlankTemplate = false;
+      res.work.justRestoredInitial = false;
       state.currentWork = res.work;
       state.works.unshift(res.work);
       try {
@@ -3413,6 +3522,10 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
       fallbackWork.fallbackFromModel = fallbackScenario.fallbackFromModel || '';
       fallbackWork.fallbackReason = fallbackScenario.fallbackReason || '';
       fallbackWork.pplxError = fallbackScenario.usedPerplexity ? '' : clientPplxError;
+      fallbackWork.initialDraftSnapshot = captureWorkFullSnapshot(fallbackWork);
+      fallbackWork.preRestoreSnapshot = null;
+      fallbackWork.isBlankTemplate = false;
+      fallbackWork.justRestoredInitial = false;
       state.currentWork = fallbackWork;
       state.works.unshift(fallbackWork);
       try {
@@ -4778,6 +4891,11 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
     }
     sanitizePoisonedWork(w);
 
+    // 최초 초안 스냅샷(initialDraftSnapshot)이 아직 없고 빈 양식 상태도 아니라면 현재 정상 기사를 최초 초안 스냅샷으로 보존
+    if (!w.initialDraftSnapshot && !w.isBlankTemplate && w.draftSections?.[0]?.id !== 'sec-blank-1') {
+      w.initialDraftSnapshot = captureWorkFullSnapshot(w);
+    }
+
     const tInfo = CONTENT_TYPES[w.typeId] || CONTENT_TYPES[2];
     const sb = w.summaryBlocks || {};
     if (
@@ -4833,8 +4951,24 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
             <button type="button" class="mode-switch-btn ${!isPreview ? 'active' : ''}" data-editor-mode="edit">✏️ 구조별 편집</button>
             <button type="button" class="mode-switch-btn ${isPreview ? 'active' : ''}" data-editor-mode="preview">👁️ 실제 기사 미리보기</button>
           </div>
-          <button type="button" class="text-action" id="clearToBlankBtn" title="빈 양식으로 비우기">빈 양식</button>
-          <button type="button" class="text-action" id="restoreExampleBtn" title="초기 예시 복원">↺ 초안 복원</button>
+          <button type="button" class="text-action" id="clearToBlankBtn" title="빈 양식으로 비우기 (비우기 전 작성 중이던 기사는 자동 백업됩니다)">빈 양식</button>
+          <button
+            type="button"
+            class="text-action"
+            id="restoreExampleBtn"
+            style="${(w.isBlankTemplate || w.justRestoredInitial) ? 'color: var(--mk-orange); font-weight: 800;' : ''}"
+            title="${w.isBlankTemplate
+              ? '빈 양식으로 비우기 직전에 작성하던 기사로 즉시 복구합니다'
+              : w.justRestoredInitial
+                ? '초안 복원 직전에 편집하던 기사 내용으로 다시 되돌립니다'
+                : '현재 기사의 처음 생성된 원본 초안으로 되돌립니다 (편집 중이던 내용은 백업되어 다시 복구할 수 있습니다)'}"
+          >
+            ${w.isBlankTemplate
+              ? '↺ 작성하던 기사 복원'
+              : w.justRestoredInitial
+                ? '↩ 편집하던 내용으로 되돌리기'
+                : '↺ 초안 복원'}
+          </button>
         </div>
 
         <div class="flex-row" style="gap: 12px;">
@@ -6154,8 +6288,16 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
       await triggerLiveNewsRefresh(true, w.keyword, true);
     });
 
-    // 빈 문서로 비우기 (블로킹 confirm 없이 즉시 실행)
+    // 빈 문서로 비우기 (비우기 직전 편집 상태를 자동 백업하여 언제든 100% 복구 가능하도록 보호)
     document.getElementById('clearToBlankBtn').addEventListener('click', () => {
+      if (!w.isBlankTemplate && w.draftSections?.[0]?.id !== 'sec-blank-1') {
+        w.preRestoreSnapshot = captureWorkFullSnapshot(w);
+        if (!w.initialDraftSnapshot) {
+          w.initialDraftSnapshot = captureWorkFullSnapshot(w);
+        }
+      }
+      w.isBlankTemplate = true;
+      w.justRestoredInitial = false;
       w.title = '"인용구를 입력하세요"…핵심 설명을 입력하는 제목';
       w.draftSections = [
         {
@@ -6189,26 +6331,49 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
       w.summaryBlocks.oneLineSummary = '한 줄 요약! 기사 전체 핵심 메시지를 한 문장으로 정리해 주세요.';
       w.factChecks = [];
       saveCurrentWork(false);
-      showToast('🧹 깨끗한 빈 양식으로 비워졌습니다. [↺ 초안 복원]을 누르면 언제든 복구됩니다.');
+      showToast('🧹 빈 양식으로 비워졌습니다. 상단 [↺ 작성하던 기사 복원]을 누르면 방금 편집하던 기사가 그대로 복구됩니다.');
       render(true);
     });
 
-    // 예시 내용 다시 채우기
+    // 현재 기사의 원본 초안 복원 & 직전 편집 내용 되돌리기 (고정 모범 예시로 덮어쓰던 버그 원천 제거)
     document.getElementById('restoreExampleBtn').addEventListener('click', () => {
-      const preset = buildPresetScenario({
-        keyword: CONTENT_TYPES[w.typeId]?.exampleKeyword || w.keyword,
-        selectedType: w.typeId
-      });
-      w.title = preset.titleCandidates[0].title;
-      w.titleCandidates = preset.titleCandidates;
-      w.sources = preset.sources;
-      w.researchItems = preset.researchItems;
-      w.draftSections = preset.draftSections;
-      w.summaryBlocks = preset.summaryBlocks;
-      w.factChecks = preset.factChecks;
-      saveCurrentWork(false);
-      showToast('↺ 모범 예시 기사가 다시 채워졌습니다.');
-      render(true);
+      // 1) 빈 양식 상태에서 누른 경우 -> 비우기 직전에 작성하던 기사(preRestoreSnapshot) 또는 최초 초안으로 즉시 복구
+      if (w.isBlankTemplate && (w.preRestoreSnapshot || w.initialDraftSnapshot)) {
+        const targetSnap = w.preRestoreSnapshot || w.initialDraftSnapshot;
+        applyWorkFullSnapshot(w, targetSnap);
+        w.isBlankTemplate = false;
+        w.justRestoredInitial = false;
+        saveCurrentWork(false);
+        showToast(`↺ '${w.keyword}' 작성 중이던 기사를 그대로 복원했습니다!`);
+        render(true);
+        return;
+      }
+
+      // 2) 초안 복원 직후 [↩ 편집하던 내용으로 되돌리기]를 다시 누른 경우 -> 편집 중이던 상태로 즉시 복구
+      if (w.justRestoredInitial && w.preRestoreSnapshot) {
+        applyWorkFullSnapshot(w, w.preRestoreSnapshot);
+        w.justRestoredInitial = false;
+        saveCurrentWork(false);
+        showToast(`↩ 초안 복원 직전에 편집하던 '${w.keyword}' 기사 내용으로 다시 되돌렸습니다!`);
+        render(true);
+        return;
+      }
+
+      // 3) 일반 편집 상태에서 [↺ 초안 복원]을 누른 경우 -> 현재 편집본을 preRestoreSnapshot에 안전 백업한 뒤, 현재 키워드의 최초 초안(initialDraftSnapshot)으로 복원
+      const fallbackSnap = w.initialDraftSnapshot || w.lastAiEdit?.beforeSnapshot || (w.aiEditHistory && w.aiEditHistory[0]);
+      if (fallbackSnap) {
+        w.preRestoreSnapshot = captureWorkFullSnapshot(w);
+        applyWorkFullSnapshot(w, fallbackSnap);
+        w.isBlankTemplate = false;
+        w.justRestoredInitial = true;
+        saveCurrentWork(false);
+        showToast(`↺ '${w.keyword}' 처음 생성된 초안으로 복원했습니다. (상단 [↩ 편집하던 내용으로 되돌리기]를 누르면 방금 편집본으로 돌아갑니다)`);
+        render(true);
+        return;
+      }
+
+      // 4) 스냅샷이 전혀 없는 구버전 기사인 경우 -> 현재 키워드·서브키워드·기획방향 그대로 AI 초안 재생성
+      triggerLiveNewsRefresh(true, w.keyword, true);
     });
 
     // 우측 상단 고정 'CMS 붙여넣기용 전체 복사'
@@ -6296,6 +6461,12 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
         }
         state.isRefreshingInEditor = false;
         const elapsed = stopEditorTimer();
+        if (rebuildDraft && res.work) {
+          res.work.initialDraftSnapshot = captureWorkFullSnapshot(res.work);
+          res.work.preRestoreSnapshot = null;
+          res.work.isBlankTemplate = false;
+          res.work.justRestoredInitial = false;
+        }
         state.currentWork = res.work;
         const idx = state.works.findIndex(item => item.id === w.id);
         if (idx !== -1) state.works[idx] = res.work;
@@ -6384,6 +6555,10 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
             w.fallbackFromModel = baseScen.fallbackFromModel || '';
             w.fallbackReason = baseScen.fallbackReason || '';
             w.pplxError = baseScen.usedPerplexity ? '' : refreshPplxError;
+            w.initialDraftSnapshot = captureWorkFullSnapshot(w);
+            w.preRestoreSnapshot = null;
+            w.isBlankTemplate = false;
+            w.justRestoredInitial = false;
           } else {
             w.sources = [...(baseScen.sources || []), ...(w.sources || [])];
             w.researchItems = [...(baseScen.researchItems || []), ...(w.researchItems || [])];
