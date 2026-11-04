@@ -4970,13 +4970,13 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
 
         <!-- [가운데 영역] 원문 기사 본문 (구조별 편집 모드 vs 실제 기사 미리보기 모드) -->
         <div style="min-width: 0;">
-          ${state.activeHighlight ? `
+          ${!isPreview && state.activeHighlight ? `
             <div style="margin-bottom: 12px; padding: 10px 14px; background-color: #FFF9DB; border: 1.5px solid #FAB005; border-radius: 8px; display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap;">
               <span style="font-size: 12.5px; font-weight: 800; color: #D9480F;">
                 🖍️ ${state.activeHighlight.mode === 'memo' ? '취재 팩트 메모 본문 반영 위치 하이라이트 표시 중:' : 'AI 프롬프트 편집 반영 하이라이트 표시 중:'}
                 <span style="color: #111; font-weight: 700;">${escapeHtml(state.activeHighlight.summary || '')}</span>
               </span>
-              <button type="button" class="text-action" data-clear-highlight="1" style="font-size: 11.5px; font-weight: 800; color: #D9480F;">하이라이트 끄기 ✕</button>
+              <button type="button" class="text-action" data-clear-highlight="1" style="font-size: 11.5px; font-weight: 800; color: #D9480F;">하이라이트 접기 ▲</button>
             </div>
           ` : ''}
 
@@ -4987,7 +4987,7 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
             <div class="article-paper">
               <div class="flex-between mb-12" style="padding: 10px 14px; background-color: var(--mk-orange-light); border: 0.5px solid var(--mk-orange-border); border-radius: var(--radius-general);">
                 <div style="font-size: 12.5px; font-weight: 700; color: var(--mk-orange);">
-                  👁️ 실제 MK Pick 기사 발행 미리보기 화면입니다. (노란색 형광펜 문장을 클릭하면 팩트체크 완료로 전환됩니다)
+                  👁️ 실제 MK Pick 기사 발행 미리보기 화면입니다. (편집 하이라이트 없이 독자에게 노출되는 순수 기사 원문 형태로 표시됩니다)
                 </div>
                 <button type="button" class="btn btn-sm btn-primary" data-editor-mode="edit">✏️ 편집 화면으로 돌아가기</button>
               </div>
@@ -5023,46 +5023,19 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
 
               <hr class="doc-divider" />
 
-              ${(w.draftSections || []).map((sec, sIdx) => {
-                const isSecHighlighted = state.activeHighlight?.secIds?.includes(sec.id);
-                const hlSentences = state.activeHighlight?.sentencesBySecId?.[sec.id] || [];
-                const hlTokens = state.activeHighlight?.tokensBySecId?.[sec.id] || [];
-                return `
-                <div style="margin-bottom: 28px; ${isSecHighlighted ? 'padding: 12px; background-color: #FFFDF4; border: 1.5px solid #FAB005; border-radius: 8px;' : ''}">
+              ${(w.draftSections || []).map(sec => `
+                <div style="margin-bottom: 28px;">
                   <h2 style="font-size: 19px; font-weight: 800; color: var(--text-primary); margin-bottom: 10px;">
                     ${escapeHtml(sec.title)}
                   </h2>
-                  ${isSecHighlighted
-                    ? renderHighlightedBodyHtml(sec.content, hlSentences, hlTokens, state.activeHighlight?.mode === 'memo' ? `단락 0${sIdx + 1} · 취재 팩트 메모 반영 문장` : `단락 0${sIdx + 1} · AI 편집 반영 문장`)
-                    : `<div style="font-size: 15.5px; line-height: 1.85; color: var(--text-primary); white-space: pre-line;">${escapeHtml(sec.content)}</div>`
-                  }
+                  <div style="font-size: 15.5px; line-height: 1.85; color: var(--text-primary); white-space: pre-line;">${escapeHtml(sec.content)}</div>
                   ${sec.imageCaption ? `
                     <div style="margin-top: 8px; font-size: 12.5px; color: var(--text-muted); font-weight: 600;">
                       ${escapeHtml(sec.imageCaption)}
                     </div>
                   ` : ''}
                 </div>
-              `;
-              }).join('')}
-
-              ${(w.factChecks || []).length > 0 ? `
-                <div style="margin-bottom: 24px; padding: 14px 16px; background-color: var(--bg-subtle); border: var(--border-thin); border-radius: var(--radius-general);">
-                  <div class="flex-between mb-8">
-                    <strong style="font-size: 13px;">🖍️ 본문 수치·날짜 팩트체크 점검 (클릭 시 확인 토글)</strong>
-                    <span class="text-muted">${unverifiedCount > 0 ? `미확인 ${unverifiedCount}건` : '모두 확인 완료'}</span>
-                  </div>
-                  <div style="display: flex; flex-wrap: wrap; gap: 6px;">
-                    ${(w.factChecks || []).map(fc => {
-                      const isVerified = fc.status !== '미처리';
-                      return `
-                        <span class="fc-chip ${isVerified ? 'verified' : ''}" data-toggle-fc="${fc.id}">
-                          <strong>${isVerified ? '✓ 확인됨:' : '• 확인 필요:'}</strong> ${escapeHtml(fc.sentence)}
-                        </span>
-                      `;
-                    }).join('')}
-                  </div>
-                </div>
-              ` : ''}
+              `).join('')}
 
               <hr class="doc-divider" />
 
