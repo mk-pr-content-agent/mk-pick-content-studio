@@ -3435,6 +3435,129 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
   //   - 상단 카드 1: [새 기사 초안 만들기] (키워드 입력 + 5열 컴팩트 유형 선택 + 단 1개의 명확한 생성 버튼)
   //   - 하단 카드 2: [소재 발굴 & 작업 보관함] (🔥 실시간 트렌드 10선 | 📅 2026 마케팅 캘린더 | 📂 최근 작업 기사 3탭 전환)
   // ==========================================================================
+  // 캘린더 카드 내 소재 라벨에서 이모지·날짜 접두어·불필요한 꼬리말을 정리해 자연스러운 서브키워드와 문장용 구절을 반환
+  function parseCalendarTopicPhrase(rawLabel = '') {
+    const stripped = String(rawLabel || '')
+      .replace(/^[^\w가-힣]+/, '')
+      .replace(/^\d{1,2}\/\d{1,2}\s+/, '')
+      .trim();
+
+    if (/농업인의\s*날.*가래떡데이|가래떡데이.*농업인의\s*날/.test(stripped)) {
+      return { subKeyword: '가래떡데이, 농업인의 날', phrase: '농업인의 날(가래떡데이)' };
+    }
+    if (/수험표\s*할인/.test(stripped)) {
+      return { subKeyword: '수능 수험표 할인 혜택', phrase: '수능 수험표 할인 혜택' };
+    }
+    if (/찹쌀떡|보온도시락|수능\s*응원\s*선물/.test(stripped)) {
+      return { subKeyword: '찹쌀떡·보온도시락 수능 응원 선물', phrase: '찹쌀떡·보온도시락 같은 수능 응원 선물' };
+    }
+    if (/수능\s*일정|입시\s*분석/.test(stripped)) {
+      return { subKeyword: '2027학년도 수능 일정·입시 변수', phrase: '2027학년도 수능 일정·입시 체크포인트' };
+    }
+    if (/광군제/.test(stripped)) {
+      return { subKeyword: '광군제 해외직구 특가', phrase: '광군제 해외직구 할인·특가' };
+    }
+    if (/빼빼로데이/.test(stripped)) {
+      return { subKeyword: '빼빼로데이 캐릭터 콜라보', phrase: '빼빼로데이 캐릭터 콜라보·굿즈' };
+    }
+    if (/절임배추|포장김치/.test(stripped)) {
+      return { subKeyword: '김장철 절임배추·포장김치', phrase: '김장철 절임배추·포장김치 할인' };
+    }
+    if (/김치의\s*날/.test(stripped)) {
+      return { subKeyword: '11월 22일 김치의 날', phrase: '법정기념일 김치의 날 유래·프로모션' };
+    }
+    if (/블랙프라이데이/.test(stripped)) {
+      return { subKeyword: '블랙프라이데이 직구·할인', phrase: '블랙프라이데이 해외직구·할인 혜택' };
+    }
+    if (/코리아세일페스타/.test(stripped)) {
+      return { subKeyword: '코리아세일페스타 국내 유통 특가', phrase: '코리아세일페스타 국내 유통가 특가' };
+    }
+    if (/발열내의|경량패딩|방한\s*패션/.test(stripped)) {
+      return { subKeyword: '발열내의·경량패딩 방한 패션', phrase: '발열내의·경량패딩 등 가성비 방한 패션' };
+    }
+    if (/전기요|온수매트|난방가전/.test(stripped)) {
+      return { subKeyword: '전기요·온수매트 난방가전', phrase: '전기요·온수매트·히터 등 고효율 난방가전' };
+    }
+
+    const cleanSub = stripped
+      .replace(/\s*\([^)]*\)/g, '')
+      .replace(/\s*(?:총정리|비교|가이드|분석)$/, '')
+      .trim() || stripped;
+    return { subKeyword: cleanSub, phrase: stripped };
+  }
+
+  // 선택한 메인 소재와 '함께 엮기'로 클릭한 소재의 관계를 파악해 가장 자연스러운 기획 방향 문장을 생성
+  function buildCalendarSiblingLinkDirection(mainLabel = '', sibLabel = '', mergedSubKeywords = '') {
+    const combined = `${mainLabel} ${sibLabel} ${mergedSubKeywords}`;
+    const mainInfo = parseCalendarTopicPhrase(mainLabel);
+    const sibInfo = parseCalendarTopicPhrase(sibLabel);
+
+    // 1) 수능(응원 선물 / 수험표 할인 / 수능 일정·입시) 조합
+    if (/수능|수험표|찹쌀떡|보온도시락/.test(combined)) {
+      const hasGift = /찹쌀떡|보온도시락|응원\s*선물/.test(combined);
+      const hasDiscount = /수험표\s*할인/.test(combined);
+      const hasSchedule = /수능\s*일정|입시/.test(combined);
+
+      if (hasGift && hasDiscount && hasSchedule) {
+        return '2027학년도 수능 주요 일정·체크포인트부터 찹쌀떡·보온도시락 같은 수능 응원 선물 트렌드, 시험 직후 챙겨야 할 수험표 할인 혜택까지 함께 엮어서 정리';
+      }
+      if (hasGift && hasDiscount) {
+        return '찹쌀떡·보온도시락 같은 수능 응원 선물 트렌드와 함께, 시험 직후 수험생이 바로 챙길 수 있는 수험표 할인 혜택 내용도 함께 엮어서 정리';
+      }
+      if (hasGift && hasSchedule) {
+        return '2027학년도 수능 핵심 일정·체크포인트와 함께, 찹쌀떡·보온도시락 등 센스 있는 수능 응원 선물 트렌드를 자연스럽게 엮어서 정리';
+      }
+      if (hasDiscount && hasSchedule) {
+        return '2027학년도 수능 주요 일정·입시 체크포인트와 함께, 시험이 끝난 뒤 수험생이 누릴 수 있는 분야별 수험표 할인 혜택을 한 흐름으로 엮어서 정리';
+      }
+    }
+
+    // 2) 11월 11일 (빼빼로데이 / 농업인의 날 가래떡데이 / 광군제) 조합
+    if (/빼빼로데이|가래떡데이|농업인의\s*날|광군제/.test(combined)) {
+      const hasPepero = /빼빼로데이/.test(combined);
+      const hasGaraetteok = /가래떡데이|농업인의\s*날/.test(combined);
+      const hasSinglesDay = /광군제/.test(combined);
+
+      if (hasPepero && hasGaraetteok && hasSinglesDay) {
+        return '11월 11일 빼빼로데이 콜라보 트렌드와 우리 쌀을 챙기는 농업인의 날(가래떡데이), 글로벌 쇼핑 축제 광군제 할인 정보까지 11월 11일 3대 이슈를 입체적으로 엮어서 소개';
+      }
+      if (hasPepero && hasGaraetteok) {
+        return "빼빼로데이만 알고 있던 독자들에게 같은 11월 11일인 '농업인의 날(가래떡데이)'도 함께 알려주고, 요즘 유행하는 떡 디저트·콜라보 트렌드와 자연스럽게 엮어서 소개";
+      }
+      if (hasSinglesDay) {
+        return `11월 11일 ${mainInfo.phrase} 트렌드와 함께, 같은 날 열리는 글로벌 쇼핑 행사 '광군제' 해외직구 특가·체크포인트도 함께 엮어서 정리`;
+      }
+    }
+
+    // 3) 김장철 절임배추·포장김치 + 11/22 법정기념일 김치의 날
+    if (/김장|절임배추|포장김치|김치의\s*날/.test(combined)) {
+      return "11월 22일 법정기념일 '김치의 날' 제정 의미와 함께, 본격적인 김장철을 맞은 대형마트·이커머스의 절임배추 사전예약 및 포장김치 할인 혜택을 함께 엮어서 정리";
+    }
+
+    // 4) 블랙프라이데이 + 코리아세일페스타
+    if (/블랙프라이데이|코리아세일페스타/.test(combined)) {
+      return "11월 연중 최대 쇼핑 시즌을 맞아 국내 유통가가 총출동하는 '코리아세일페스타' 특가 혜택과 해외직구 '블랙프라이데이' 할인·통관 체크포인트를 나란히 비교·정리";
+    }
+
+    // 5) 월동 준비 (방한 패션 + 난방가전)
+    if (/발열내의|경량패딩|방한|전기요|온수매트|난방가전/.test(combined)) {
+      return '본격적인 겨울 추위에 대비하는 발열내의·경량패딩 등 가성비 방한 패션 아이템과 난방비를 아껴주는 전기요·온수매트 등 고효율 난방가전 선택 가이드를 함께 엮어서 정리';
+    }
+
+    // 6) 한우데이 + 소상공인의 날
+    if (/한우데이|소상공인의\s*날/.test(combined)) {
+      return "11월 초 소비 활성화를 이끄는 '11/1 한우데이' 반값 특가전과 '11/5 소상공인의 날' 상생 프로모션 혜택을 함께 엮어서 소개";
+    }
+
+    // 7) 한글날 무료 글꼴·굿즈 + 개천절·한글날 연휴 나들이
+    if (/한글날|개천절/.test(combined)) {
+      return '10월 개천절·한글날 연휴 나들이·여행 트렌드와 함께, 한글날의 의미를 되새기는 기업 무료 글꼴 배포 및 우리말 한정판 굿즈 열풍을 자연스럽게 엮어서 정리';
+    }
+
+    // 8) 그 외 일반 카드: 억지스러운 "A만 알고 있던 독자들에게" 문구 대신 두 소재를 자연스럽게 연결
+    return `${mainInfo.phrase} 트렌드와 함께 ${sibInfo.phrase} 내용도 한 흐름으로 자연스럽게 엮어서 정리`;
+  }
+
   function renderHomeScreen(root) {
     const hi = state.homeInput;
     const selectedTypeInfo = CONTENT_TYPES[hi.typeId] || CONTENT_TYPES[4];
@@ -3972,7 +4095,15 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
                                 class="input"
                                 id="calInlineSubKwInput"
                                 value="${escapeHtml(selTopic.subKeywords || '')}"
-                                placeholder="예: 가래떡데이, 농협, 편의점 3사"
+                                placeholder="${escapeHtml(
+                                  /수능|수험표|찹쌀떡/.test(selTopic.keyword)
+                                    ? '예: 수능 수험표 할인 혜택, 올리브영, 편의점'
+                                    : /김장|김치/.test(selTopic.keyword)
+                                      ? '예: 절임배추 사전예약, 포장김치, 김치의 날'
+                                      : /블랙프라이데이|코리아세일페스타/.test(selTopic.keyword)
+                                        ? '예: 코리아세일페스타, 가전 할인, 해외직구'
+                                        : '예: 가래떡데이, 농협, 편의점 3사'
+                                )}"
                                 style="width: 100%; padding: 7px 10px; font-size: 12.5px; background-color: #FFFFFF;"
                               />
                             </div>
@@ -3985,7 +4116,15 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
                                 class="input"
                                 id="calInlineDirInput"
                                 value="${escapeHtml(selTopic.direction || '')}"
-                                placeholder="예: 빼빼로데이만 알던 독자에게 가래떡데이와 요즘 유행하는 떡 디저트를 엮어서 소개"
+                                placeholder="${escapeHtml(
+                                  /수능|수험표|찹쌀떡/.test(selTopic.keyword)
+                                    ? '예: 찹쌀떡·보온도시락 같은 수능 응원 선물과 함께 수험표 할인 혜택 내용도 함께 엮어서 정리'
+                                    : /김장|김치/.test(selTopic.keyword)
+                                      ? '예: 김장철 절임배추·포장김치 할인 비교와 11월 22일 김치의 날 프로모션을 함께 정리'
+                                      : /블랙프라이데이|코리아세일페스타/.test(selTopic.keyword)
+                                        ? '예: 코리아세일페스타 국내 특가와 블랙프라이데이 해외직구 할인·통관 팁을 비교 정리'
+                                        : '예: 빼빼로데이만 알던 독자에게 가래떡데이와 요즘 유행하는 떡 디저트를 엮어서 소개'
+                                )}"
                                 style="width: 100%; padding: 7px 10px; font-size: 12.5px; background-color: #FFFFFF;"
                               />
                             </div>
@@ -4526,15 +4665,14 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
         const sibRaw = (btn.getAttribute('data-cal-add-sibling-sub') || '').trim();
         if (!sibRaw || !state.selectedCalendarTopic) return;
         const sel = state.selectedCalendarTopic;
-        const cleanMain = sel.label.replace(/^[^\w가-힣]+/, '').split(/\s+/)[0] || sel.label;
-        const parenMatch = sibRaw.match(/\(([^)]+)\)/);
-        const shortSib = parenMatch ? parenMatch[1].trim() : sibRaw.split(/\s+/)[0];
+        const sibParsed = parseCalendarTopicPhrase(sibRaw);
+        const subKwToAdd = sibParsed.subKeyword;
 
         const curSub = (document.getElementById('calInlineSubKwInput')?.value || sel.subKeywords || '').trim();
         const nextSub = curSub
-          ? (curSub.includes(shortSib) ? curSub : `${curSub}, ${shortSib}`)
-          : shortSib;
-        const nextDir = `${cleanMain}만 알고 있던 독자들에게 같은 시기인 '${shortSib}'도 함께 알려주고, 최신 유행 트렌드와 자연스럽게 엮어서 소개`;
+          ? (curSub.includes(subKwToAdd) ? curSub : `${curSub}, ${subKwToAdd}`)
+          : subKwToAdd;
+        const nextDir = buildCalendarSiblingLinkDirection(sel.label, sibRaw, nextSub);
 
         sel.subKeywords = nextSub;
         sel.direction = nextDir;
@@ -4543,7 +4681,7 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
           calInlineDirEl.value = nextDir;
           calInlineDirEl.focus();
         }
-        showToast(`✓ '${shortSib}'를 서브 키워드와 작성 방향에 함께 엮었습니다! 내용을 자유롭게 수정한 뒤 [✨ 초안 생성]을 누르세요.`);
+        showToast(`✓ '${subKwToAdd}' 내용을 서브 키워드와 글의 방향에 자연스럽게 엮었습니다!`);
       });
     });
 
