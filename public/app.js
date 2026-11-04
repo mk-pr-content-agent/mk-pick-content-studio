@@ -3817,13 +3817,14 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
               <div class="flex-row" style="gap: 6px; flex-wrap: wrap;">
                 ${(calData.keyTags || []).map(tag => {
                   const tagType = detectBestContentType(tag, '', '', 3);
+                  const isTagSelected = state.selectedCalendarTopic && state.selectedCalendarTopic.keyword === tag;
                   return `
                     <button
                       type="button"
-                      data-use-cal-kw="${escapeHtml(tag)}"
+                      data-select-cal-tag="${escapeHtml(tag)}"
                       data-use-cal-type="${tagType}"
-                      style="font-size: 11.5px; font-weight: 700; color: var(--text-secondary); background-color: var(--white); border: var(--border-thin); padding: 3px 9px; border-radius: 99px; cursor: pointer; font-family: inherit;"
-                      title="'${escapeHtml(tag)}' 단일 키워드로 즉시 맞춤 기사 초안 생성"
+                      style="font-size: 11.5px; font-weight: 700; color: ${isTagSelected ? '#FFFFFF' : 'var(--text-secondary)'}; background-color: ${isTagSelected ? 'var(--mk-orange)' : 'var(--white)'}; border: 1px solid ${isTagSelected ? 'var(--mk-orange)' : 'var(--border-color)'}; padding: 3px 9px; border-radius: 99px; cursor: pointer; font-family: inherit;"
+                      title="클릭하여 '${escapeHtml(tag)}' 소재의 작성 방향을 입력하거나 바로 초안을 생성합니다"
                     >
                       #${escapeHtml(tag)} →
                     </button>
@@ -3833,7 +3834,7 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
             </div>
 
             <div class="trend-clean-grid">
-              ${(calData.events || []).map(ev => {
+              ${(calData.events || []).map((ev, evIdx) => {
                 // 여러 날/이벤트가 섞이지 않도록 개별 단일 이벤트 버튼 목록 생성
                 const subEventList = Array.isArray(ev.subEvents) && ev.subEvents.length > 0
                   ? ev.subEvents
@@ -3849,14 +3850,22 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
                         })
                       : [{ label: ev.name, keyword: ev.keyword, typeId: detectBestContentType(ev.keyword, '', ev.desc || '', ev.typeId || 3) }]);
 
-                const primarySub = subEventList[0];
                 const isThisCalGenerating = state.isSearchingNews && subEventList.some(se => se.keyword === state.generatingKeyword);
-                const calGenStyle = isThisCalGenerating
-                  ? 'border-color: var(--mk-orange); background-color: var(--mk-orange-light); box-shadow: 0 0 0 2px rgba(243, 112, 33, 0.16);'
+                const selTopic = (state.selectedCalendarTopic && state.selectedCalendarTopic.month === calData.month && state.selectedCalendarTopic.evIdx === evIdx)
+                  ? state.selectedCalendarTopic
+                  : null;
+                const calGenStyle = (isThisCalGenerating || selTopic)
+                  ? 'border-color: var(--mk-orange); background-color: #FFFDFB; box-shadow: 0 0 0 2px rgba(243, 112, 33, 0.14);'
                   : '';
+
+                // 같은 카드 안의 다른 서브 이슈가 있으면 원클릭 서브키워드 엮기 칩으로 제공
+                const siblingSubs = selTopic
+                  ? subEventList.filter(se => se.keyword !== selTopic.keyword)
+                  : [];
+
                 return `
-                  <div class="trend-clean-row" style="${calGenStyle}; align-items: flex-start; cursor: default;">
-                    <div style="min-width: 0; flex: 1;">
+                  <div class="trend-clean-row" id="calEventCard-${evIdx}" style="${calGenStyle}; align-items: flex-start; cursor: default;">
+                    <div style="min-width: 0; flex: 1; width: 100%;">
                       <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-bottom: 4px;">
                         <span style="font-size: 12px; font-weight: 800; color: var(--mk-orange);">${escapeHtml(ev.date)}</span>
                         <strong style="font-size: 14px; color: var(--text-primary);">${escapeHtml(ev.name)}</strong>
@@ -3870,22 +3879,129 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
                       <div style="display: flex; flex-wrap: wrap; gap: 6px;">
                         ${subEventList.map(se => {
                           const isSubGen = state.isSearchingNews && state.generatingKeyword === se.keyword;
+                          const isSubSelected = Boolean(selTopic && selTopic.keyword === se.keyword);
+                          const highlightActive = isSubGen || isSubSelected;
                           return `
                             <button
                               type="button"
+                              data-select-cal-topic="1"
+                              data-cal-ev-idx="${evIdx}"
+                              data-cal-label="${escapeHtml(se.label)}"
                               data-use-cal-kw="${escapeHtml(se.keyword)}"
                               data-use-cal-type="${se.typeId || ev.typeId}"
-                              style="display: inline-flex; align-items: center; gap: 5px; padding: 5px 10px; border-radius: 6px; border: 1px solid ${isSubGen ? 'var(--mk-orange)' : 'var(--mk-orange-border)'}; background-color: ${isSubGen ? 'var(--mk-orange)' : '#FFF8F3'}; color: ${isSubGen ? '#FFFFFF' : 'var(--text-primary)'}; font-size: 12px; font-weight: 800; cursor: pointer; font-family: inherit;"
-                              title="'${escapeHtml(se.keyword)}' 단일 주제로 최신 기사들을 검색해 초안을 작성합니다"
+                              style="display: inline-flex; align-items: center; gap: 5px; padding: 5px 10px; border-radius: 6px; border: 1.5px solid ${highlightActive ? 'var(--mk-orange)' : 'var(--mk-orange-border)'}; background-color: ${highlightActive ? 'var(--mk-orange)' : '#FFF8F3'}; color: ${highlightActive ? '#FFFFFF' : 'var(--text-primary)'}; font-size: 12px; font-weight: 800; cursor: pointer; font-family: inherit; transition: all 0.15s;"
+                              title="클릭하면 원하는 작성 방향·서브 키워드 입력창이 아래에 펼쳐집니다"
                             >
                               <span>${escapeHtml(se.label)}</span>
-                              <span style="color: ${isSubGen ? '#FFFFFF' : 'var(--mk-orange)'}; font-weight: 800;">
-                                ${isSubGen ? escapeHtml(formatDraftRemainingInfo(state.draftElapsedSec || 0).shortBtnText) : '초안 생성 →'}
+                              <span style="color: ${highlightActive ? '#FFFFFF' : 'var(--mk-orange)'}; font-weight: 800;">
+                                ${isSubGen
+                                  ? escapeHtml(formatDraftRemainingInfo(state.draftElapsedSec || 0).shortBtnText)
+                                  : isSubSelected
+                                    ? '✓ 선택됨 ▲'
+                                    : '방향 설정 · 초안 생성 ▼'}
                               </span>
                             </button>
                           `;
                         }).join('')}
                       </div>
+
+                      ${selTopic ? `
+                        <!-- [카드 내 인라인 슬라이드 입력창] 선택한 소재의 서브 키워드 및 원하는 작성 방향 입력 -->
+                        <div style="margin-top: 10px; padding: 12px 14px; background-color: #FFF9F4; border: 1.5px solid var(--mk-orange-border); border-radius: 8px;">
+                          <div class="flex-between" style="flex-wrap: wrap; gap: 6px; margin-bottom: 8px;">
+                            <div class="flex-row" style="gap: 6px; flex-wrap: wrap;">
+                              <span style="font-size: 11.5px; font-weight: 800; color: #FFFFFF; background-color: var(--mk-orange); padding: 2px 8px; border-radius: 99px;">
+                                🎯 선택된 소재: ${escapeHtml(selTopic.label.replace(/^[^\w가-힣]+/, '').trim())}
+                              </span>
+                              ${siblingSubs.map(sib => {
+                                const cleanSib = sib.label.replace(/^[^\w가-힣]+/, '').replace(/\s*\([^)]*\)/g, m => m).trim();
+                                return `
+                                  <button
+                                    type="button"
+                                    data-cal-add-sibling-sub="${escapeHtml(cleanSib)}"
+                                    style="font-size: 11px; font-weight: 800; color: var(--mk-orange); background-color: #FFFFFF; border: 1px dashed var(--mk-orange); padding: 2px 8px; border-radius: 99px; cursor: pointer; font-family: inherit;"
+                                    title="클릭하면 '${escapeHtml(cleanSib)}'를 서브 키워드와 작성 방향에 자동으로 엮어줍니다"
+                                  >
+                                    + '${escapeHtml(cleanSib)}' 함께 엮기
+                                  </button>
+                                `;
+                              }).join('')}
+                            </div>
+                            <button
+                              type="button"
+                              class="text-action"
+                              data-close-cal-inline="1"
+                              style="font-size: 11.5px; color: var(--text-muted);"
+                            >
+                              닫기 ✕
+                            </button>
+                          </div>
+
+                          <div style="display: grid; grid-template-columns: 1fr 1.8fr; gap: 8px; margin-bottom: 8px;">
+                            <div>
+                              <label style="display: block; font-size: 11px; font-weight: 800; color: var(--text-secondary); margin-bottom: 3px;">
+                                🔗 서브 키워드 · 브랜드 (선택)
+                              </label>
+                              <input
+                                type="text"
+                                class="input"
+                                id="calInlineSubKwInput"
+                                value="${escapeHtml(selTopic.subKeywords || '')}"
+                                placeholder="예: 가래떡데이, 농협, 편의점 3사"
+                                style="width: 100%; padding: 7px 10px; font-size: 12.5px; background-color: #FFFFFF;"
+                              />
+                            </div>
+                            <div>
+                              <label style="display: block; font-size: 11px; font-weight: 800; color: var(--text-secondary); margin-bottom: 3px;">
+                                🧭 원하는 글의 방향 · 관점 (선택 · Enter 시 바로 생성)
+                              </label>
+                              <input
+                                type="text"
+                                class="input"
+                                id="calInlineDirInput"
+                                value="${escapeHtml(selTopic.direction || '')}"
+                                placeholder="예: 빼빼로데이만 알던 독자에게 가래떡데이와 요즘 유행하는 떡 디저트를 엮어서 소개"
+                                style="width: 100%; padding: 7px 10px; font-size: 12.5px; background-color: #FFFFFF;"
+                              />
+                            </div>
+                          </div>
+
+                          <div class="flex-between" style="flex-wrap: wrap; gap: 8px; padding-top: 4px;">
+                            <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 4px;">
+                              <span style="font-size: 11px; font-weight: 700; color: var(--text-muted); margin-right: 2px;">빠른 방향:</span>
+                              <button type="button" class="text-action" data-cal-quick-dir="기념일 유래·의미와 올해 새롭게 달라진 최신 유행·트렌드를 자연스럽게 엮어서 소개" style="font-size: 11px; background: #FFFFFF; border: var(--border-thin); padding: 2px 7px; border-radius: 99px;">
+                                + 유래 & 최신 트렌드 엮기
+                              </button>
+                              <button type="button" class="text-action" data-cal-quick-dir="주요 유통·식음료 브랜드별 출시 프로모션, 가격, 할인 혜택을 한눈에 비교" style="font-size: 11px; background: #FFFFFF; border: var(--border-thin); padding: 2px 7px; border-radius: 99px;">
+                                + 브랜드별 혜택·특가 비교
+                              </button>
+                              <button type="button" class="text-action" data-cal-quick-dir="독자와 소비자가 바로 활용할 수 있는 실전 구매 팁과 체크포인트 중심으로 정리" style="font-size: 11px; background: #FFFFFF; border: var(--border-thin); padding: 2px 7px; border-radius: 99px;">
+                                + 소비자 실전 꿀팁 중심
+                              </button>
+                            </div>
+                            <div class="flex-row" style="gap: 6px;">
+                              <button
+                                type="button"
+                                class="btn btn-sm"
+                                id="calInlineDirectStartBtn"
+                                style="padding: 6px 10px; font-size: 11.5px; font-weight: 700; background-color: #FFFFFF; color: var(--text-secondary);"
+                                ${state.isSearchingNews ? 'disabled' : ''}
+                              >
+                                ⚡ 방향 없이 바로 생성
+                              </button>
+                              <button
+                                type="button"
+                                class="btn btn-sm btn-primary"
+                                id="calInlineCustomStartBtn"
+                                style="padding: 6px 14px; font-size: 12px; font-weight: 800; box-shadow: 0 2px 6px rgba(243, 112, 33, 0.22);"
+                                ${state.isSearchingNews ? 'disabled' : ''}
+                              >
+                                ${state.isSearchingNews ? '⏳ 초안 생성 중...' : '✨ 이 방향 반영해 초안 생성 →'}
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      ` : ''}
                     </div>
                   </div>
                 `;
@@ -4242,19 +4358,179 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
       btn.addEventListener('click', () => {
         syncHomeInputs();
         state.calendarMonth = Number(btn.getAttribute('data-cal-month'));
+        state.selectedCalendarTopic = null;
         render(true);
       });
     });
 
-    // 월별 마케팅 캘린더 이벤트 클릭 시 해당 기념일/시즌 유형으로 즉시 초안 생성
-    root.querySelectorAll('[data-use-cal-kw]').forEach(btn => {
+    // 월별 마케팅 캘린더 카드 내 소재 버튼 클릭 시 인라인 방향 설정 슬라이드 창 열기/닫기
+    root.querySelectorAll('[data-select-cal-topic]').forEach(btn => {
       btn.addEventListener('click', () => {
-        const kw = btn.getAttribute('data-use-cal-kw');
-        const calType = Number(btn.getAttribute('data-use-cal-type')) || 2;
         syncHomeInputs();
-        hi.keyword = kw;
-        hi.typeId = calType;
-        startWorkWithKeyword(kw, calType, hi.company, false);
+        const evIdx = Number(btn.getAttribute('data-cal-ev-idx'));
+        const label = btn.getAttribute('data-cal-label') || '';
+        const kw = btn.getAttribute('data-use-cal-kw') || '';
+        const calType = Number(btn.getAttribute('data-use-cal-type')) || 2;
+
+        if (
+          state.selectedCalendarTopic &&
+          state.selectedCalendarTopic.month === state.calendarMonth &&
+          state.selectedCalendarTopic.evIdx === evIdx &&
+          state.selectedCalendarTopic.keyword === kw
+        ) {
+          state.selectedCalendarTopic = null;
+          render(true);
+          return;
+        }
+
+        state.selectedCalendarTopic = {
+          month: state.calendarMonth,
+          evIdx,
+          label,
+          keyword: kw,
+          typeId: calType,
+          subKeywords: '',
+          direction: ''
+        };
+        render(true);
+        setTimeout(() => {
+          document.getElementById('calInlineDirInput')?.focus();
+        }, 40);
+      });
+    });
+
+    // 상단 월 핵심 테마 해시태그(#수능, #빼빼로데이, #가래떡데이 등) 클릭 시 해당 카드의 인라인 방향 입력창 열기
+    root.querySelectorAll('[data-select-cal-tag]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        syncHomeInputs();
+        const tag = (btn.getAttribute('data-select-cal-tag') || '').trim();
+        const tagType = Number(btn.getAttribute('data-use-cal-type')) || 3;
+        if (!tag) return;
+
+        let matchedEvIdx = 0;
+        let matchedLabel = tag;
+        let matchedKw = tag;
+        let matchedType = tagType;
+
+        (calData.events || []).forEach((ev, idx) => {
+          const subs = Array.isArray(ev.subEvents) && ev.subEvents.length > 0
+            ? ev.subEvents
+            : [{ label: ev.name, keyword: ev.keyword, typeId: ev.typeId || 3 }];
+          subs.forEach(se => {
+            if (String(se.label || '').includes(tag) || String(se.keyword || '').includes(tag) || String(ev.name || '').includes(tag)) {
+              matchedEvIdx = idx;
+              matchedLabel = se.label || tag;
+              matchedKw = se.keyword || tag;
+              matchedType = se.typeId || ev.typeId || tagType;
+            }
+          });
+        });
+
+        state.selectedCalendarTopic = {
+          month: state.calendarMonth,
+          evIdx: matchedEvIdx,
+          label: matchedLabel,
+          keyword: matchedKw,
+          typeId: matchedType,
+          subKeywords: '',
+          direction: ''
+        };
+        render(true);
+        setTimeout(() => {
+          flashElement(`calEventCard-${matchedEvIdx}`);
+          document.getElementById('calInlineDirInput')?.focus();
+        }, 50);
+      });
+    });
+
+    root.querySelectorAll('[data-close-cal-inline]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        state.selectedCalendarTopic = null;
+        render(true);
+      });
+    });
+
+    const calInlineSubEl = document.getElementById('calInlineSubKwInput');
+    const calInlineDirEl = document.getElementById('calInlineDirInput');
+
+    calInlineSubEl?.addEventListener('input', e => {
+      if (state.selectedCalendarTopic) {
+        state.selectedCalendarTopic.subKeywords = e.target.value;
+      }
+    });
+
+    calInlineDirEl?.addEventListener('input', e => {
+      if (state.selectedCalendarTopic) {
+        state.selectedCalendarTopic.direction = e.target.value;
+      }
+    });
+
+    function triggerCalendarInlineStart(useCustomInputs = true) {
+      const sel = state.selectedCalendarTopic;
+      if (!sel) return;
+      syncHomeInputs();
+      const subKwVal = useCustomInputs ? (document.getElementById('calInlineSubKwInput')?.value || sel.subKeywords || '').trim() : '';
+      const dirVal = useCustomInputs ? (document.getElementById('calInlineDirInput')?.value || sel.direction || '').trim() : '';
+      hi.keyword = sel.keyword;
+      hi.subKeywords = subKwVal;
+      hi.direction = dirVal;
+      hi.typeId = sel.typeId || 2;
+      startWorkWithKeyword(sel.keyword, hi.typeId, hi.company, Boolean(subKwVal || dirVal), subKwVal, dirVal);
+    }
+
+    const handleCalInlineEnter = e => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        triggerCalendarInlineStart(true);
+      }
+    };
+    calInlineSubEl?.addEventListener('keydown', handleCalInlineEnter);
+    calInlineDirEl?.addEventListener('keydown', handleCalInlineEnter);
+
+    document.getElementById('calInlineDirectStartBtn')?.addEventListener('click', () => {
+      triggerCalendarInlineStart(false);
+    });
+
+    document.getElementById('calInlineCustomStartBtn')?.addEventListener('click', () => {
+      triggerCalendarInlineStart(true);
+    });
+
+    // 같은 날짜 카드의 다른 기념일/소재를 원클릭으로 서브키워드 & 작성 방향에 함께 엮기
+    root.querySelectorAll('[data-cal-add-sibling-sub]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const sibRaw = (btn.getAttribute('data-cal-add-sibling-sub') || '').trim();
+        if (!sibRaw || !state.selectedCalendarTopic) return;
+        const sel = state.selectedCalendarTopic;
+        const cleanMain = sel.label.replace(/^[^\w가-힣]+/, '').split(/\s+/)[0] || sel.label;
+        const parenMatch = sibRaw.match(/\(([^)]+)\)/);
+        const shortSib = parenMatch ? parenMatch[1].trim() : sibRaw.split(/\s+/)[0];
+
+        const curSub = (document.getElementById('calInlineSubKwInput')?.value || sel.subKeywords || '').trim();
+        const nextSub = curSub
+          ? (curSub.includes(shortSib) ? curSub : `${curSub}, ${shortSib}`)
+          : shortSib;
+        const nextDir = `${cleanMain}만 알고 있던 독자들에게 같은 시기인 '${shortSib}'도 함께 알려주고, 최신 유행 트렌드와 자연스럽게 엮어서 소개`;
+
+        sel.subKeywords = nextSub;
+        sel.direction = nextDir;
+        if (calInlineSubEl) calInlineSubEl.value = nextSub;
+        if (calInlineDirEl) {
+          calInlineDirEl.value = nextDir;
+          calInlineDirEl.focus();
+        }
+        showToast(`✓ '${shortSib}'를 서브 키워드와 작성 방향에 함께 엮었습니다! 내용을 자유롭게 수정한 뒤 [✨ 초안 생성]을 누르세요.`);
+      });
+    });
+
+    root.querySelectorAll('[data-cal-quick-dir]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const dirText = (btn.getAttribute('data-cal-quick-dir') || '').trim();
+        if (!dirText || !state.selectedCalendarTopic) return;
+        state.selectedCalendarTopic.direction = dirText;
+        if (calInlineDirEl) {
+          calInlineDirEl.value = dirText;
+          calInlineDirEl.focus();
+        }
       });
     });
 
