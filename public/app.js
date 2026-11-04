@@ -2857,7 +2857,9 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
   }
 
   function buildShareableTeamUrl() {
-    const shareBase = 'https://moneymoeungu.github.io/mk-pick-content-studio/public/index.html';
+    const shareBase = (typeof window !== 'undefined' && window.location.hostname.endsWith('.github.io'))
+      ? `${window.location.origin}${window.location.pathname}`
+      : 'https://mk-pr-content-agent.github.io/mk-pick-content-studio/public/index.html';
     const activeKey = (getClientPerplexityKey() || localStorage.getItem(CLIENT_STORAGE_KEY) || '').trim();
     return activeKey ? `${shareBase}#pplx=${encodeURIComponent(activeKey)}` : shareBase;
   }
