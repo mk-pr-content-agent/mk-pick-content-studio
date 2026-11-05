@@ -926,6 +926,60 @@
     return { newSources, newResearchItems, count: newResearchItems.length };
   }
 
+  // [점검·팩트] 탭 전용: 입력한 키워드로 실제 보도된 타 언론사 기사·보도자료 5건의 제목과 원문 문장을 실시간 수집해 유사도를 대조하는 함수
+  async function fetchPublishedArticlesForSimilarityCheck({ apiKey, query, work }) {
+    const cleanQ = String(query || '').trim() || extractCompactCoreSearchKeyword(work);
+    const todayStr = new Date().toISOString().slice(0, 10);
+    if (apiKey) {
+      const sys = `당신은 뉴스 원문 및 보도자료 유사도 검증 데스크입니다.
+반드시 web_search 도구를 실행하여 '${cleanQ}' 키워드로 실제 보도된 국내 언론 기사 및 기업 보도자료 5건을 검색하세요.
+각 기사의 실제 언론사명(media), 보도일(pubDate), 기사 제목 원문(title), 해당 기사의 실제 리드·본문 핵심 문장 2~3문장(leadText), 실제 기사 URL(sourceUrl)을 순수 JSON으로만 출력하세요.`;
+      const usr = `검색 키워드: ${cleanQ} (기준일: ${todayStr})
+아래 JSON 형식으로 같은 주제의 실제 기보도 기사·보도자료 5건을 출력하세요:
+{
+  "publishedArticles": [
+    {
+      "media": "언론사명 (예: 서울신문, 한국경제, 연합뉴스 등)",
+      "pubDate": "YYYY-MM-DD",
+      "title": "실제 보도된 기사 제목",
+      "leadText": "해당 기사·보도자료에 실제로 쓰인 핵심 문장 2~3문장",
+      "sourceUrl": "실제 개별 뉴스 기사 원문 URL (https://...)"
+    }
+  ]
+}`;
+      const { parsed, searchResults } = await callPerplexityDirectFromBrowser(apiKey, sys, usr, 'month', 'draft', 2500);
+      const list = Array.isArray(parsed?.publishedArticles) ? parsed.publishedArticles : [];
+      const usedUrls = new Set();
+      const ts = Date.now();
+      return list.map((item, idx) => {
+        const matchedSr = matchBestSearchResult({ sourceTitle: item.title, fact: item.leadText }, searchResults, usedUrls);
+        const directUrl = isRealArticleUrl(item.sourceUrl)
+          ? item.sourceUrl.trim()
+          : (matchedSr?.url || `https://search.naver.com/search.naver?where=news&query=${encodeURIComponent(cleanQ)}`);
+        if (isRealArticleUrl(directUrl)) usedUrls.add(directUrl);
+        return {
+          id: `pub-sim-${ts}-${idx + 1}`,
+          media: item.media || '언론 보도',
+          pubDate: item.pubDate || matchedSr?.date || todayStr,
+          title: item.title || matchedSr?.title || `${cleanQ} 보도 기사`,
+          leadText: item.leadText || matchedSr?.snippet || '',
+          url: directUrl
+        };
+      });
+    }
+
+    // API 키 미연결 시: 수집된 출처·취재 메모 및 트렌드 레이더에서 키워드 매칭 기사 추출
+    const baseReport = getPublishedSimilarityComparisonReport({ ...work, customPublishedSimReport: null });
+    return (baseReport.items || []).map(it => ({
+      id: it.id,
+      media: it.media,
+      pubDate: it.pubDate,
+      title: it.title,
+      leadText: it.matchedExtSent || '',
+      url: it.url
+    }));
+  }
+
   async function fetchClientPerplexityTrends(apiKey) {
     const sys = `당신은 매일경제 디지털뉴스룸(MK Pick) 실시간 트렌드 및 팩트체크 데스크입니다.
 철칙:
@@ -1565,6 +1619,200 @@ ${url ? `- 참고 URL: ${url}\n` : ''}${rawText ? `- 추가 메모: ${rawText}\n
       avgSimilarityPct,
       sentenceReports,
       sourceSimilarityMap
+    };
+  }
+
+  // 유사도 검색을 위해 불필요한 수식어·조사를 걷어내고 핵심 키워드(2~4어절)만 깔끔하게 추출하는 함수
+  function extractCompactCoreSearchKeyword(w) {
+    if (!w) return '';
+    const raw = String(w.keyword || '').trim();
+    if (!raw) return '';
+    const stopWords = new Set([
+      '앰버서더', '엠버서더', '브랜드', '국내', '출시', '추진', '돌입', '단독', '최초', '신상',
+      '프로모션', '이벤트', '진행', '선보여', '공개', '발표', '맞이', '기념', '위한', '통해',
+      '인기', '화제', '열풍', '트렌드', '분석', '총정리', '비교', '추천'
+    ]);
+    const tokens = raw
+      .replace(/[^\w가-힣\s·]/g, ' ')
+      .split(/[\s·,]+/)
+      .map(t => t.trim())
+      .filter(Boolean)
+      .map(t => {
+        if (t.length >= 3 && /(에서|으로|부터|까지)$/.test(t)) return t.slice(0, -2);
+        if (t.length >= 3 && /(서|와|과|의|로|은|는|이|가|을|를)$/.test(t)) return t.slice(0, -1);
+        return t;
+      })
+      .filter(t => t.length >= 2 && !stopWords.has(t));
+    const unique = [...new Set(tokens)];
+    return unique.slice(0, 4).join(' ') || raw;
+  }
+
+  // 외부 보도자료/기보도 기사 1건과 현재 작성된 우리 기사 전체 문장을 대조해 제목·본문 유사도(%) 및 최고 유사 문장 쌍을 산출
+  function compareExternalArticleAgainstWork(extItem, w) {
+    const cleanExtTitle = String(extItem.title || '').replace(/^\[[^\]]+\]\s*/, '').trim();
+    const extLeadText = String(extItem.leadText || extItem.fact || '').trim();
+    const extSents = [
+      ...splitIntoSentences(extLeadText),
+      ...(cleanExtTitle ? [cleanExtTitle] : [])
+    ].filter(s => s.length >= 8);
+
+    const ourSents = [];
+    if (w?.summaryBlocks?.includeLeadIntro !== false && w?.summaryBlocks?.leadIntro) {
+      splitIntoSentences(w.summaryBlocks.leadIntro).forEach(s => {
+        if (s.length >= 10) ourSents.push({ secId: 'block-step-3', secLabel: '도입부', text: s });
+      });
+    }
+    (w?.draftSections || []).forEach((sec, idx) => {
+      splitIntoSentences(sec.content || '').forEach(s => {
+        if (s.length >= 10) ourSents.push({ secId: `secWrap-${sec.id}`, secLabel: `단락 0${idx + 1}`, text: s });
+      });
+    });
+
+    const titleSim = computeSentenceSimilarityInfo(w?.title || '', cleanExtTitle);
+    let bestSim = { ratio: 0, pct: 0, grade: 'REWRITTEN', badgeText: '✨ 독창적 재구성', color: '#1B7F3B', bg: '#EBFBEE', border: '#B2F2BB' };
+    let bestOurSent = ourSents[0] || { secId: 'block-step-5', secLabel: '본문', text: '' };
+    let bestExtSent = extSents[0] || cleanExtTitle;
+
+    extSents.forEach(es => {
+      ourSents.forEach(os => {
+        const info = computeSentenceSimilarityInfo(os.text, es);
+        if (info.pct >= bestSim.pct) {
+          bestSim = info;
+          bestOurSent = os;
+          bestExtSent = es;
+        }
+      });
+    });
+
+    const maxSimPct = Math.max(bestSim.pct, Math.round(titleSim.pct * 0.75));
+    const finalSim = computeSentenceSimilarityInfo(bestOurSent.text || w?.title || '', bestExtSent || cleanExtTitle);
+    return {
+      id: extItem.id || `ext-${Math.random().toString(36).slice(2, 8)}`,
+      media: extItem.media || '언론 보도',
+      pubDate: extItem.pubDate || '최신',
+      title: cleanExtTitle || extItem.title || '관련 보도 기사',
+      url: extItem.url || '',
+      titleSimPct: titleSim.pct,
+      bodySimPct: bestSim.pct,
+      maxSimPct,
+      simInfo: finalSim,
+      matchedExtSent: bestExtSent,
+      matchedOurSent: bestOurSent.text,
+      matchedOurSecLabel: bestOurSent.secLabel,
+      matchedOurTargetId: bestOurSent.secId
+    };
+  }
+
+  // 현재 기사에 연결된 수집 출처·보도자료 및 키워드 추가 검색 결과를 종합해 '기보도 기사별 원문 유사도 리포트' 반환
+  function getPublishedSimilarityComparisonReport(w) {
+    if (!w) return { items: [], maxSimPct: 0, avgSimPct: 0, isCustomSearched: false, searchKeyword: '' };
+    if (w.customPublishedSimReport && Array.isArray(w.customPublishedSimReport.items) && w.customPublishedSimReport.items.length > 0) {
+      // 본문이 수정되었을 수 있으므로 실시간으로 문장 유사도를 다시 계산
+      const refreshedItems = w.customPublishedSimReport.items.map(rawIt => compareExternalArticleAgainstWork(rawIt, w));
+      const maxSimPct = refreshedItems.reduce((m, it) => Math.max(m, it.maxSimPct), 0);
+      const avgSimPct = Math.round(refreshedItems.reduce((s, it) => s + it.maxSimPct, 0) / Math.max(1, refreshedItems.length));
+      return {
+        items: refreshedItems,
+        maxSimPct,
+        avgSimPct,
+        isCustomSearched: true,
+        searchKeyword: w.customPublishedSimReport.keyword || extractCompactCoreSearchKeyword(w),
+        checkedAt: w.customPublishedSimReport.checkedAt || ''
+      };
+    }
+
+    // 기본값: 현재 수집된 원문 출처(w.sources)와 취재 메모(w.researchItems)를 매칭하여 기보도 기사 유사도 리스트 즉시 생성
+    const memos = Array.isArray(w.researchItems) ? w.researchItems : [];
+    const sources = (Array.isArray(w.sources) ? w.sources : []).filter(s => !s.excluded);
+    const baseRawItems = [];
+
+    sources.forEach((src, idx) => {
+      const linkedMemos = memos.filter(m => Array.isArray(m.sourceIds) && m.sourceIds.includes(src.id));
+      const fallbackMemo = memos[idx] || null;
+      const combinedLead = linkedMemos.length > 0
+        ? linkedMemos.map(m => m.fact).join(' ')
+        : (fallbackMemo ? fallbackMemo.fact : '');
+      const bracketMatch = String(src.title || '').match(/^\[([^\]]+)\]\s*(.*)$/);
+      const metaPart = bracketMatch ? bracketMatch[1] : '';
+      const cleanTitle = bracketMatch ? bracketMatch[2] : String(src.title || '');
+      const [mediaPart, datePart] = metaPart.includes('·')
+        ? metaPart.split('·').map(s => s.trim())
+        : [metaPart || '언론 보도', '최신'];
+      baseRawItems.push({
+        id: src.id || `src-sim-${idx}`,
+        media: mediaPart || '언론 보도',
+        pubDate: datePart || '최신',
+        title: cleanTitle || src.title || `${w.keyword} 보도 기사`,
+        leadText: combinedLead,
+        url: src.url || ''
+      });
+    });
+
+    const comparedItems = baseRawItems.slice(0, 6).map(it => compareExternalArticleAgainstWork(it, w));
+    const maxSimPct = comparedItems.reduce((m, it) => Math.max(m, it.maxSimPct), 0);
+    const avgSimPct = Math.round(comparedItems.reduce((s, it) => s + it.maxSimPct, 0) / Math.max(1, comparedItems.length));
+    return {
+      items: comparedItems,
+      maxSimPct,
+      avgSimPct,
+      isCustomSearched: false,
+      searchKeyword: extractCompactCoreSearchKeyword(w),
+      checkedAt: '수집 원문 자동 대조'
+    };
+  }
+
+  // 사용자가 붙여넣은 보도자료/타 기사 원문 텍스트와 우리 기사 본문을 문장 단위로 1:1 정밀 대조하는 함수
+  function comparePastedPressReleaseWithWork(rawPasteText = '', w) {
+    const pastedSents = splitIntoSentences(rawPasteText).filter(s => s.length >= 10);
+    if (pastedSents.length === 0 || !w) return null;
+
+    const ourSents = [];
+    if (w.summaryBlocks?.includeLeadIntro !== false && w.summaryBlocks?.leadIntro) {
+      splitIntoSentences(w.summaryBlocks.leadIntro).forEach(s => {
+        if (s.length >= 10) ourSents.push({ secId: 'block-step-3', secLabel: '도입부', text: s });
+      });
+    }
+    (w.draftSections || []).forEach((sec, idx) => {
+      splitIntoSentences(sec.content || '').forEach(s => {
+        if (s.length >= 10) ourSents.push({ secId: `secWrap-${sec.id}`, secLabel: `단락 0${idx + 1}`, text: s });
+      });
+    });
+
+    let verbatimCount = 0;
+    let partialCount = 0;
+    let sumPct = 0;
+    let maxPct = 0;
+
+    const pairs = pastedSents.map(ps => {
+      let bestSim = { ratio: 0, pct: 0, grade: 'REWRITTEN', badgeText: '✨ 겹침 없음', color: '#1B7F3B', bg: '#EBFBEE', border: '#B2F2BB' };
+      let bestOur = ourSents[0] || { secId: 'block-step-5', secLabel: '본문', text: '' };
+      ourSents.forEach(os => {
+        const info = computeSentenceSimilarityInfo(os.text, ps);
+        if (info.pct >= bestSim.pct) {
+          bestSim = info;
+          bestOur = os;
+        }
+      });
+      if (bestSim.grade === 'VERBATIM') verbatimCount++;
+      else if (bestSim.grade === 'PARTIAL_REWRITE') partialCount++;
+      sumPct += bestSim.pct;
+      if (bestSim.pct > maxPct) maxPct = bestSim.pct;
+      return {
+        pastedSent: ps,
+        ourSent: bestOur.text,
+        ourSecLabel: bestOur.secLabel,
+        ourTargetId: bestOur.secId,
+        simInfo: bestSim
+      };
+    }).sort((a, b) => b.simInfo.pct - a.simInfo.pct);
+
+    return {
+      totalPastedSentences: pastedSents.length,
+      verbatimCount,
+      partialCount,
+      avgSimPct: Math.round(sumPct / Math.max(1, pastedSents.length)),
+      maxSimPct: maxPct,
+      topPairs: pairs.slice(0, 5)
     };
   }
 
@@ -6044,6 +6292,10 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
     const unverifiedCount = (w.factChecks || []).filter(f => f.status === '미처리').length;
     const geoEval = evaluateGeoChecklist(w);
     const origEval = evaluateWorkOriginalityAndSimilarity(w);
+    const pubSimReport = getPublishedSimilarityComparisonReport(w);
+    const simQueryVal = (state.simSearchKeywordByWorkId && state.simSearchKeywordByWorkId[w.id] !== undefined)
+      ? state.simSearchKeywordByWorkId[w.id]
+      : (pubSimReport.searchKeyword || extractCompactCoreSearchKeyword(w));
     const isPreview = state.editorViewMode === 'preview';
 
     // 편집 화면 왼쪽에서도 바로 눌러 쓸 수 있는 인기 트렌드 태그 모음 (10개)
@@ -6260,18 +6512,19 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
                   </div>
                 </div>
 
-                <!-- 🔍 원문 출처·기보도 기사 유사도 및 독창성 검증 단계 -->
+                <!-- 🔍 원문 출처·기보도 기사 유사도 및 독창성 검증 단계 (앱 내 실시간 키워드 검색 & 보도자료 원문 대조) -->
                 <div style="margin-bottom: 18px; padding-bottom: 14px; border-bottom: var(--border-thin);">
                   <div class="flex-between mb-6" style="flex-wrap: wrap; gap: 4px;">
-                    <strong style="font-size: 13.5px; font-weight: 800;">🔍 원문·기보도 기사 유사도 검증</strong>
+                    <strong style="font-size: 13.5px; font-weight: 800;">🔍 기보도 기사·보도자료 유사도 검증</strong>
                     <span style="font-size: 11.5px; font-weight: 800; padding: 2px 8px; border-radius: 99px; color: ${origEval.verbatimCount === 0 ? '#1B7F3B' : '#B45309'}; background-color: ${origEval.verbatimCount === 0 ? '#EBFBEE' : '#FFFBEB'}; border: 1px solid ${origEval.verbatimCount === 0 ? '#B2F2BB' : '#FDE68A'};">
                       ${origEval.verbatimCount === 0 ? `✓ AI 독창적 재구성 ${origEval.rewriteRatePct}%` : `직접 인용 ${origEval.verbatimCount}문장 포함`}
                     </span>
                   </div>
                   <p class="text-muted mb-8" style="line-height: 1.45;">
-                    취재 메모·원문 출처 문장과 본문(${origEval.totalSentences}문장)을 대조해 <strong>단순 복붙(동일 문장)인지 AI 리라이팅(재구성)인지</strong> 판별하고, 외부 포털의 기보도 유사 기사를 교차 검색합니다.
+                    같은 주제의 타 언론 보도·보도자료와 우리 기사(${origEval.totalSentences}문장)의 <strong>원문 유사도(%) 및 동일 문장 여부</strong>를 앱 안에서 바로 측정합니다.
                   </p>
 
+                  <!-- 1) 우리 기사 문장 독창성 요약 -->
                   <div style="padding: 10px 12px; background-color: var(--bg-subtle); border: var(--border-thin); border-radius: 8px; margin-bottom: 10px;">
                     <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; text-align: center; margin-bottom: 8px;">
                       <div style="padding: 6px 4px; background: #FFFFFF; border-radius: 6px; border: 1px solid #E5E7EB;">
@@ -6288,45 +6541,189 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
                       </div>
                     </div>
                     <div style="font-size: 11.5px; color: var(--text-secondary); line-height: 1.45;">
-                      • 평균 원문 어절 유사도: <strong>${origEval.avgSimilarityPct}%</strong> (${origEval.verbatimCount === 0 ? '모든 문장이 원문 팩트만 참고하여 새롭게 재구성되었습니다' : `취재 메모에서 직접 반영한 동일 문장 ${origEval.verbatimCount}건이 있습니다`})
+                      • 기보도 기사 대비 평균 유사도: <strong style="color: ${pubSimReport.avgSimPct >= 65 ? '#C92A2A' : '#1B7F3B'};">${pubSimReport.avgSimPct}%</strong> (최고 유사 문장 <strong>${pubSimReport.maxSimPct}%</strong>)
                     </div>
                   </div>
 
-                  <!-- 기보도 기사 유사도 실시간 웹 검색 (네이버 뉴스 / 구글 뉴스) -->
+                  <!-- 2) 키워드 입력 → 같은 주제 기보도 기사·보도자료 검색 & 유사도 자동 측정 -->
+                  <div style="padding: 10px; background-color: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 8px; margin-bottom: 10px;">
+                    <label for="simCheckKeywordInput" style="display: block; font-size: 11.5px; font-weight: 800; color: var(--text-primary); margin-bottom: 5px;">
+                      🔎 같은 주제의 다른 보도자료·기보도 기사 검색 및 유사도 측정
+                    </label>
+                    <div style="display: flex; gap: 5px; margin-bottom: 6px;">
+                      <input
+                        type="text"
+                        class="input"
+                        id="simCheckKeywordInput"
+                        value="${escapeHtml(simQueryVal)}"
+                        placeholder="비교할 핵심 키워드 입력 (예: 비타데이 지수 CU)"
+                        style="flex: 1; height: 32px; padding: 0 9px; font-size: 12px; font-weight: 600;"
+                      />
+                      <button
+                        type="button"
+                        class="btn btn-primary btn-sm"
+                        id="runPublishedSimSearchBtn"
+                        style="height: 32px; padding: 0 10px; font-size: 11.5px; font-weight: 800; white-space: nowrap;"
+                        ${state.isCheckingPublishedSim ? 'disabled' : ''}
+                      >
+                        ${state.isCheckingPublishedSim ? '⏳ 대조 중...' : '유사도 검색'}
+                      </button>
+                    </div>
+                    <div class="flex-between" style="flex-wrap: wrap; gap: 4px;">
+                      <span style="font-size: 10.5px; color: var(--text-muted);">
+                        ${pubSimReport.isCustomSearched ? `✓ '${escapeHtml(pubSimReport.searchKeyword)}' 기보도 기사 ${pubSimReport.items.length}건 대조 완료 (${escapeHtml(pubSimReport.checkedAt)})` : `현재 수집된 보도 기사 ${pubSimReport.items.length}건과 자동 대조됨`}
+                      </span>
+                      <button
+                        type="button"
+                        id="toggleDirectPasteSimBtn"
+                        style="font-size: 11px; font-weight: 700; color: var(--mk-orange); background: none; border: none; padding: 0; cursor: pointer; font-family: inherit; text-decoration: underline;"
+                      >
+                        ${state.showDirectPasteSimBox ? '보도자료 직접 붙여넣기 닫기 ▲' : '+ 보도자료 원문 직접 붙여넣어 비교 ▾'}
+                      </button>
+                    </div>
+
+                    <!-- 2-B) 보도자료·타 기사 원문 직접 붙여넣어 1:1 유사도 계산기 -->
+                    ${state.showDirectPasteSimBox ? `
+                      <div style="margin-top: 8px; padding-top: 8px; border-top: 1px dashed #E5E7EB;">
+                        <div style="font-size: 11px; font-weight: 700; color: var(--text-secondary); margin-bottom: 4px;">
+                          📋 비교할 보도자료나 다른 뉴스 기사 본문을 붙여넣으세요:
+                        </div>
+                        <textarea
+                          class="textarea"
+                          id="simDirectPasteInput"
+                          rows="3"
+                          placeholder="보도자료 원문이나 타 언론사 기사 본문을 여기에 붙여넣고 [원문 유사도 계산]을 누르면 문장별 유사도(%)와 겹치는 문장을 즉시 찾아줍니다."
+                          style="font-size: 11.5px; padding: 7px 9px; margin-bottom: 6px;"
+                        >${escapeHtml(w.lastPastedPressReleaseText || '')}</textarea>
+                        <div class="flex-between">
+                          <button
+                            type="button"
+                            class="text-action"
+                            id="clearDirectPasteSimBtn"
+                            style="font-size: 11px; color: var(--text-muted);"
+                          >
+                            내용 비우기
+                          </button>
+                          <button
+                            type="button"
+                            class="btn btn-sm"
+                            id="runDirectPasteSimBtn"
+                            style="padding: 4px 10px; font-size: 11.5px; font-weight: 800; color: var(--mk-orange); border-color: var(--mk-orange); background: var(--mk-orange-light);"
+                          >
+                            📊 붙여넣은 원문과 유사도 계산
+                          </button>
+                        </div>
+
+                        ${w.pastedPressReleaseSimReport ? `
+                          <div style="margin-top: 8px; padding: 8px 10px; background-color: #FFFBEB; border: 1px solid #FDE68A; border-radius: 6px;">
+                            <div class="flex-between mb-4" style="flex-wrap: wrap; gap: 4px;">
+                              <strong style="font-size: 11.5px; color: #92400E;">
+                                📋 붙여넣은 원문 대조 결과 (${w.pastedPressReleaseSimReport.totalPastedSentences}문장)
+                              </strong>
+                              <span style="font-size: 11px; font-weight: 800; color: ${w.pastedPressReleaseSimReport.verbatimCount > 0 ? '#C92A2A' : '#1B7F3B'};">
+                                평균 유사도 ${w.pastedPressReleaseSimReport.avgSimPct}% · 최고 ${w.pastedPressReleaseSimReport.maxSimPct}%
+                              </span>
+                            </div>
+                            <div style="font-size: 11px; color: #78350F; margin-bottom: 6px;">
+                              동일(복붙) 의심: <strong>${w.pastedPressReleaseSimReport.verbatimCount}문장</strong> / 부분 유사: <strong>${w.pastedPressReleaseSimReport.partialCount}문장</strong>
+                            </div>
+                            <div style="display: flex; flex-direction: column; gap: 5px; max-height: 190px; overflow-y: auto;">
+                              ${(w.pastedPressReleaseSimReport.topPairs || []).slice(0, 3).map(pair => `
+                                <div style="padding: 6px 8px; background: #FFFFFF; border: 1px solid #FDE68A; border-radius: 5px; font-size: 11px; line-height: 1.45;">
+                                  <div class="flex-between" style="margin-bottom: 3px;">
+                                    <span style="font-weight: 800; color: ${pair.simInfo.color};">유사도 ${pair.simInfo.pct}% (${pair.simInfo.grade === 'VERBATIM' ? '동일 문장 주의' : pair.simInfo.grade === 'PARTIAL_REWRITE' ? '부분 유사' : '독창적 재구성'})</span>
+                                    <button type="button" class="text-action-orange" data-jump-block="${escapeHtml(pair.ourTargetId)}" style="font-size: 10.5px;">${escapeHtml(pair.ourSecLabel)} 이동 ↘</button>
+                                  </div>
+                                  <div style="color: var(--text-muted); margin-bottom: 2px;">• 보도자료: "${escapeHtml(pair.pastedSent.slice(0, 75))}${pair.pastedSent.length > 75 ? '…' : ''}"</div>
+                                  <div style="color: var(--text-primary); font-weight: 600;">• 우리 기사: "${escapeHtml(pair.ourSent.slice(0, 75))}${pair.ourSent.length > 75 ? '…' : ''}"</div>
+                                </div>
+                              `).join('')}
+                            </div>
+                          </div>
+                        ` : ''}
+                      </div>
+                    ` : ''}
+                  </div>
+
+                  <!-- 3) 기보도 기사·원문 보도자료별 유사도(%) 비교 리스트 -->
                   <div style="margin-bottom: 8px;">
-                    <div style="font-size: 11.5px; font-weight: 700; color: var(--text-primary); margin-bottom: 5px;">
-                      🌐 현재 보도된 외부 뉴스 중 유사 기사 검색
-                    </div>
-                    <div style="display: flex; flex-wrap: wrap; gap: 5px;">
-                      <a
-                        href="https://search.naver.com/search.naver?where=news&query=${encodeURIComponent(w.title || w.keyword || '')}"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        style="flex: 1; text-align: center; padding: 5px 8px; font-size: 11px; font-weight: 700; color: #1B7F3B; background-color: #EBFBEE; border: 1px solid #B2F2BB; border-radius: 6px; text-decoration: none; white-space: nowrap;"
-                        title="완성된 기사 헤드라인과 유사한 기보도 기사가 있는지 네이버 뉴스에서 즉시 검색합니다"
+                    <div class="flex-between" style="margin-bottom: 6px;">
+                      <span style="font-size: 11.5px; font-weight: 800; color: var(--text-primary);">
+                        📰 기보도 기사·보도자료별 원문 유사도 (${pubSimReport.items.length}건)
+                      </span>
+                      <button
+                        type="button"
+                        class="text-action-orange"
+                        data-jump-block="block-step-8"
+                        style="font-size: 11px; font-weight: 700;"
                       >
-                        네이버 뉴스 제목 유사도 검색 ↗
-                      </a>
-                      <a
-                        href="https://www.google.com/search?tbm=nws&q=${encodeURIComponent((w.keyword || '') + ' ' + ((w.draftSections?.[0]?.title || '').slice(0, 18)))}"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        style="flex: 1; text-align: center; padding: 5px 8px; font-size: 11px; font-weight: 700; color: #1D4ED8; background-color: #EFF6FF; border: 1px solid #BFDBFE; border-radius: 6px; text-decoration: none; white-space: nowrap;"
-                        title="구글 뉴스에서 핵심 키워드·소제목과 유사한 기보도 기사를 검색합니다"
-                      >
-                        구글 뉴스 본문 유사도 검색 ↗
-                      </a>
+                        하단 출처 목록 ↘
+                      </button>
                     </div>
-                  </div>
 
-                  <button
-                    type="button"
-                    class="text-action-orange"
-                    data-jump-block="block-step-8"
-                    style="font-size: 11.5px; font-weight: 700;"
-                  >
-                    하단 참고 출처별(1~${(w.sources || []).length}번) 유사도 상세 보기 ↘
-                  </button>
+                    ${pubSimReport.items.length === 0 ? `
+                      <div class="text-muted" style="font-size: 11.5px; padding: 8px 0;">
+                        위 검색창에 키워드를 입력하고 [유사도 검색]을 눌러 기보도 기사와 비교해 보세요.
+                      </div>
+                    ` : `
+                      <div style="display: flex; flex-direction: column; gap: 6px; max-height: 290px; overflow-y: auto; padding-right: 2px;">
+                        ${pubSimReport.items.map((item, idx) => {
+                          const simPct = item.maxSimPct;
+                          const isHigh = simPct >= 75;
+                          const isMid = simPct >= 45 && simPct < 75;
+                          const badgeColor = isHigh ? '#C92A2A' : (isMid ? '#B45309' : '#1B7F3B');
+                          const badgeBg = isHigh ? '#FFF5F5' : (isMid ? '#FFFBEB' : '#EBFBEE');
+                          const badgeBorder = isHigh ? '#FFC9C9' : (isMid ? '#FDE68A' : '#B2F2BB');
+                          const statusLabel = isHigh ? `⚠️ 원문 유사 ${simPct}%` : (isMid ? `🔄 부분 유사 ${simPct}%` : `✨ 유사도 ${simPct}% (독창)`);
+                          return `
+                            <div style="padding: 8px 10px; background-color: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 7px; font-size: 11.5px;">
+                              <div class="flex-between" style="gap: 6px; margin-bottom: 4px; align-items: flex-start;">
+                                <div style="flex: 1; min-width: 0; font-weight: 700; color: var(--text-primary); line-height: 1.35;">
+                                  <span style="color: var(--text-muted); font-size: 10.5px; font-weight: 600; display: block; margin-bottom: 1px;">
+                                    [${escapeHtml(item.media)} · ${escapeHtml(item.pubDate)}]
+                                  </span>
+                                  ${idx + 1}. ${escapeHtml(item.title)}
+                                </div>
+                                <span style="flex-shrink: 0; font-size: 10.5px; font-weight: 800; color: ${badgeColor}; background-color: ${badgeBg}; border: 1px solid ${badgeBorder}; padding: 2px 7px; border-radius: 99px; white-space: nowrap;">
+                                  ${statusLabel}
+                                </span>
+                              </div>
+                              ${item.matchedExtSent && item.matchedOurSent ? `
+                                <div style="margin-top: 5px; padding: 5px 7px; background-color: #F9FAFB; border-radius: 5px; font-size: 11px; line-height: 1.4; color: var(--text-secondary);">
+                                  <div style="margin-bottom: 2px; color: var(--text-muted);">
+                                    <strong>타 매체 원문:</strong> "${escapeHtml(item.matchedExtSent.slice(0, 68))}${item.matchedExtSent.length > 68 ? '…' : ''}"
+                                  </div>
+                                  <div style="color: var(--text-primary);">
+                                    <strong>우리 기사(${escapeHtml(item.matchedOurSecLabel)}):</strong> "${escapeHtml(item.matchedOurSent.slice(0, 68))}${item.matchedOurSent.length > 68 ? '…' : ''}"
+                                  </div>
+                                </div>
+                              ` : ''}
+                              <div class="flex-between" style="margin-top: 5px; padding-top: 4px; border-top: 1px solid #F3F4F6;">
+                                <button
+                                  type="button"
+                                  class="text-action"
+                                  data-jump-block="${escapeHtml(item.matchedOurTargetId || 'block-step-5')}"
+                                  style="font-size: 10.5px; font-weight: 700; color: var(--text-secondary);"
+                                >
+                                  📌 ${escapeHtml(item.matchedOurSecLabel || '본문')} 비교 위치로 이동 ↘
+                                </button>
+                                ${item.url ? `
+                                  <a
+                                    href="${escapeHtml(item.url)}"
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    style="font-size: 10.5px; font-weight: 700; color: var(--mk-orange); text-decoration: none;"
+                                  >
+                                    보도 원문 열기 ↗
+                                  </a>
+                                ` : ''}
+                              </div>
+                            </div>
+                          `;
+                        }).join('')}
+                      </div>
+                    `}
+                  </div>
                 </div>
 
                 <div>
@@ -8435,6 +8832,90 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
       render(true);
       saveCurrentWork(true);
       showToast('✓ 모든 수치·날짜 팩트체크 문장이 확인 완료로 처리되었습니다.');
+    });
+
+    // [점검·팩트] 기보도 기사·보도자료 유사도 검색 및 원문 붙여넣기 1:1 대조 이벤트
+    const simKwInputEl = document.getElementById('simCheckKeywordInput');
+    simKwInputEl?.addEventListener('input', e => {
+      state.simSearchKeywordByWorkId = state.simSearchKeywordByWorkId || {};
+      state.simSearchKeywordByWorkId[w.id] = e.target.value;
+    });
+
+    async function triggerPublishedNewsSimSearch() {
+      if (state.isCheckingPublishedSim) return;
+      const queryVal = (document.getElementById('simCheckKeywordInput')?.value || '').trim();
+      if (!queryVal) {
+        showToast('비교 검색할 키워드를 입력해 주세요.');
+        document.getElementById('simCheckKeywordInput')?.focus();
+        return;
+      }
+      state.simSearchKeywordByWorkId = state.simSearchKeywordByWorkId || {};
+      state.simSearchKeywordByWorkId[w.id] = queryVal;
+      state.isCheckingPublishedSim = true;
+      render(true);
+      try {
+        const clientKey = getClientPerplexityKey();
+        const rawArticles = await fetchPublishedArticlesForSimilarityCheck({
+          apiKey: clientKey,
+          query: queryVal,
+          work: w
+        });
+        await loadConfig();
+        const nowTime = new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+        w.customPublishedSimReport = {
+          keyword: queryVal,
+          checkedAt: nowTime,
+          items: rawArticles
+        };
+        state.isCheckingPublishedSim = false;
+        saveCurrentWork(true);
+        const report = getPublishedSimilarityComparisonReport(w);
+        showToast(`✓ '${queryVal}' 관련 기보도 기사 ${report.items.length}건과 원문 유사도 대조 완료! (평균 유사도 ${report.avgSimPct}%)`);
+        render(true);
+      } catch (err) {
+        state.isCheckingPublishedSim = false;
+        showToast(`기보도 기사 유사도 검색 중 오류: ${err.message}`);
+        render(true);
+      }
+    }
+
+    document.getElementById('runPublishedSimSearchBtn')?.addEventListener('click', triggerPublishedNewsSimSearch);
+    simKwInputEl?.addEventListener('keydown', e => {
+      if (e.isComposing || e.keyCode === 229) return;
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        triggerPublishedNewsSimSearch();
+      }
+    });
+
+    document.getElementById('toggleDirectPasteSimBtn')?.addEventListener('click', () => {
+      state.showDirectPasteSimBox = !state.showDirectPasteSimBox;
+      render(true);
+    });
+
+    document.getElementById('simDirectPasteInput')?.addEventListener('input', e => {
+      w.lastPastedPressReleaseText = e.target.value;
+    });
+
+    document.getElementById('runDirectPasteSimBtn')?.addEventListener('click', () => {
+      const rawPaste = (document.getElementById('simDirectPasteInput')?.value || w.lastPastedPressReleaseText || '').trim();
+      if (!rawPaste || rawPaste.length < 12) {
+        showToast('비교할 보도자료나 다른 뉴스 기사 문장을 붙여넣어 주세요.');
+        document.getElementById('simDirectPasteInput')?.focus();
+        return;
+      }
+      w.lastPastedPressReleaseText = rawPaste;
+      w.pastedPressReleaseSimReport = comparePastedPressReleaseWithWork(rawPaste, w);
+      saveCurrentWork(true);
+      render(true);
+      showToast(`📊 붙여넣은 원문과 1:1 유사도 계산 완료! (평균 유사도 ${w.pastedPressReleaseSimReport?.avgSimPct || 0}%)`);
+    });
+
+    document.getElementById('clearDirectPasteSimBtn')?.addEventListener('click', () => {
+      w.lastPastedPressReleaseText = '';
+      w.pastedPressReleaseSimReport = null;
+      saveCurrentWork(true);
+      render(true);
     });
 
     // MK Pick 5대 카테고리 칩 클릭 시 즉시 카테고리 및 바이라인 라벨 반영
