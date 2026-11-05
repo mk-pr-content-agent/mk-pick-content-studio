@@ -365,20 +365,21 @@ body {
   }
 }
 
-/* 트렌드 키워드 심플 그리드 (박스·큰 버튼 없이 깔끔한 2열 구분선 리스트) */
+/* 트렌드 키워드 심플 그리드 (창 폭에 관계없이 제목·설명이 찌그러지지 않는 3단 수직 정렬 구조) */
 .trend-clean-grid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   column-gap: 28px;
   border-top: var(--border-thin);
 }
 
 .trend-clean-row {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 14px;
-  padding: 13px 8px;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  gap: 6px;
+  padding: 14px 10px;
   border-bottom: var(--border-thin);
   cursor: pointer;
   transition: background-color 0.12s ease;
@@ -891,6 +892,7 @@ table.mk-table th {
 
 @media (max-width: 960px) {
   .grid-2,
+  .trend-clean-grid,
   .home-step1-main-grid,
   .home-step1-sub-grid,
   .cal-inline-input-grid {

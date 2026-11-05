@@ -4763,55 +4763,65 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
                 const factCheckSearchUrl = `https://search.naver.com/search.naver?where=news&query=${encodeURIComponent(item.keyword)}`;
                 return `
                   <div class="trend-clean-row" style="${rowGenStyle}" data-use-trend-kw="${escapeHtml(item.keyword)}" data-use-trend-comp="${escapeHtml(item.company || '')}" data-use-trend-type="${matchedTypeId}">
-                    <div style="min-width: 0; flex: 1;">
-                      <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-bottom: 2px;">
-                        <span style="font-size: 12px; font-weight: 800; color: var(--mk-orange); width: 18px;">${idx + 1}</span>
-                        <strong style="font-size: 14px; color: var(--text-primary);">${escapeHtml(item.keyword)}</strong>
-                        <span style="font-size: 11px; font-weight: 700; color: var(--mk-orange); background-color: ${isThisRowGenerating ? '#FFFFFF' : 'var(--mk-orange-light)'}; padding: 1px 6px; border-radius: 4px;">
+                    <!-- 1행: 순위 번호 + 트렌드 키워드 제목(전체 폭 확보) + 우측 초안 생성 액션 -->
+                    <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 10px;">
+                      <div style="display: flex; align-items: baseline; gap: 8px; min-width: 0; flex: 1;">
+                        <span style="font-size: 13px; font-weight: 800; color: var(--mk-orange); flex-shrink: 0; min-width: 18px;">${idx + 1}</span>
+                        <strong style="font-size: 14.5px; font-weight: 800; color: var(--text-primary); line-height: 1.4;">${escapeHtml(item.keyword)}</strong>
+                      </div>
+                      <span ${isThisRowGenerating ? 'data-active-generating-badge="1"' : ''} style="font-size: 12px; font-weight: 800; color: var(--mk-orange); white-space: nowrap; flex-shrink: 0; padding-top: 1px; ${isThisRowGenerating ? 'background-color: #FFFFFF; padding: 3px 9px; border-radius: 99px; border: 1px solid var(--mk-orange);' : ''}">
+                        ${isThisRowGenerating ? escapeHtml(formatDraftRemainingInfo(state.draftElapsedSec || 0).shortBtnText) : '초안 생성 →'}
+                      </span>
+                    </div>
+
+                    <!-- 2행: 트렌드 요약 설명 (버튼에 눌리지 않고 가로 전체 폭을 사용하여 가독성 확보) -->
+                    <div style="font-size: 12.5px; color: var(--text-secondary); line-height: 1.55; padding-left: 26px;">
+                      ${escapeHtml(item.desc)}
+                    </div>
+
+                    <!-- 3행: 추천 유형·언론 보도 확인 배지(좌) + 원문·팩트검색·방향설정 버튼(우) -->
+                    <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px; padding-left: 26px; margin-top: 2px;">
+                      <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 5px;">
+                        <span style="font-size: 11px; font-weight: 700; color: var(--mk-orange); background-color: ${isThisRowGenerating ? '#FFFFFF' : 'var(--mk-orange-light)'}; padding: 2px 7px; border-radius: 4px; white-space: nowrap;">
                           유형 0${matchedTypeId} · ${escapeHtml(matchedCat)}
                         </span>
-                        <span style="font-size: 10.5px; font-weight: 800; color: ${rowFv.isWarning ? '#D9480F' : '#1B7F3B'}; background-color: ${rowFv.isWarning ? '#FFF4E6' : '#EBFBEE'}; border: 1px solid ${rowFv.isWarning ? '#FFC078' : '#B2F2BB'}; padding: 1px 6px; border-radius: 4px;">
+                        <span style="font-size: 10.5px; font-weight: 700; color: ${rowFv.isWarning ? '#D9480F' : '#1B7F3B'}; background-color: ${rowFv.isWarning ? '#FFF4E6' : '#EBFBEE'}; border: 1px solid ${rowFv.isWarning ? '#FFC078' : '#B2F2BB'}; padding: 1.5px 6px; border-radius: 4px; white-space: nowrap;">
                           ${rowFv.isWarning ? '⚠️ 팩트체크 확인 권장' : `✓ 언론 보도 확인${shortSource ? ` · ${escapeHtml(shortSource)}` : ''}`}
                         </span>
                       </div>
-                      <div style="font-size: 12.5px; color: var(--text-secondary); padding-left: 24px;">
-                        ${escapeHtml(item.desc)}
+
+                      <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 5px;">
+                        <a
+                          href="${escapeHtml(articleUrl)}"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          data-trend-ext-link="1"
+                          style="font-size: 11px; font-weight: 600; color: var(--text-secondary); background-color: var(--bg-subtle); border: var(--border-thin); padding: 2px 7px; border-radius: 4px; text-decoration: none; white-space: nowrap;"
+                          title="${escapeHtml(linkTooltip)}"
+                        >
+                          ${escapeHtml(linkLabel)}
+                        </a>
+                        <a
+                          href="${escapeHtml(factCheckSearchUrl)}"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          data-trend-ext-link="1"
+                          style="font-size: 11px; font-weight: 700; color: #1B7F3B; background-color: #EBFBEE; border: 1px solid #B2F2BB; padding: 2px 7px; border-radius: 4px; text-decoration: none; white-space: nowrap;"
+                          title="네이버 뉴스에서 실제 언론 보도 여부를 즉시 검색해 교차 확인합니다"
+                        >
+                          팩트 검색 ↗
+                        </a>
+                        <button
+                          type="button"
+                          data-stage-trend-kw="${escapeHtml(item.keyword)}"
+                          data-stage-trend-comp="${escapeHtml(item.company || '')}"
+                          data-stage-trend-type="${matchedTypeId}"
+                          style="font-size: 11px; font-weight: 700; color: var(--text-secondary); background-color: #FFFFFF; border: var(--border-thin); padding: 2px 7px; border-radius: 4px; cursor: pointer; white-space: nowrap; font-family: inherit;"
+                          title="이 키워드를 위 STEP 1 입력창에 담고 서브 키워드·원하는 글의 방향을 직접 입력한 뒤 생성합니다"
+                        >
+                          ↑ 방향 설정
+                        </button>
                       </div>
-                    </div>
-                    <div class="flex-row" style="gap: 6px; flex-shrink: 0;">
-                      <a
-                        href="${escapeHtml(articleUrl)}"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        data-trend-ext-link="1"
-                        style="font-size: 11.5px; font-weight: 700; color: var(--text-secondary); background-color: var(--bg-subtle); border: var(--border-thin); padding: 3px 8px; border-radius: 4px; text-decoration: none; white-space: nowrap;"
-                        title="${escapeHtml(linkTooltip)}"
-                      >
-                        ${escapeHtml(linkLabel)}
-                      </a>
-                      <a
-                        href="${escapeHtml(factCheckSearchUrl)}"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        data-trend-ext-link="1"
-                        style="font-size: 11px; font-weight: 700; color: #1B7F3B; background-color: #EBFBEE; border: 1px solid #B2F2BB; padding: 3px 7px; border-radius: 4px; text-decoration: none; white-space: nowrap;"
-                        title="네이버 뉴스에서 실제 언론 보도 여부를 즉시 검색해 교차 확인합니다"
-                      >
-                        팩트 검색 ↗
-                      </a>
-                      <button
-                        type="button"
-                        data-stage-trend-kw="${escapeHtml(item.keyword)}"
-                        data-stage-trend-comp="${escapeHtml(item.company || '')}"
-                        data-stage-trend-type="${matchedTypeId}"
-                        style="font-size: 11px; font-weight: 700; color: var(--text-secondary); background-color: #FFFFFF; border: var(--border-thin); padding: 3px 7px; border-radius: 4px; cursor: pointer; white-space: nowrap; font-family: inherit;"
-                        title="이 키워드를 위 STEP 1 입력창에 담고 서브 키워드·원하는 글의 방향을 직접 입력한 뒤 생성합니다"
-                      >
-                        ↑ 방향 설정
-                      </button>
-                      <span ${isThisRowGenerating ? 'data-active-generating-badge="1"' : ''} style="font-size: 12px; font-weight: 800; color: var(--mk-orange); white-space: nowrap; ${isThisRowGenerating ? 'background-color: #FFFFFF; padding: 3px 9px; border-radius: 99px; border: 1px solid var(--mk-orange);' : ''}">
-                        ${isThisRowGenerating ? escapeHtml(formatDraftRemainingInfo(state.draftElapsedSec || 0).shortBtnText) : '초안 생성 →'}
-                      </span>
                     </div>
                   </div>
                 `;
