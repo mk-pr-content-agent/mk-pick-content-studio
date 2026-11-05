@@ -4034,7 +4034,7 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
     const company = extractBrandFromTopic ? extractBrandFromTopic(keyword, rawCompany) : String(rawCompany || '').trim();
     const subKeywords = (customSubKeywords !== undefined ? customSubKeywords : (state.homeInput.subKeywords || '')).trim();
     const direction = (customDirection !== undefined ? customDirection : (state.homeInput.direction || '')).trim();
-    const matchedType = autoMatchType ? detectBestContentType(keyword, company, `${state.homeInput.rawText || ''} ${direction} ${subKeywords}`, typeId) : typeId;
+    const matchedType = autoMatchType ? detectBestContentType(keyword, company, `${state.homeInput.rawText || ''} ${direction} ${subKeywords}`, 0) : typeId;
     const tName = CONTENT_TYPES[matchedType]?.shortName || '맞춤 유형';
     const selectedWriter = getSelectedWriterModel();
     state.homeInput.keyword = keyword;
@@ -4323,9 +4323,94 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
 
   function renderHomeScreen(root) {
     const hi = state.homeInput;
-    const selectedTypeInfo = CONTENT_TYPES[hi.typeId] || CONTENT_TYPES[4];
+    const hasAnyHomeInput = Boolean(
+      (hi.keyword || '').trim() ||
+      (hi.company || '').trim() ||
+      (hi.subKeywords || '').trim() ||
+      (hi.direction || '').trim()
+    );
+    if (hi.typeMode !== 'manual' && hasAnyHomeInput) {
+      hi.typeId = detectBestContentType(
+        hi.keyword,
+        hi.company,
+        `${hi.rawText || ''} ${hi.direction || ''} ${hi.subKeywords || ''}`,
+        0
+      );
+    }
+    const selectedTypeInfo = CONTENT_TYPES[hi.typeId] || CONTENT_TYPES[3];
     const previewCat = recommendMkPickCategory(hi.keyword || selectedTypeInfo.name, hi.typeId, hi.company);
     const calData = MONTHLY_MARKETING_CALENDAR[state.calendarMonth] || MONTHLY_MARKETING_CALENDAR[10];
+
+    function buildHomeTypePreviewMetaHtml() {
+      const hasInputNow = Boolean(
+        (hi.keyword || '').trim() ||
+        (hi.company || '').trim() ||
+        (hi.subKeywords || '').trim() ||
+        (hi.direction || '').trim()
+      );
+      if (hi.typeMode !== 'manual' && !hasInputNow) {
+        return `
+          <span style="color: var(--mk-orange); font-weight: 700;">✨ AI 자동 맞춤 대기 중</span>
+          <span style="color: #CBD5E1;">|</span>
+          <span style="color: var(--text-secondary);">위 STEP 1에 키워드를 입력하면 가장 알맞은 유형(01~05)과 카테고리가 즉시 자동 추천됩니다</span>
+        `;
+      }
+      const curTypeInfo = CONTENT_TYPES[hi.typeId] || CONTENT_TYPES[3];
+      const curCat = recommendMkPickCategory(hi.keyword || curTypeInfo.name, hi.typeId, hi.company);
+      return `
+        <span>${hi.typeMode !== 'manual' ? 'AI 추천 유형:' : '선택된 유형:'} <strong style="color: var(--mk-orange);">유형 0${curTypeInfo.id} · ${escapeHtml(curTypeInfo.uiTitle || curTypeInfo.name)}</strong></span>
+        <span style="color: #CBD5E1;">|</span>
+        <span>추천 카테고리: <strong style="color: var(--mk-orange);">[${escapeHtml(curCat.recommendedCategory)}]</strong></span>
+        <span style="color: #CBD5E1;">|</span>
+        <span>전개 흐름: <strong style="color: var(--text-primary); font-weight: 700;">${escapeHtml(curTypeInfo.structure)}</strong></span>
+      `;
+    }
+
+    function buildHomeTypeCardsHtml() {
+      const hasInputNow = Boolean(
+        (hi.keyword || '').trim() ||
+        (hi.company || '').trim() ||
+        (hi.subKeywords || '').trim() ||
+        (hi.direction || '').trim()
+      );
+      return Object.values(CONTENT_TYPES).map(t => {
+        const isManualSelected = hi.typeMode === 'manual' && Number(hi.typeId) === t.id;
+        const isAutoMatched = hi.typeMode !== 'manual' && hasInputNow && Number(hi.typeId) === t.id;
+        const isMatched = isManualSelected || isAutoMatched;
+        const cardClass = isManualSelected ? 'selected' : (isAutoMatched ? 'auto-matched' : '');
+        return `
+          <div class="home-type-card ${cardClass}" data-select-home-type="${t.id}" title="클릭하여 '${escapeHtml(t.uiTitle || t.name)}' 관점으로 직접 지정 (다시 클릭 시 AI 자동 맞춤)">
+            <div class="flex-between mb-6" style="gap: 4px;">
+              <span style="font-size: 11px; font-weight: 800; color: ${isMatched ? 'var(--mk-orange)' : 'var(--text-muted)'};">
+                유형 0${t.id} · ${escapeHtml(t.defaultCategory)}
+              </span>
+              ${isManualSelected ? `
+                <span style="font-size: 10.5px; font-weight: 800; color: #FFFFFF; background-color: var(--mk-orange); padding: 1px 6px; border-radius: 99px;">
+                  ✓ 직접 선택됨
+                </span>
+              ` : isAutoMatched ? `
+                <span style="font-size: 10.5px; font-weight: 800; color: #FFFFFF; background-color: #2563EB; padding: 1px 7px; border-radius: 99px;">
+                  ✨ AI 자동 추천
+                </span>
+              ` : (hi.typeMode !== 'manual' && !hasInputNow ? `
+                <span style="font-size: 10px; font-weight: 600; color: var(--text-muted); background-color: #F8FAFC; border: 1px solid #E2E8F0; padding: 1px 6px; border-radius: 99px;">
+                  자동 대기
+                </span>
+              ` : '')}
+            </div>
+            <div style="font-size: 13.5px; font-weight: 800; color: ${isMatched ? 'var(--mk-orange)' : 'var(--text-primary)'}; margin-bottom: 3px; line-height: 1.3; letter-spacing: -0.2px;">
+              ${t.icon ? `${t.icon} ` : ''}${escapeHtml(t.uiTitle || t.name)}
+            </div>
+            <div style="font-size: 11.5px; color: var(--text-secondary); line-height: 1.4; margin-bottom: 4px;">
+              ${escapeHtml(t.desc)}
+            </div>
+            <div style="font-size: 10.5px; color: var(--text-muted); margin-top: auto;">
+              기존 명칭: ${escapeHtml(t.name)}
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
 
     const activeTrendList =
       state.trendTab === 'shortform'
@@ -4465,47 +4550,13 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
                   : '선택하신 유형의 관점을 기준으로 기사를 구성합니다. (다시 클릭하면 AI 자동 맞춤으로 전환)'}
               </span>
             </div>
-            <div style="display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: var(--text-secondary); background-color: #F8FAFC; padding: 4px 10px; border-radius: 6px; border: 1px solid #E2E8F0;">
-              <span>추천 카테고리: <strong style="color: var(--mk-orange);">[${escapeHtml(previewCat.recommendedCategory)}]</strong></span>
-              <span style="color: #CBD5E1;">|</span>
-              <span>전개 흐름: <strong style="color: var(--text-primary); font-weight: 700;">${escapeHtml(selectedTypeInfo.structure)}</strong></span>
+            <div id="homeTypePreviewMetaBox" style="display: flex; align-items: center; flex-wrap: wrap; gap: 8px; font-size: 11.5px; color: var(--text-secondary); background-color: #F8FAFC; padding: 4px 10px; border-radius: 6px; border: 1px solid #E2E8F0;">
+              ${buildHomeTypePreviewMetaHtml()}
             </div>
           </div>
 
-          <div class="home-type-grid">
-            ${Object.values(CONTENT_TYPES).map(t => {
-              const isMatched = Number(hi.typeId) === t.id;
-              const isManualSelected = hi.typeMode === 'manual' && isMatched;
-              const isAutoMatched = hi.typeMode !== 'manual' && isMatched;
-              const cardClass = isManualSelected ? 'selected' : (isAutoMatched ? 'auto-matched' : '');
-              return `
-                <div class="home-type-card ${cardClass}" data-select-home-type="${t.id}" title="클릭하여 '${escapeHtml(t.uiTitle || t.name)}' 관점으로 직접 지정 (다시 클릭 시 AI 자동 맞춤)">
-                  <div class="flex-between mb-6" style="gap: 4px;">
-                    <span style="font-size: 11px; font-weight: 800; color: ${isMatched ? 'var(--mk-orange)' : 'var(--text-muted)'};">
-                      유형 0${t.id} · ${escapeHtml(t.defaultCategory)}
-                    </span>
-                    ${isManualSelected ? `
-                      <span style="font-size: 10.5px; font-weight: 800; color: #FFFFFF; background-color: var(--mk-orange); padding: 1px 6px; border-radius: 99px;">
-                        ✓ 직접 선택
-                      </span>
-                    ` : isAutoMatched ? `
-                      <span style="font-size: 10.5px; font-weight: 800; color: var(--mk-orange); background-color: #FFFFFF; border: 1px solid var(--mk-orange-border); padding: 1px 6px; border-radius: 99px;">
-                        ✨ 자동 매칭
-                      </span>
-                    ` : ''}
-                  </div>
-                  <div style="font-size: 13.5px; font-weight: 800; color: ${isMatched ? 'var(--mk-orange)' : 'var(--text-primary)'}; margin-bottom: 3px; line-height: 1.3; letter-spacing: -0.2px;">
-                    ${t.icon ? `${t.icon} ` : ''}${escapeHtml(t.uiTitle || t.name)}
-                  </div>
-                  <div style="font-size: 11.5px; color: var(--text-secondary); line-height: 1.4; margin-bottom: 4px;">
-                    ${escapeHtml(t.desc)}
-                  </div>
-                  <div style="font-size: 10.5px; color: var(--text-muted); margin-top: auto;">
-                    기존 명칭: ${escapeHtml(t.name)}
-                  </div>
-                </div>
-              `;
-            }).join('')}
+          <div class="home-type-grid" id="homeTypeGridContainer">
+            ${buildHomeTypeCardsHtml()}
           </div>
         </div>
       </div>
@@ -5003,22 +5054,74 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
       }
     }
 
-    document.getElementById('homeKeywordInput')?.addEventListener('input', e => {
-      hi.keyword = e.target.value;
+    function bindHomeTypeCardEvents() {
+      root.querySelectorAll('[data-select-home-type]').forEach(card => {
+        card.addEventListener('click', () => {
+          syncHomeInputs();
+          const nextType = Number(card.getAttribute('data-select-home-type'));
+          if (hi.typeMode === 'manual' && hi.typeId === nextType) {
+            hi.typeMode = 'auto';
+            hi.typeId = detectBestContentType(
+              hi.keyword,
+              hi.company,
+              `${hi.rawText || ''} ${hi.direction || ''} ${hi.subKeywords || ''}`,
+              0
+            );
+            showToast('✨ AI 자동 맞춤 모드로 전환되었습니다.');
+          } else {
+            hi.typeMode = 'manual';
+            hi.typeId = nextType;
+            const tName = CONTENT_TYPES[nextType]?.uiTitle || CONTENT_TYPES[nextType]?.name || `유형 0${nextType}`;
+            showToast(`✓ [유형 0${nextType} · ${tName}] 관점으로 직접 선택되었습니다.`);
+          }
+          render(true);
+        });
+      });
+    }
+
+    function refreshHomeStep2AutoMatchDOM() {
+      syncHomeInputs();
       if (hi.typeMode !== 'manual') {
-        const autoDetected = detectBestContentType(hi.keyword, hi.company, `${hi.rawText} ${hi.direction} ${hi.subKeywords}`, hi.typeId);
-        if (hi.keyword.trim().length >= 2 && hi.typeId !== autoDetected) {
-          hi.typeId = autoDetected;
+        const hasInputNow = Boolean(
+          (hi.keyword || '').trim() ||
+          (hi.company || '').trim() ||
+          (hi.subKeywords || '').trim() ||
+          (hi.direction || '').trim()
+        );
+        if (hasInputNow) {
+          hi.typeId = detectBestContentType(
+            hi.keyword,
+            hi.company,
+            `${hi.rawText || ''} ${hi.direction || ''} ${hi.subKeywords || ''}`,
+            0
+          );
         }
       }
+      const gridEl = document.getElementById('homeTypeGridContainer');
+      if (gridEl) {
+        gridEl.innerHTML = buildHomeTypeCardsHtml();
+        bindHomeTypeCardEvents();
+      }
+      const metaEl = document.getElementById('homeTypePreviewMetaBox');
+      if (metaEl) {
+        metaEl.innerHTML = buildHomeTypePreviewMetaHtml();
+      }
+    }
+
+    document.getElementById('homeKeywordInput')?.addEventListener('input', () => {
+      refreshHomeStep2AutoMatchDOM();
     });
 
-    document.getElementById('homeSubKeywordsInput')?.addEventListener('input', e => {
-      hi.subKeywords = e.target.value;
+    document.getElementById('homeCompanyInput')?.addEventListener('input', () => {
+      refreshHomeStep2AutoMatchDOM();
     });
 
-    document.getElementById('homeDirectionInput')?.addEventListener('input', e => {
-      hi.direction = e.target.value;
+    document.getElementById('homeSubKeywordsInput')?.addEventListener('input', () => {
+      refreshHomeStep2AutoMatchDOM();
+    });
+
+    document.getElementById('homeDirectionInput')?.addEventListener('input', () => {
+      refreshHomeStep2AutoMatchDOM();
     });
 
     root.querySelectorAll('[data-home-quick-dir]').forEach(btn => {
@@ -5031,7 +5134,8 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
           dirEl.value = dirText;
           dirEl.focus();
         }
-        showToast('✓ 원하는 글의 방향·맥락이 입력되었습니다. 키워드를 확인하고 [✨ 초안 만들기 →]를 누르세요.');
+        refreshHomeStep2AutoMatchDOM();
+        showToast('✓ 원하는 글의 방향·맥락이 입력되고 AI 추천 유형이 자동 반영되었습니다.');
       });
     });
 
@@ -5048,7 +5152,7 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
         syncHomeInputs();
         const kw = btn.getAttribute('data-stage-trend-kw') || '';
         const comp = extractBrandFromTopic ? extractBrandFromTopic(kw, btn.getAttribute('data-stage-trend-comp') || '') : (btn.getAttribute('data-stage-trend-comp') || '');
-        const matchedType = Number(btn.getAttribute('data-stage-trend-type')) || 4;
+        const matchedType = Number(btn.getAttribute('data-stage-trend-type')) || detectBestContentType(kw, comp, '', 0);
         hi.keyword = kw;
         hi.company = comp;
         hi.typeId = matchedType;
@@ -5058,7 +5162,7 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
           flashElement('homeStep1Box');
           document.getElementById('homeDirectionInput')?.focus();
         }, 60);
-        showToast(`✓ '${kw}' 키워드가 상단 STEP 1에 담겼습니다. 원하는 글의 방향이나 서브 키워드를 입력한 뒤 [✨ 초안 만들기 →]를 누르세요!`);
+        showToast(`✓ '${kw}' 키워드가 상단 STEP 1에 담기고 [유형 0${matchedType}]이 자동 추천되었습니다!`);
       });
     });
 
@@ -5070,7 +5174,16 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
           showToast('트렌드 키워드나 주제를 입력해 주세요!');
           return;
         }
-        startWorkWithKeyword(hi.keyword, hi.typeId, hi.company, false, hi.subKeywords, hi.direction);
+        const isAuto = hi.typeMode !== 'manual';
+        if (isAuto) {
+          hi.typeId = detectBestContentType(
+            hi.keyword,
+            hi.company,
+            `${hi.rawText || ''} ${hi.direction || ''} ${hi.subKeywords || ''}`,
+            0
+          );
+        }
+        startWorkWithKeyword(hi.keyword, hi.typeId, hi.company, isAuto, hi.subKeywords, hi.direction);
       }
     };
 
@@ -5084,34 +5197,32 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
       render(true);
     });
 
-    // [✨ AI 자동 맞춤] 버튼 클릭 시 자동 매칭 모드로 전환
+    // [✨ AI 자동 맞춤] 버튼 클릭 시 기존 수동 선택을 즉시 해제하고 AI 자동 추천 모드로 전환
     document.getElementById('homeAutoTypeModeBtn')?.addEventListener('click', () => {
       syncHomeInputs();
       hi.typeMode = 'auto';
-      if (hi.keyword.trim().length >= 2) {
-        hi.typeId = detectBestContentType(hi.keyword, hi.company, `${hi.rawText} ${hi.direction} ${hi.subKeywords}`, hi.typeId || 4);
+      const hasInputNow = Boolean(
+        (hi.keyword || '').trim() ||
+        (hi.company || '').trim() ||
+        (hi.subKeywords || '').trim() ||
+        (hi.direction || '').trim()
+      );
+      if (hasInputNow) {
+        hi.typeId = detectBestContentType(
+          hi.keyword,
+          hi.company,
+          `${hi.rawText || ''} ${hi.direction || ''} ${hi.subKeywords || ''}`,
+          0
+        );
+        const recType = CONTENT_TYPES[hi.typeId] || CONTENT_TYPES[3];
+        showToast(`✨ AI 자동 맞춤 적용! 입력하신 주제에 맞춰 [유형 0${recType.id} · ${recType.uiTitle || recType.name}] 관점이 자동 추천되었습니다.`);
+      } else {
+        showToast('✨ AI 자동 맞춤 모드로 전환되었습니다! 위 STEP 1에 키워드를 입력하면 최적 유형(01~05)이 자동 추천됩니다.');
       }
-      showToast('✨ AI 자동 맞춤 모드가 켜졌습니다. 키워드와 최신 뉴스에 맞춰 최적 구조로 작성됩니다.');
       render(true);
     });
 
-    // 5대 콘텐츠 유형(관점) 카드 클릭 시 직접 고정 선택 (이미 직접 선택된 카드를 다시 누르면 AI 자동 맞춤으로 복귀)
-    root.querySelectorAll('[data-select-home-type]').forEach(card => {
-      card.addEventListener('click', () => {
-        syncHomeInputs();
-        const nextType = Number(card.getAttribute('data-select-home-type'));
-        if (hi.typeMode === 'manual' && hi.typeId === nextType) {
-          hi.typeMode = 'auto';
-          showToast('✨ AI 자동 맞춤 모드로 전환되었습니다.');
-        } else {
-          hi.typeMode = 'manual';
-          hi.typeId = nextType;
-          const tName = CONTENT_TYPES[nextType]?.uiTitle || CONTENT_TYPES[nextType]?.name || `유형 0${nextType}`;
-          showToast(`✓ [${tName}] 관점으로 고정되었습니다.`);
-        }
-        render(true);
-      });
-    });
+    bindHomeTypeCardEvents();
 
     // 탭 드래그 앤 드롭 & 화살표 순서 변경 공통 헬퍼
     function bindReorderableTabBar(selector, attrName, getOrderArr, setOrderArr, onSelectTab) {
@@ -5487,7 +5598,16 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
         document.getElementById('homeKeywordInput')?.focus();
         return;
       }
-      startWorkWithKeyword(hi.keyword, hi.typeId, hi.company, false);
+      const isAuto = hi.typeMode !== 'manual';
+      if (isAuto) {
+        hi.typeId = detectBestContentType(
+          hi.keyword,
+          hi.company,
+          `${hi.rawText || ''} ${hi.direction || ''} ${hi.subKeywords || ''}`,
+          0
+        );
+      }
+      startWorkWithKeyword(hi.keyword, hi.typeId, hi.company, isAuto, hi.subKeywords, hi.direction);
     });
 
     root.querySelectorAll('[data-open-work]').forEach(el => {
@@ -7112,7 +7232,7 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
         return;
       }
       const shouldAutoMatch = rebuildDraft && !keepCurrentType;
-      const nextTypeId = shouldAutoMatch ? detectBestContentType(kw, comp, `${subKeywords} ${direction}`, w.typeId) : w.typeId;
+      const nextTypeId = shouldAutoMatch ? detectBestContentType(kw, comp, `${subKeywords} ${direction}`, 0) : w.typeId;
       const nextTypeName = CONTENT_TYPES[nextTypeId]?.shortName || '맞춤 유형';
       const selectedWriter = getSelectedWriterModel();
       state.isRefreshingInEditor = true;
