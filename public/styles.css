@@ -52,18 +52,18 @@ body {
   overflow-wrap: break-word;
 }
 
-/* 상단 고정 헤더 (창 크기를 늘리고 줄여도 절대 글자가 세로로 찌그러지거나 아래 바와 겹치지 않도록 반응형 래핑 지원) */
+/* 상단 고정 헤더 (단일 라인 중심의 심플하고 정돈된 레이아웃) */
 .topbar {
   background-color: var(--white);
-  border-bottom: var(--border-thin);
-  min-height: 58px;
+  border-bottom: 1px solid #E5E7EB;
+  min-height: 54px;
   height: auto;
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   flex-wrap: wrap;
-  gap: 8px 16px;
-  padding: 8px 24px;
+  gap: 8px 20px;
+  padding: 6px 24px;
   position: sticky;
   top: 0;
   z-index: 60;
@@ -72,10 +72,12 @@ body {
 .brand-wrap {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   cursor: pointer;
   flex-shrink: 0;
   white-space: nowrap;
+  padding-right: 16px;
+  border-right: 1px solid #E5E7EB;
 }
 
 .brand-logo {
@@ -114,19 +116,17 @@ body {
 .topbar-nav {
   display: flex;
   align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
+  gap: 4px;
+  flex-wrap: nowrap;
   min-width: 0;
-  max-width: 100%;
 }
 
 .topbar-meta {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   flex-wrap: wrap;
   min-width: 0;
-  max-width: 100%;
   margin-left: auto;
 }
 

@@ -248,17 +248,17 @@
     return found ? found.shortLabel : 'Gemini 4 Argon';
   }
 
-  function renderWriterModelSelectHtml(extraStyle = '') {
+  function renderWriterModelSelectHtml(extraStyle = '', isCompactTopbar = false) {
     const currentModel = getSelectedWriterModel();
     return `
       <select
         class="select"
         data-writer-model-select="1"
         title="1단계 Perplexity(sonar-pro)가 실시간 최신 뉴스를 수집한 뒤, 2단계에서 기사를 집필할 AI 모델을 선택합니다"
-        style="width: auto; padding: 5px 10px; font-size: 12px; font-weight: 800; color: var(--text-primary); background-color: #FFFDF9; border: 1px solid var(--mk-orange-border); border-radius: 6px; cursor: pointer; ${extraStyle}"
+        style="width: auto; padding: ${isCompactTopbar ? '5px 8px' : '6px 10px'}; font-size: 12px; font-weight: 700; color: #374151; background-color: #F9FAFB; border: 1px solid #E5E7EB; border-radius: 6px; cursor: pointer; ${extraStyle}"
       >
         ${WRITER_MODEL_OPTIONS.map(opt => `
-          <option value="${escapeHtml(opt.id)}" ${opt.id === currentModel ? 'selected' : ''}>✍️ 집필 AI: ${escapeHtml(opt.label)}</option>
+          <option value="${escapeHtml(opt.id)}" ${opt.id === currentModel ? 'selected' : ''}>${isCompactTopbar ? `집필 AI · ${escapeHtml(opt.shortLabel)}` : `집필 AI: ${escapeHtml(opt.label)}`}</option>
         `).join('')}
       </select>
     `;
@@ -3757,14 +3757,14 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
     if (!nav || !meta) return;
 
     const rawKw = String(state.currentWork?.keyword || '').trim();
-    const shortKw = rawKw.length > 18 ? `${rawKw.slice(0, 18)}…` : rawKw;
+    const shortKw = rawKw.length > 16 ? `${rawKw.slice(0, 16)}…` : rawKw;
 
     nav.innerHTML = `
-      <button type="button" class="trend-clean-tab ${state.screen === 'home' ? 'active' : ''}" id="topGoHomeBtn" style="border-bottom-width: 2px; padding: 7px 8px; white-space: nowrap;">
-        홈 · 유형 및 트렌드 선택
+      <button type="button" class="trend-clean-tab ${state.screen === 'home' ? 'active' : ''}" id="topGoHomeBtn" style="border-bottom-width: 2px; padding: 8px 10px; font-size: 13px; white-space: nowrap;">
+        홈 · 소재 선택
       </button>
       ${state.currentWork ? `
-        <button type="button" class="trend-clean-tab ${state.screen === 'editor' ? 'active' : ''}" id="topGoEditorBtn" title="편집 중인 기사 (${escapeHtml(rawKw)})" style="border-bottom-width: 2px; padding: 7px 8px; margin-left: 4px; white-space: nowrap; max-width: 280px; overflow: hidden; text-overflow: ellipsis;">
+        <button type="button" class="trend-clean-tab ${state.screen === 'editor' ? 'active' : ''}" id="topGoEditorBtn" title="편집 중인 기사 (${escapeHtml(rawKw)})" style="border-bottom-width: 2px; padding: 8px 10px; font-size: 13px; margin-left: 2px; white-space: nowrap; max-width: 240px; overflow: hidden; text-overflow: ellipsis;">
           편집 중인 기사 (${escapeHtml(shortKw)})
         </button>
       ` : ''}
@@ -3775,17 +3775,35 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
     const activeWriterLabel = getWriterModelShortLabel();
     meta.innerHTML = `
       <div class="flex-row" style="gap: 6px; flex-wrap: wrap; max-width: 100%;">
-        ${renderWriterModelSelectHtml('max-width: 100%;')}
+        ${renderWriterModelSelectHtml('', true)}
         ${state.hasPerplexityKey ? `
-          <button type="button" class="btn btn-sm" id="topbarCopyShareLinkBtn" style="border-color: #8FD4B2; color: var(--status-green); background-color: #FFFFFF; font-weight: 800;" title="다른 사람의 브라우저에서도 API 키가 자동 연결되는 공유 링크를 복사합니다">
-            🔗 API 공유 링크 복사
+          <button
+            type="button"
+            class="btn btn-sm"
+            id="topbarCopyShareLinkBtn"
+            style="padding: 5px 10px; font-size: 12px; font-weight: 600; border-color: #E5E7EB; color: #374151; background-color: #FFFFFF;"
+            title="다른 사람의 브라우저에서도 API 키가 자동 연결되는 공유 링크를 복사합니다"
+          >
+            공유 링크 복사
           </button>
         ` : ''}
-        <button type="button" class="btn btn-sm" id="openUserGuideModalBtn" style="border-color: var(--mk-orange); color: var(--mk-orange); background-color: #FFFFFF; font-weight: 800;">
-          📖 사용 가이드
+        <button
+          type="button"
+          class="btn btn-sm"
+          id="openUserGuideModalBtn"
+          style="padding: 5px 10px; font-size: 12px; font-weight: 600; border-color: #E5E7EB; color: #374151; background-color: #FFFFFF;"
+        >
+          사용 가이드
         </button>
-        <button type="button" class="btn btn-sm" id="openApiKeyModalBtn" style="border-color: ${state.hasPerplexityKey ? '#8FD4B2' : 'var(--mk-orange)'}; color: ${state.hasPerplexityKey ? 'var(--status-green)' : 'var(--mk-orange)'}; background-color: ${state.hasPerplexityKey ? 'var(--status-green-bg)' : 'var(--mk-orange-light)'}; font-weight: 700; max-width: 100%; overflow: hidden; text-overflow: ellipsis;">
-          ${state.hasPerplexityKey ? `🟢 Perplexity 검색 + ${escapeHtml(activeWriterLabel)} · 호출 ${calls}회 (약 ${krw}원)` : '⚙ Perplexity 하이브리드 설정'}
+        <button
+          type="button"
+          class="btn btn-sm"
+          id="openApiKeyModalBtn"
+          style="padding: 5px 10px; font-size: 12px; font-weight: 600; border-color: ${state.hasPerplexityKey ? '#E5E7EB' : 'var(--mk-orange)'}; color: ${state.hasPerplexityKey ? '#374151' : 'var(--mk-orange)'}; background-color: ${state.hasPerplexityKey ? '#F9FAFB' : 'var(--mk-orange-light)'}; display: inline-flex; align-items: center; gap: 6px;"
+          title="Perplexity 실시간 검색 + ${escapeHtml(activeWriterLabel)} 하이브리드 연동 설정 및 사용량 확인"
+        >
+          <span style="width: 7px; height: 7px; border-radius: 50%; background-color: ${state.hasPerplexityKey ? '#10B981' : '#F37021'}; display: inline-block; flex-shrink: 0;"></span>
+          <span>${state.hasPerplexityKey ? `API 연결됨 · ${calls}회 (${krw}원)` : 'API 키 설정'}</span>
         </button>
       </div>
     `;
