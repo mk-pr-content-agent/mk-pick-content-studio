@@ -1389,6 +1389,53 @@ ${url ? `- 참고 URL: ${url}\n` : ''}${rawText ? `- 추가 메모: ${rawText}\n
     return false;
   }
 
+  // 본문 단락 입력칸(#secBody-${sec.id}) 내부에서 취재 메모(노란색)와 AI 채팅 수정(파란색) 문장을 바로 인라인 하이라이팅하는 함수
+  function buildInlineHighlightedBodyInnerHtml(rawText = '', { memoSentences = [], memoTokens = [], aiAddedSents = [] } = {}) {
+    const cleanMemoSents = (memoSentences || []).map(s => String(s || '').trim()).filter(s => s.length >= 6);
+    const cleanMemoTokens = (memoTokens || []).map(t => String(t || '').trim()).filter(t => t.length >= 2);
+    const cleanAiSents = (aiAddedSents || []).map(s => String(s || '').trim()).filter(s => s.length >= 6);
+
+    const text = String(rawText || '');
+    if (!text) return '';
+    if (cleanMemoSents.length === 0 && cleanMemoTokens.length === 0 && cleanAiSents.length === 0) {
+      return escapeHtml(text);
+    }
+
+    // 줄바꿈(\n, \n\n 등) 구분자를 그대로 보존하면서 문장 단위로만 <mark> 감싸기
+    const parts = text.split(/(\n+)/);
+    return parts.map(part => {
+      if (/^\n+$/.test(part)) return part;
+      const sentTokens = part.split(/((?<=[.?!])\s+)/);
+      return sentTokens.map(token => {
+        if (/^\s+$/.test(token)) return token;
+        const trimmed = token.trim();
+        if (!trimmed) return escapeHtml(token);
+
+        const isMemoMatch = cleanMemoSents.some(ms => isEssentiallySameSentence(trimmed, ms)) ||
+          (cleanMemoSents.length === 0 && cleanMemoTokens.length >= 2 && cleanMemoTokens.filter(tk => trimmed.includes(tk)).length >= 2);
+        if (isMemoMatch) {
+          return `<mark class="inline-hl-memo">${escapeHtml(token)}</mark>`;
+        }
+
+        const isAiMatch = cleanAiSents.some(as => isEssentiallySameSentence(trimmed, as));
+        if (isAiMatch) {
+          return `<mark class="inline-hl-ai">${escapeHtml(token)}</mark>`;
+        }
+
+        return escapeHtml(token);
+      }).join('');
+    }).join('');
+  }
+
+  // contenteditable 인라인 본문 에디터 또는 textarea에서 순수 텍스트(줄바꿈 유지)를 추출하는 헬퍼
+  function extractPlainTextFromEditable(el) {
+    if (!el) return '';
+    if (typeof el.value === 'string') return el.value;
+    return String(el.innerText || el.textContent || '')
+      .replace(/\r\n/g, '\n')
+      .replace(/\u00A0/g, ' ');
+  }
+
   // 본문 텍스트 내 특정 문장(matchedSentences)이나 키워드(matchTokens)를 출처별 색상(AI 채팅=블루, 취재 메모=앰버)으로 구분해 하이라이팅
   function renderHighlightedBodyHtml(rawText = '', matchedSentences = [], matchTokens = [], badgeTitle = '', options = {}) {
     const isAiMode = Boolean(options && options.aiEditState && options.secId);
@@ -1518,15 +1565,7 @@ ${url ? `- 참고 URL: ${url}\n` : ''}${rawText ? `- 추가 메모: ${rawText}\n
               }).join('')}
 
               ${!isRemovalOnly && cleanSentences.length > 0 ? `
-                <div style="display: flex; align-items: center; justify-content: space-between; padding-top: 2px;">
-                  <button
-                    type="button"
-                    class="text-action"
-                    data-toggle-sec-context-preview="${escapeHtml(secId)}"
-                    style="font-size: 11px; color: var(--ai-chat); font-weight: 700;"
-                  >
-                    ${showContextPreview ? '단락 전체 문맥에서 위치 숨기기 ▲' : '단락 전체 문맥에서 위치 보기 ▼'}
-                  </button>
+                <div style="display: flex; align-items: center; justify-content: flex-end; padding-top: 2px;">
                   <button
                     type="button"
                     class="text-action"
@@ -1536,11 +1575,6 @@ ${url ? `- 참고 URL: ${url}\n` : ''}${rawText ? `- 추가 메모: ${rawText}\n
                     반영된 하단 FAQ 이동 ↘
                   </button>
                 </div>
-                ${showContextPreview ? `
-                  <div style="padding: 10px 12px; background-color: #FFFFFF; border: 1px solid #DBEAFE; border-radius: 6px; font-size: 13px;">
-                    ${renderedParas.join('')}
-                  </div>
-                ` : ''}
               ` : ''}
             </div>
           ` : ''}
@@ -6481,19 +6515,36 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
                     const activeAiEdit = w.lastAiEdit || (state.activeHighlight?.mode === 'ai-edit' ? state.activeHighlight : null);
                     const activeMemoHl = state.activeMemoHighlight || (state.activeHighlight?.mode === 'memo' ? state.activeHighlight : null);
 
-                    // 1) 취재 메모 반영 여부 확인 (메모장에서 [+ 반영]을 눌렀거나 [보기 ↘]로 선택한 단락)
+                    // 1) 취재 메모 반영 여부 확인 (메모장에서 [+ 본문 반영]을 눌렀거나, [보기 ↘]로 선택했거나, 메모 문장이 이 단락에 반영된 경우)
                     const insertedMemosForSec = (w.researchItems || []).filter(m =>
-                      Array.isArray(m.insertedIntoSecIds) && m.insertedIntoSecIds.includes(sec.id) && (sec.content || '').includes((m.fact || '').trim().slice(0, 20))
+                      Array.isArray(m.insertedIntoSecIds) && m.insertedIntoSecIds.includes(sec.id) && (sec.content || '').includes((m.fact || '').trim().slice(0, 18))
                     );
-                    const isMemoActiveOnSec = Boolean(
-                      (activeMemoHl && activeMemoHl.secIds?.includes(sec.id)) ||
-                      insertedMemosForSec.length > 0
-                    );
-                    const memoSentences = [
+                    const autoMatchedMemoSents = [];
+                    (w.researchItems || []).forEach(m => {
+                      const refInfo = getMemoReflectionLocations(m, w);
+                      (refInfo.locations || []).forEach(loc => {
+                        if (loc.secId === sec.id && Array.isArray(loc.matchedSentences)) {
+                          loc.matchedSentences.forEach(ms => {
+                            if (ms && !autoMatchedMemoSents.includes(ms)) autoMatchedMemoSents.push(ms);
+                          });
+                        }
+                      });
+                    });
+
+                    const isMemoExplicitlyHidden = Boolean(state.hiddenMemoHighlightSecIds?.[sec.id]);
+                    const memoSentences = isMemoExplicitlyHidden ? [] : [
                       ...(activeMemoHl?.sentencesBySecId?.[sec.id] || []),
-                      ...insertedMemosForSec.map(m => m.fact)
+                      ...insertedMemosForSec.map(m => m.fact),
+                      ...autoMatchedMemoSents
                     ].filter((v, i, a) => v && a.indexOf(v) === i);
-                    const memoTokens = activeMemoHl?.tokensBySecId?.[sec.id] || [];
+                    const memoTokens = isMemoExplicitlyHidden ? [] : (activeMemoHl?.tokensBySecId?.[sec.id] || []);
+                    const isMemoActiveOnSec = Boolean(
+                      !isMemoExplicitlyHidden && (
+                        (activeMemoHl && activeMemoHl.secIds?.includes(sec.id)) ||
+                        insertedMemosForSec.length > 0 ||
+                        memoSentences.length > 0
+                      )
+                    );
 
                     // 2) AI 채팅 수정 여부 확인 (추가된 문장 또는 제외된 문장이 있는 단락)
                     const aiAddedSents = activeAiEdit?.sentencesBySecId?.[sec.id] || [];
@@ -6502,11 +6553,12 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
                       activeAiEdit &&
                       (activeAiEdit.secIds?.includes(sec.id) || aiAddedSents.length > 0 || aiRemovedSents.length > 0)
                     );
+                    const inlineAiSents = (isAiSecEdited && activeAiEdit.isApplied !== false) ? aiAddedSents : [];
 
-                    // 카드 테두리 스타일: AI 채팅 수정(블루) / 취재 메모 반영(앰버) / 기본(심플 화이트)
+                    // 카드 테두리 스타일: AI 채팅 수정(블루) / 취재 메모 포커스(앰버) / 기본(심플 화이트)
                     const borderStyle = isAiSecEdited && activeAiEdit.isApplied !== false
                       ? '1.5px solid #93C5FD'
-                      : isMemoActiveOnSec
+                      : (activeMemoHl && activeMemoHl.secIds?.includes(sec.id))
                         ? '1.5px solid #FCD34D'
                         : '1px solid #E5E7EB';
 
@@ -6519,8 +6571,23 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
                             </span>
                             <span class="text-muted" id="secCharCount-${sec.id}">${secCharLen.toLocaleString()}자</span>
                             ${isMemoActiveOnSec ? `
-                              <span style="font-size: 11px; font-weight: 800; color: #B45309; background-color: #FFFBEB; border: 1px solid #FDE68A; padding: 2px 8px; border-radius: 99px;">
+                              <span style="display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 800; color: #92400E; background-color: #FEF9C3; border: 1px solid #FDE047; padding: 2px 8px; border-radius: 99px;">
                                 📌 취재 메모 반영됨
+                                ${insertedMemosForSec.length > 0 ? `
+                                  <button
+                                    type="button"
+                                    data-remove-memo-sent-sec="${escapeHtml(sec.id)}"
+                                    data-remove-memo-sent-text="${escapeHtml(insertedMemosForSec[insertedMemosForSec.length - 1].fact || '')}"
+                                    style="border: none; background: rgba(180,83,9,0.12); color: #92400E; font-size: 10.5px; font-weight: 800; padding: 0 5px; border-radius: 99px; cursor: pointer; font-family: inherit;"
+                                    title="방금 반영한 취재 메모 문장을 본문에서 뺍니다"
+                                  >본문에서 빼기 ✕</button>
+                                ` : ''}
+                                <button
+                                  type="button"
+                                  data-hide-sec-memo-hl="${escapeHtml(sec.id)}"
+                                  style="border: none; background: transparent; color: #B45309; font-size: 10.5px; font-weight: 700; padding: 0 2px; cursor: pointer; font-family: inherit;"
+                                  title="이 단락의 노란색 하이라이트 표시 끄기"
+                                >✕</button>
                               </span>
                             ` : ''}
                             ${isAiSecEdited ? `
@@ -6548,14 +6615,13 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
                         </div>
 
                         <div class="mb-8">
-                          <textarea class="doc-editable-textarea doc-body-textarea" id="secBody-${sec.id}" data-doc-sec-body="${sec.id}" rows="5" placeholder="본문 내용을 '~합니다' 체로 입력하세요">${escapeHtml(sec.content)}</textarea>
-                          ${isMemoActiveOnSec ? renderHighlightedBodyHtml(
-                            sec.content,
-                            memoSentences,
-                            memoTokens,
-                            `단락 0${sIdx + 1}에 반영된 취재 메모 문장`,
-                            { sourceType: 'memo', secId: sec.id }
-                          ) : ''}
+                          <div
+                            contenteditable="true"
+                            class="doc-editable-textarea doc-body-textarea doc-body-inline-editor"
+                            id="secBody-${sec.id}"
+                            data-doc-sec-body="${sec.id}"
+                            data-placeholder="본문 내용을 '~합니다' 체로 입력하세요"
+                          >${buildInlineHighlightedBodyInnerHtml(sec.content, { memoSentences, memoTokens, aiAddedSents: inlineAiSents })}</div>
                           ${isAiSecEdited ? renderHighlightedBodyHtml(
                             sec.content,
                             aiAddedSents,
@@ -7563,6 +7629,10 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
         if (state.editorViewMode === 'preview') {
           state.editorViewMode = 'edit';
         }
+        state.hiddenMemoHighlightSecIds = state.hiddenMemoHighlightSecIds || {};
+        if (loc.secId) {
+          delete state.hiddenMemoHighlightSecIds[loc.secId];
+        }
         const memoHlObj = {
           mode: 'memo',
           memoId: memo.id,
@@ -7882,6 +7952,20 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
       });
     });
 
+    // 단락 상단 [✕] 버튼으로 해당 단락의 취재 메모 노란색 하이라이트 끄기
+    root.querySelectorAll('[data-hide-sec-memo-hl]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const secId = btn.getAttribute('data-hide-sec-memo-hl');
+        if (!secId) return;
+        state.hiddenMemoHighlightSecIds = state.hiddenMemoHighlightSecIds || {};
+        state.hiddenMemoHighlightSecIds[secId] = true;
+        if (state.activeMemoHighlight?.secIds?.includes(secId)) {
+          state.activeMemoHighlight = null;
+        }
+        render(true);
+      });
+    });
+
     // 취재 메모 [+ 반영] 클릭 시 선택한 본문 단락에 매경 문체 팩트 삽입 + 해당 단락 노란색(앰버) 하이라이트!
     root.querySelectorAll('[data-insert-memo]').forEach(btn => {
       btn.addEventListener('click', () => {
@@ -7894,6 +7978,8 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
         if (state.editorViewMode === 'preview') {
           state.editorViewMode = 'edit';
         }
+        state.hiddenMemoHighlightSecIds = state.hiddenMemoHighlightSecIds || {};
+        delete state.hiddenMemoHighlightSecIds[targetVal];
 
         memo.insertedIntoSecIds = Array.isArray(memo.insertedIntoSecIds) ? memo.insertedIntoSecIds : [];
         if (!memo.insertedIntoSecIds.includes(targetVal)) {
@@ -7916,7 +8002,7 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
           saveCurrentWork(false);
           render(true);
           flashElement(`secWrap-${targetSec.id}`);
-          showToast(`📌 취재 팩트 메모가 오른쪽 [${targetSec.title.slice(0, 16)}...] 단락에 반영(노란색 표시)되었습니다!`);
+          showToast(`📌 취재 팩트 메모가 오른쪽 [${targetSec.title.slice(0, 16)}...] 단락 본문 내 노란색으로 반영되었습니다!`);
         }
       });
     });
@@ -8153,22 +8239,32 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
 
     root.querySelectorAll('[data-doc-sec-body]').forEach(ta => {
       ta.addEventListener('focus', () => {
-        ta._prevBodyVal = ta.value;
+        ta._prevBodyVal = extractPlainTextFromEditable(ta);
+      });
+      ta.addEventListener('paste', e => {
+        if (ta.getAttribute('contenteditable') === 'true') {
+          e.preventDefault();
+          const text = (e.clipboardData || window.clipboardData).getData('text/plain');
+          document.execCommand('insertText', false, text);
+        }
       });
       ta.addEventListener('input', () => {
-        autoResizeTextarea(ta);
+        if (ta.tagName === 'TEXTAREA') autoResizeTextarea(ta);
         const secId = ta.getAttribute('data-doc-sec-body');
         const sec = w.draftSections.find(s => s.id === secId);
         if (sec) {
-          sec.content = ta.value;
+          const val = extractPlainTextFromEditable(ta);
+          sec.content = val;
           const secCountEl = document.getElementById(`secCharCount-${secId}`);
-          if (secCountEl) secCountEl.textContent = `${ta.value.length.toLocaleString()}자`;
+          if (secCountEl) secCountEl.textContent = `${val.length.toLocaleString()}자`;
           updateLiveStatsAndGeoUI();
+          persistWorksToLocalStorageReliably();
         }
       });
-      ta.addEventListener('change', () => {
+      const onFinishBodyEdit = () => {
         const prevBody = ta._prevBodyVal || '';
-        const newBody = ta.value || '';
+        const newBody = extractPlainTextFromEditable(ta) || '';
+        if (prevBody === newBody) return;
         ta._prevBodyVal = newBody;
         w.factChecks = extractFactSentencesFromSections(w.draftSections, w.sources);
         const syncRes = syncFaqsAndTableOnBodyEdit(w, { previousBody: prevBody, newBody });
@@ -8177,7 +8273,9 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
           render(true);
           showToast(`🔄 본문에서 삭제·편집된 내용을 감지해 하단 FAQ(${syncRes.removedFaqCount}건 제거)를 자동으로 동기화했습니다!`);
         }
-      });
+      };
+      ta.addEventListener('change', onFinishBodyEdit);
+      ta.addEventListener('blur', onFinishBodyEdit);
     });
 
     // 본문 단락별 [✨ 매경 문체(~합니다) 다듬기]

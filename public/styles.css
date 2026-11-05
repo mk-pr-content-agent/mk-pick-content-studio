@@ -767,6 +767,37 @@ body {
   min-height: 120px;
 }
 
+.doc-body-inline-editor {
+  white-space: pre-wrap;
+  word-break: keep-all;
+  overflow-wrap: break-word;
+  cursor: text;
+}
+
+.doc-body-inline-editor:empty::before {
+  content: attr(data-placeholder);
+  color: var(--text-muted);
+  pointer-events: none;
+}
+
+mark.inline-hl-memo {
+  background-color: var(--memo-fact-mark);
+  color: #78350F;
+  font-weight: 700;
+  padding: 1px 4px;
+  border-radius: 4px;
+  border-bottom: 2px solid #F59E0B;
+}
+
+mark.inline-hl-ai {
+  background-color: var(--ai-chat-mark);
+  color: #1E3A8A;
+  font-weight: 700;
+  padding: 1px 4px;
+  border-radius: 4px;
+  border-bottom: 2px solid #3B82F6;
+}
+
 .doc-divider {
   border: none;
   border-top: var(--border-thin);
