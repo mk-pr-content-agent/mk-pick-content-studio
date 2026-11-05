@@ -4363,19 +4363,18 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
       );
       if (hi.typeMode !== 'manual' && !hasInputNow) {
         return `
-          <span style="color: var(--mk-orange); font-weight: 700;">✨ AI 자동 맞춤 대기 중</span>
-          <span style="color: #CBD5E1;">|</span>
-          <span style="color: var(--text-secondary);">위 STEP 1에 키워드를 입력하면 가장 알맞은 유형(01~05)과 카테고리가 즉시 자동 추천됩니다</span>
+          <span style="color: var(--text-muted); font-size: 12px;">키워드를 입력하면 가장 알맞은 유형(01~05)과 카테고리가 자동 추천됩니다</span>
         `;
       }
       const curTypeInfo = CONTENT_TYPES[hi.typeId] || CONTENT_TYPES[3];
       const curCat = recommendMkPickCategory(hi.keyword || curTypeInfo.name, hi.typeId, hi.company);
       return `
-        <span>${hi.typeMode !== 'manual' ? 'AI 추천 유형:' : '선택된 유형:'} <strong style="color: var(--mk-orange);">유형 0${curTypeInfo.id} · ${escapeHtml(curTypeInfo.uiTitle || curTypeInfo.name)}</strong></span>
-        <span style="color: #CBD5E1;">|</span>
-        <span>추천 카테고리: <strong style="color: var(--mk-orange);">[${escapeHtml(curCat.recommendedCategory)}]</strong></span>
-        <span style="color: #CBD5E1;">|</span>
-        <span>전개 흐름: <strong style="color: var(--text-primary); font-weight: 700;">${escapeHtml(curTypeInfo.structure)}</strong></span>
+        <span style="font-size: 12px; color: var(--text-secondary);">
+          ${hi.typeMode !== 'manual' ? '✨ AI 추천:' : '✓ 선택됨:'}
+          <strong style="color: ${hi.typeMode !== 'manual' ? '#1D4ED8' : 'var(--mk-orange)'};">유형 0${curTypeInfo.id} · ${escapeHtml(curTypeInfo.uiTitle || curTypeInfo.name)}</strong>
+          <span style="color: #CBD5E1; margin: 0 5px;">|</span>
+          카테고리 <strong style="color: var(--text-primary);">${escapeHtml(curCat.recommendedCategory)}</strong>
+        </span>
       `;
     }
 
@@ -4389,36 +4388,31 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
       return Object.values(CONTENT_TYPES).map(t => {
         const isManualSelected = hi.typeMode === 'manual' && Number(hi.typeId) === t.id;
         const isAutoMatched = hi.typeMode !== 'manual' && hasInputNow && Number(hi.typeId) === t.id;
-        const isMatched = isManualSelected || isAutoMatched;
         const cardClass = isManualSelected ? 'selected' : (isAutoMatched ? 'auto-matched' : '');
+        const accentColor = isManualSelected ? 'var(--mk-orange)' : (isAutoMatched ? '#1D4ED8' : 'var(--text-primary)');
+        const subMetaColor = isManualSelected ? 'var(--mk-orange)' : (isAutoMatched ? '#1D4ED8' : 'var(--text-muted)');
+        const cleanCat = String(t.defaultCategory || '').replace(/\([^)]*\)/g, '').trim();
         return `
           <div class="home-type-card ${cardClass}" data-select-home-type="${t.id}" title="클릭하여 '${escapeHtml(t.uiTitle || t.name)}' 관점으로 직접 지정 (다시 클릭 시 AI 자동 맞춤)">
             <div class="flex-between mb-6" style="gap: 4px;">
-              <span style="font-size: 11px; font-weight: 800; color: ${isMatched ? 'var(--mk-orange)' : 'var(--text-muted)'};">
-                유형 0${t.id} · ${escapeHtml(t.defaultCategory)}
+              <span style="font-size: 11px; font-weight: 700; color: ${subMetaColor};">
+                0${t.id} · ${escapeHtml(cleanCat)}
               </span>
               ${isManualSelected ? `
-                <span style="font-size: 10.5px; font-weight: 800; color: #FFFFFF; background-color: var(--mk-orange); padding: 1px 6px; border-radius: 99px;">
-                  ✓ 직접 선택됨
+                <span style="font-size: 10px; font-weight: 800; color: #FFFFFF; background-color: var(--mk-orange); padding: 1px 6px; border-radius: 99px;">
+                  선택됨
                 </span>
               ` : isAutoMatched ? `
-                <span style="font-size: 10.5px; font-weight: 800; color: #FFFFFF; background-color: #2563EB; padding: 1px 7px; border-radius: 99px;">
-                  ✨ AI 자동 추천
+                <span style="font-size: 10px; font-weight: 800; color: #FFFFFF; background-color: #2563EB; padding: 1px 6px; border-radius: 99px;">
+                  AI 추천
                 </span>
-              ` : (hi.typeMode !== 'manual' && !hasInputNow ? `
-                <span style="font-size: 10px; font-weight: 600; color: var(--text-muted); background-color: #F8FAFC; border: 1px solid #E2E8F0; padding: 1px 6px; border-radius: 99px;">
-                  자동 대기
-                </span>
-              ` : '')}
+              ` : ''}
             </div>
-            <div style="font-size: 13.5px; font-weight: 800; color: ${isMatched ? 'var(--mk-orange)' : 'var(--text-primary)'}; margin-bottom: 3px; line-height: 1.3; letter-spacing: -0.2px;">
+            <div style="font-size: 13.5px; font-weight: 800; color: ${accentColor}; margin-bottom: 5px; line-height: 1.32; letter-spacing: -0.2px;">
               ${t.icon ? `${t.icon} ` : ''}${escapeHtml(t.uiTitle || t.name)}
             </div>
-            <div style="font-size: 11.5px; color: var(--text-secondary); line-height: 1.4; margin-bottom: 4px;">
+            <div style="font-size: 11.5px; color: var(--text-secondary); line-height: 1.45;">
               ${escapeHtml(t.desc)}
-            </div>
-            <div style="font-size: 10.5px; color: var(--text-muted); margin-top: auto;">
-              기존 명칭: ${escapeHtml(t.name)}
             </div>
           </div>
         `;
@@ -4437,133 +4431,123 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
         : state.trendRadar.newsletterTrends;
 
     root.innerHTML = `
+      <div class="home-screen-wrap">
       <!-- 1. 상단 통합 작성 카드: STEP 1(주제·기획 방향) + STEP 2(AI 자동 맞춤 & 5대 기사 관점) -->
-      <div class="card" style="padding: 24px 28px; margin-bottom: 20px;">
-        <div class="flex-between mb-12" style="flex-wrap: wrap; gap: 8px; padding-bottom: 12px; border-bottom: 1px solid #F1F3F5;">
+      <div class="card" style="padding: 24px 28px; margin-bottom: 22px;">
+        <div class="flex-between" style="flex-wrap: wrap; gap: 10px; padding-bottom: 14px; margin-bottom: 18px; border-bottom: 1px solid #F1F5F9;">
           <div style="display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;">
-            <h1 style="font-size: 19px; font-weight: 800; letter-spacing: -0.3px; color: var(--text-primary);">새 기사 초안 만들기</h1>
-            <span style="font-size: 12.5px; color: var(--text-secondary);">
-              키워드만 입력하고 <strong>[✨ 초안 만들기 →]</strong>를 누르면 <strong>1단계 Perplexity 실시간 취재 → 2단계 ${escapeHtml(getWriterModelShortLabel())} 집필</strong>이 자동 실행됩니다.
+            <h1 style="font-size: 18px; font-weight: 800; letter-spacing: -0.3px; color: var(--text-primary);">새 기사 초안 만들기</h1>
+            <span style="font-size: 12.5px; color: var(--text-muted);">
+              키워드 입력 후 <strong>[✨ 초안 만들기]</strong>를 누르면 실시간 뉴스 취재와 기사 집필이 자동 진행됩니다
             </span>
           </div>
-          <div class="flex-row" style="gap: 8px; flex-wrap: wrap;">
-            ${renderWriterModelSelectHtml()}
-            <button type="button" id="toggleRawPasteBtn" class="btn btn-sm" style="font-size: 12px; font-weight: 700; color: ${state.showRawPasteInput ? 'var(--mk-orange)' : 'var(--text-secondary)'}; background-color: ${state.showRawPasteInput ? 'var(--mk-orange-light)' : '#F8FAFC'}; border-color: ${state.showRawPasteInput ? 'var(--mk-orange-border)' : '#E2E8F0'}; padding: 5px 11px;">
-              ${state.showRawPasteInput ? '📎 보도자료 · 참고 URL 입력창 접기 ▲' : '📎 + 보도자료 원문 · 참고 URL 추가 (선택)'}
-            </button>
-          </div>
+          <button type="button" id="toggleRawPasteBtn" class="btn btn-sm" style="font-size: 12px; font-weight: 600; color: ${state.showRawPasteInput ? 'var(--mk-orange)' : 'var(--text-secondary)'}; background-color: ${state.showRawPasteInput ? 'var(--mk-orange-light)' : '#F8FAFC'}; border-color: ${state.showRawPasteInput ? 'var(--mk-orange-border)' : '#E2E8F0'}; padding: 5px 11px;">
+            ${state.showRawPasteInput ? '📎 보도자료 · 참고 URL 닫기 ▲' : '📎 + 보도자료 · 참고 URL 추가'}
+          </button>
         </div>
 
-        <!-- STEP 1: 메인 키워드 · 기업명 입력 + 정돈된 서브 키워드 & 기획 방향 바 -->
-        <div id="homeStep1Box" style="margin-bottom: 16px;">
+        <!-- STEP 1: 메인 키워드 · 기업명 + 서브 키워드 · 기획 방향 (중첩 박스 없이 정돈된 2행 그리드) -->
+        <div id="homeStep1Box" style="margin-bottom: 18px;">
           <div class="home-step1-main-grid">
             <div>
-              <label style="display: flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 800; color: var(--text-primary); margin-bottom: 6px;">
-                <span style="background-color: var(--mk-orange); color: #FFFFFF; font-size: 10.5px; font-weight: 800; padding: 1px 6px; border-radius: 4px;">STEP 1</span>
+              <label for="homeKeywordInput" style="display: flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 700; color: var(--text-primary); margin-bottom: 6px;">
+                <span style="background-color: var(--mk-orange); color: #FFFFFF; font-size: 10px; font-weight: 800; padding: 1px 6px; border-radius: 4px;">STEP 1</span>
                 <span>트렌드 키워드 / 주제 <span style="color: var(--mk-orange);">*</span></span>
               </label>
-              <input type="text" class="input" id="homeKeywordInput" placeholder="예: 이디야·맘스터치·메가커피 신메뉴, 빼빼로데이, 다이소 뷰티..." value="${escapeHtml(hi.keyword)}" style="padding: 11px 14px; font-size: 14px; font-weight: 600;" />
+              <input type="text" class="input" id="homeKeywordInput" placeholder="예: 이디야·맘스터치·메가커피 신메뉴, 빼빼로데이, 다이소 뷰티..." value="${escapeHtml(hi.keyword)}" style="height: 42px; padding: 0 14px; font-size: 13.5px; font-weight: 600;" />
             </div>
             <div>
-              <label style="display: block; font-size: 12.5px; font-weight: 700; color: var(--text-secondary); margin-bottom: 6px;">
-                기업·브랜드명 <span style="font-weight: 400; font-size: 11.5px; color: var(--text-muted);">(선택 · 쉼표로 복수 입력)</span>
+              <label for="homeCompanyInput" style="display: block; font-size: 12.5px; font-weight: 700; color: var(--text-secondary); margin-bottom: 6px;">
+                기업·브랜드명 <span style="font-weight: 400; font-size: 11.5px; color: var(--text-muted);">(선택 · 쉼표 구분)</span>
               </label>
-              <input type="text" class="input" id="homeCompanyInput" placeholder="예: 이디야커피, 맘스터치, 메가MGC커피" value="${escapeHtml(hi.company)}" style="padding: 11px 14px; font-size: 14px;" />
+              <input type="text" class="input" id="homeCompanyInput" placeholder="예: 이디야커피, 맘스터치, 메가MGC커피" value="${escapeHtml(hi.company)}" style="height: 42px; padding: 0 14px; font-size: 13.5px;" />
             </div>
             <div>
-              <button class="btn btn-primary btn-lg" id="homeStartDynamicBtn" style="height: 44px; padding: 0 26px; font-size: 14.5px; font-weight: 800; box-shadow: 0 2px 6px rgba(243, 112, 33, 0.25);" ${state.isSearchingNews ? 'disabled' : ''}>
+              <button class="btn btn-primary btn-lg" id="homeStartDynamicBtn" style="height: 42px; padding: 0 24px; font-size: 14px; font-weight: 800;" ${state.isSearchingNews ? 'disabled' : ''}>
                 ${state.isSearchingNews ? formatDraftRemainingInfo(state.draftElapsedSec || 0).shortBtnText : '✨ 초안 만들기 →'}
               </button>
             </div>
           </div>
 
-          <!-- 서브 키워드 & 원하는 글의 방향·맥락 (중첩 테두리 피로감을 없앤 소프트 그레이 슬림 바) -->
-          <div style="padding: 11px 14px; background-color: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 8px;">
-            <div class="home-step1-sub-grid">
-              <div>
-                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 5px;">
-                  <label style="font-size: 12px; font-weight: 800; color: var(--text-primary);">
-                    🏷️ 서브 키워드 <span style="font-weight: 500; color: var(--text-muted);">(선택 · 쉼표 구분)</span>
-                  </label>
-                </div>
-                <input
-                  type="text"
-                  class="input"
-                  id="homeSubKeywordsInput"
-                  placeholder="예: 푸드·스낵 신메뉴, 가성비 세트, 출시 가격"
-                  value="${escapeHtml(hi.subKeywords || '')}"
-                  style="padding: 8px 12px; font-size: 13px; background-color: #FFFFFF;"
-                />
+          <div class="home-step1-sub-grid">
+            <div>
+              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 5px; min-height: 20px;">
+                <label for="homeSubKeywordsInput" style="font-size: 12px; font-weight: 700; color: var(--text-secondary);">
+                  서브 키워드 <span style="font-weight: 400; color: var(--text-muted);">(선택 · 쉼표 구분)</span>
+                </label>
               </div>
-              <div>
-                <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px; margin-bottom: 5px;">
-                  <label style="font-size: 12px; font-weight: 800; color: var(--text-primary);">
-                    🧭 원하는 글의 방향 · 맥락 <span style="font-weight: 500; color: var(--text-muted);">(선택 · 입력 시 기획 의도 최우선 반영)</span>
-                  </label>
-                  <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 4px;">
-                    <button type="button" class="text-action-orange" data-home-quick-dir="각 브랜드가 실제로 출시한 대표 신메뉴·신상품의 정확한 명칭, 가격, 핵심 특징을 1:1로 비교하고 추천 가이드를 정리해줘" style="font-size: 11px; background: #FFFFFF; border: 1px solid #CBD5E1; color: var(--text-secondary); padding: 1px 7px; border-radius: 99px; font-weight: 700;">
-                      + 신메뉴·스펙 비교
+              <input
+                type="text"
+                class="input"
+                id="homeSubKeywordsInput"
+                placeholder="예: 푸드·스낵 신메뉴, 가성비 세트, 출시 가격"
+                value="${escapeHtml(hi.subKeywords || '')}"
+                style="height: 38px; padding: 0 12px; font-size: 13px; background-color: #FAFAFA;"
+              />
+            </div>
+            <div>
+              <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px; margin-bottom: 5px; min-height: 20px;">
+                <label for="homeDirectionInput" style="font-size: 12px; font-weight: 700; color: var(--text-secondary);">
+                  원하는 글의 방향 · 맥락 <span style="font-weight: 400; color: var(--text-muted);">(선택 · 기획 의도)</span>
+                </label>
+                <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 4px;">
+                  <button type="button" class="text-action" data-home-quick-dir="각 브랜드가 실제로 출시한 대표 신메뉴·신상품의 정확한 명칭, 가격, 핵심 특징을 1:1로 비교하고 추천 가이드를 정리해줘" style="font-size: 11px; background: #F8FAFC; border: 1px solid #E2E8F0; color: var(--text-secondary); padding: 1px 7px; border-radius: 6px; font-weight: 600;">
+                    + 신메뉴·스펙 비교
+                  </button>
+                  <button type="button" class="text-action" data-home-quick-dir="2030 소비자와 SNS에서 왜 지금 이 키워드가 화제인지 최신 트렌드 배경과 실제 소비자 반응을 중심으로 작성해줘" style="font-size: 11px; background: #F8FAFC; border: 1px solid #E2E8F0; color: var(--text-secondary); padding: 1px 7px; border-radius: 6px; font-weight: 600;">
+                    + 2030 인기 배경
+                  </button>
+                  <button type="button" class="text-action" data-home-quick-dir="독자가 바로 활용할 수 있는 할인 프로모션 일정, 결제 혜택, 구매처, 실전 체크포인트를 중심으로 정리해줘" style="font-size: 11px; background: #F8FAFC; border: 1px solid #E2E8F0; color: var(--text-secondary); padding: 1px 7px; border-radius: 6px; font-weight: 600;">
+                    + 할인·구매 팁
+                  </button>
+                  ${(hi.subKeywords || hi.direction) ? `
+                    <button type="button" class="text-action" id="clearHomeSubAndDirBtn" style="font-size: 11px; color: #DC2626; font-weight: 700; margin-left: 2px;">
+                      초기화 ✕
                     </button>
-                    <button type="button" class="text-action-orange" data-home-quick-dir="2030 소비자와 SNS에서 왜 지금 이 키워드가 화제인지 최신 트렌드 배경과 실제 소비자 반응을 중심으로 작성해줘" style="font-size: 11px; background: #FFFFFF; border: 1px solid #CBD5E1; color: var(--text-secondary); padding: 1px 7px; border-radius: 99px; font-weight: 700;">
-                      + 2030 인기 배경 분석
-                    </button>
-                    <button type="button" class="text-action-orange" data-home-quick-dir="독자가 바로 활용할 수 있는 할인 프로모션 일정, 결제 혜택, 구매처, 실전 체크포인트를 중심으로 정리해줘" style="font-size: 11px; background: #FFFFFF; border: 1px solid #CBD5E1; color: var(--text-secondary); padding: 1px 7px; border-radius: 99px; font-weight: 700;">
-                      + 할인 혜택·구매 팁
-                    </button>
-                    ${(hi.subKeywords || hi.direction) ? `
-                      <button type="button" class="text-action" id="clearHomeSubAndDirBtn" style="font-size: 11px; color: var(--status-red); font-weight: 700; margin-left: 2px;">
-                        초기화 ✕
-                      </button>
-                    ` : ''}
-                  </div>
+                  ` : ''}
                 </div>
-                <input
-                  type="text"
-                  class="input"
-                  id="homeDirectionInput"
-                  placeholder="예: 각 브랜드가 실제로 출시한 대표 신메뉴 이름·가격·특징을 비교하고 소비자 추천 조합을 소개해줘"
-                  value="${escapeHtml(hi.direction || '')}"
-                  style="padding: 8px 12px; font-size: 13px; background-color: #FFFFFF;"
-                />
               </div>
+              <input
+                type="text"
+                class="input"
+                id="homeDirectionInput"
+                placeholder="예: 각 브랜드가 실제로 출시한 대표 신메뉴 이름·가격·특징을 비교하고 소비자 추천 조합을 소개해줘"
+                value="${escapeHtml(hi.direction || '')}"
+                style="height: 38px; padding: 0 12px; font-size: 13px; background-color: #FAFAFA;"
+              />
             </div>
           </div>
         </div>
 
         ${state.showRawPasteInput ? `
-          <div class="grid-2 mb-16" style="padding: 12px 14px; background-color: var(--bg-subtle); border: var(--border-thin); border-radius: var(--radius-general);">
+          <div class="grid-2 mb-16" style="padding: 12px 14px; background-color: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 8px;">
             <div>
-              <label style="display:block; font-size:12px; font-weight:700; margin-bottom:4px;">참고 URL (업체 홈페이지·보도자료 링크)</label>
+              <label style="display:block; font-size:12px; font-weight:700; color: var(--text-secondary); margin-bottom:4px;">참고 URL (업체 홈페이지·보도자료 링크)</label>
               <input type="url" class="input" id="homeUrlInput" placeholder="https://..." value="${escapeHtml(hi.url)}" />
             </div>
             <div>
-              <label style="display:block; font-size:12px; font-weight:700; margin-bottom:4px;">보도자료 핵심 문구 붙여넣기</label>
+              <label style="display:block; font-size:12px; font-weight:700; color: var(--text-secondary); margin-bottom:4px;">보도자료 핵심 문구 붙여넣기</label>
               <input type="text" class="input" id="homeRawTextInput" placeholder="기사에 꼭 들어갈 수치나 기업 서비스 내용을 붙여넣으세요" value="${escapeHtml(hi.rawText)}" />
             </div>
           </div>
         ` : ''}
 
-        <!-- STEP 2: 기사 전개 관점 선택 (AI 자동 맞춤 기본 작동 + 직관적인 5대 에디토리얼 관점 카드) -->
-        <div style="padding-top: 14px; border-top: 1px solid #F1F3F5;">
+        <!-- STEP 2: 기사 전개 관점 선택 (AI 자동 맞춤 기본 작동 + 심플한 5대 에디토리얼 관점 카드) -->
+        <div style="padding-top: 16px; border-top: 1px solid #F1F5F9;">
           <div class="flex-between mb-10" style="flex-wrap: wrap; gap: 8px;">
             <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 8px;">
-              <span style="background-color: #334155; color: #FFFFFF; font-size: 10.5px; font-weight: 800; padding: 1px 6px; border-radius: 4px;">STEP 2</span>
-              <span style="font-size: 12.5px; font-weight: 800; color: var(--text-primary);">기사 전개 관점 (콘텐츠 유형)</span>
+              <span style="background-color: #334155; color: #FFFFFF; font-size: 10px; font-weight: 800; padding: 1px 6px; border-radius: 4px;">STEP 2</span>
+              <span style="font-size: 12.5px; font-weight: 700; color: var(--text-primary);">기사 전개 관점</span>
               <button
                 type="button"
                 id="homeAutoTypeModeBtn"
-                style="display: inline-flex; align-items: center; gap: 5px; padding: 4px 11px; border-radius: 99px; font-size: 11.5px; font-weight: 800; cursor: pointer; font-family: inherit; transition: all 0.12s ease; border: 1.5px solid ${hi.typeMode !== 'manual' ? 'var(--mk-orange)' : '#CBD5E1'}; background-color: ${hi.typeMode !== 'manual' ? 'var(--mk-orange)' : '#FFFFFF'}; color: ${hi.typeMode !== 'manual' ? '#FFFFFF' : 'var(--text-secondary)'};"
-                title="키워드와 최신 뉴스 성격에 맞춰 AI가 고정 틀 없이 가장 자연스러운 기사 구조를 자동 설계합니다"
+                style="display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; border-radius: 99px; font-size: 11.5px; font-weight: 700; cursor: pointer; font-family: inherit; transition: all 0.12s ease; border: 1px solid ${hi.typeMode !== 'manual' ? '#2563EB' : '#CBD5E1'}; background-color: ${hi.typeMode !== 'manual' ? '#EFF6FF' : '#FFFFFF'}; color: ${hi.typeMode !== 'manual' ? '#1D4ED8' : 'var(--text-secondary)'};"
+                title="키워드와 최신 뉴스 성격에 맞춰 AI가 최적의 기사 관점을 자동 적용합니다"
               >
-                ✨ AI 자동 맞춤 ${hi.typeMode !== 'manual' ? '(현재 켜짐 · 권장)' : '켜기'}
+                ✨ AI 자동 맞춤 ${hi.typeMode !== 'manual' ? 'ON' : '켜기'}
               </button>
-              <span style="font-size: 11.5px; color: var(--text-muted);">
-                ${hi.typeMode !== 'manual'
-                  ? '고정된 템플릿에 억지로 끼워 넣지 않고, 최신 뉴스 팩트에 맞춰 최적의 관점을 자동 적용합니다.'
-                  : '선택하신 유형의 관점을 기준으로 기사를 구성합니다. (다시 클릭하면 AI 자동 맞춤으로 전환)'}
-              </span>
             </div>
-            <div id="homeTypePreviewMetaBox" style="display: flex; align-items: center; flex-wrap: wrap; gap: 8px; font-size: 11.5px; color: var(--text-secondary); background-color: #F8FAFC; padding: 4px 10px; border-radius: 6px; border: 1px solid #E2E8F0;">
+            <div id="homeTypePreviewMetaBox" style="display: flex; align-items: center; flex-wrap: wrap; gap: 6px;">
               ${buildHomeTypePreviewMetaHtml()}
             </div>
           </div>
@@ -5053,6 +5037,7 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
             `}
           `}
         </div>
+      </div>
       </div>
     `;
 

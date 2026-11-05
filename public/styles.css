@@ -130,20 +130,26 @@ body {
   margin-left: auto;
 }
 
-/* 메인 컨테이너 */
+/* 메인 컨테이너 (3단 에디터 화면은 넓게, 단일 컬럼 홈 화면은 시선 집중이 가장 편안한 1160px 폭으로 분리) */
 .main-container {
   max-width: 1620px;
   margin: 0 auto;
-  padding: 20px 24px 60px;
+  padding: 22px 24px 64px;
 }
 
-/* 카드 (12px 라운드, 0.5px 보더, 플랫) */
+.home-screen-wrap {
+  max-width: 1160px;
+  margin: 0 auto;
+}
+
+/* 카드 (12px 라운드, 군더더기 없는 정갈한 보더) */
 .card {
   background-color: var(--white);
-  border: var(--border-thin);
+  border: 1px solid #E5E7EB;
   border-radius: var(--radius-card);
-  padding: 20px;
-  margin-bottom: 16px;
+  padding: 24px 28px;
+  margin-bottom: 18px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.02);
 }
 
 .card-orange {
@@ -273,15 +279,15 @@ body {
 /* 홈 화면: 5대 콘텐츠 유형을 한 줄(5열)로 깔끔하게 비교·선택하는 컴팩트 카드 그리드 */
 .home-type-grid {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 10px;
 }
 
 .home-type-card {
   border: 1px solid #E5E7EB;
   border-radius: 10px;
-  background-color: var(--white);
-  padding: 12px 13px;
+  background-color: #FAFAFA;
+  padding: 13px 14px;
   cursor: pointer;
   display: flex;
   flex-direction: column;
@@ -291,21 +297,19 @@ body {
 }
 
 .home-type-card:hover {
-  border-color: var(--mk-orange-border);
-  background-color: #FFFDFB;
+  border-color: #CBD5E1;
+  background-color: var(--white);
   transform: translateY(-1px);
-  box-shadow: 0 3px 8px rgba(17, 24, 39, 0.04);
 }
 
 .home-type-card.selected {
   border: 1.5px solid var(--mk-orange);
   background-color: var(--mk-orange-light);
-  box-shadow: 0 2px 8px rgba(243, 112, 33, 0.1);
 }
 
 .home-type-card.auto-matched {
-  border: 1.5px dashed var(--mk-orange);
-  background-color: #FFFBF7;
+  border: 1.5px solid #2563EB;
+  background-color: #F0F7FF;
 }
 
 /* 홈 화면 하단 소재 발굴 · 작업함 3탭 네비게이션 */
@@ -865,17 +869,17 @@ table.mk-table th {
 /* 홈 화면 STEP 1 입력 그리드 & 캘린더 인라인 입력 그리드 (창 크기 조절 시 자연스럽게 줄바꿈) */
 .home-step1-main-grid {
   display: grid;
-  grid-template-columns: 1.65fr 1fr auto;
-  gap: 10px;
+  grid-template-columns: 1.45fr 1fr auto;
+  gap: 12px;
   align-items: end;
-  margin-bottom: 10px;
+  margin-bottom: 14px;
 }
 
 .home-step1-sub-grid {
   display: grid;
-  grid-template-columns: 1fr 1.85fr;
+  grid-template-columns: 1fr 1.65fr;
   gap: 12px;
-  align-items: start;
+  align-items: end;
 }
 
 .cal-inline-input-grid {
