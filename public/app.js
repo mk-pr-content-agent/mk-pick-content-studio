@@ -950,7 +950,7 @@
     return parsed;
   }
 
-  async function buildClientPerplexityEnhancedScenario({ apiKey, keyword: rawKeyword, company: rawCompany, subKeywords = '', direction = '', url, rawText, typeId, baseScenario }) {
+  async function buildClientPerplexityEnhancedScenario({ apiKey, keyword: rawKeyword, company: rawCompany, subKeywords = '', direction = '', url, rawText, typeId, baseScenario, abortSignal = null }) {
     const keyword = cleanTrendTopicKeyword ? cleanTrendTopicKeyword(rawKeyword) : String(rawKeyword || '').trim();
     const company = extractBrandFromTopic ? extractBrandFromTopic(keyword, rawCompany) : String(rawCompany || '').trim();
     if (isVirtualIdolQuery && isVirtualIdolQuery(keyword, company)) {
@@ -1030,7 +1030,7 @@ ${url ? `- 참고 URL: ${url}\n` : ''}${rawText ? `- 추가 메모: ${rawText}\n
   "oneLineSummary": "한 줄 요약! 핵심 메시지 (~입니다 체)"
 }`;
 
-    const { parsed, citations, searchResults, activeModel, fallbackFromModel, fallbackReason } = await callPerplexityDirectFromBrowser(apiKey, sys, usr, 'month', 'draft');
+    const { parsed, citations, searchResults, activeModel, fallbackFromModel, fallbackReason } = await callPerplexityDirectFromBrowser(apiKey, sys, usr, 'month', 'draft', 0, '', abortSignal);
     const mergedSources = [];
     const usedSrUrls = new Set();
     const factsArr = Array.isArray(parsed.researchFacts) ? parsed.researchFacts : [];
@@ -1389,51 +1389,183 @@ ${url ? `- 참고 URL: ${url}\n` : ''}${rawText ? `- 추가 메모: ${rawText}\n
     return false;
   }
 
-  // 본문 단락 입력칸(#secBody-${sec.id}) 내부에서 취재 메모(노란색)와 AI 채팅 수정(파란색) 문장을 바로 인라인 하이라이팅하는 함수
-  function buildInlineHighlightedBodyInnerHtml(rawText = '', { memoSentences = [], memoTokens = [], aiAddedSents = [] } = {}) {
-    const cleanMemoSents = (memoSentences || []).map(s => String(s || '').trim()).filter(s => s.length >= 6);
-    const cleanMemoTokens = (memoTokens || []).map(t => String(t || '').trim()).filter(t => t.length >= 2);
-    const cleanAiSents = (aiAddedSents || []).map(s => String(s || '').trim()).filter(s => s.length >= 6);
-
-    const text = String(rawText || '');
-    if (!text) return '';
-    if (cleanMemoSents.length === 0 && cleanMemoTokens.length === 0 && cleanAiSents.length === 0) {
-      return escapeHtml(text);
+  // 문장 A와 B 사이의 글자 2-gram 유사도(0.0 ~ 1.0) 및 리라이팅/원문동일 등급 판정 함수
+  function computeSentenceSimilarityInfo(sentA = '', sentB = '') {
+    const a = normalizeSentForCompare(sentA);
+    const b = normalizeSentForCompare(sentB);
+    if (!a || !b) {
+      return { ratio: 0, pct: 0, grade: 'REWRITTEN', badgeText: '✨ AI 재구성(리라이팅)', color: '#1B7F3B', bg: '#EBFBEE', border: '#B2F2BB' };
     }
+    if (a === b) {
+      return { ratio: 1, pct: 100, grade: 'VERBATIM', badgeText: '⚠️ 원문 문장 동일 (100%)', color: '#C92A2A', bg: '#FFF5F5', border: '#FFA8A8' };
+    }
+    const bigramsA = new Set();
+    for (let i = 0; i < a.length - 1; i++) bigramsA.add(a.slice(i, i + 2));
+    const bigramsB = new Set();
+    for (let i = 0; i < b.length - 1; i++) bigramsB.add(b.slice(i, i + 2));
+    if (bigramsA.size === 0 || bigramsB.size === 0) {
+      return { ratio: 0, pct: 0, grade: 'REWRITTEN', badgeText: '✨ AI 재구성(리라이팅)', color: '#1B7F3B', bg: '#EBFBEE', border: '#B2F2BB' };
+    }
+    let hit = 0;
+    bigramsB.forEach(bg => {
+      if (bigramsA.has(bg)) hit++;
+    });
+    const diceRatio = (2 * hit) / (bigramsA.size + bigramsB.size);
+    const pct = Math.min(100, Math.round(diceRatio * 100));
 
-    // 줄바꿈(\n, \n\n 등) 구분자를 그대로 보존하면서 문장 단위로만 <mark> 감싸기
-    const parts = text.split(/(\n+)/);
-    return parts.map(part => {
-      if (/^\n+$/.test(part)) return part;
-      const sentTokens = part.split(/((?<=[.?!])\s+)/);
-      return sentTokens.map(token => {
-        if (/^\s+$/.test(token)) return token;
-        const trimmed = token.trim();
-        if (!trimmed) return escapeHtml(token);
-
-        const isMemoMatch = cleanMemoSents.some(ms => isEssentiallySameSentence(trimmed, ms)) ||
-          (cleanMemoSents.length === 0 && cleanMemoTokens.length >= 2 && cleanMemoTokens.filter(tk => trimmed.includes(tk)).length >= 2);
-        if (isMemoMatch) {
-          return `<mark class="inline-hl-memo">${escapeHtml(token)}</mark>`;
-        }
-
-        const isAiMatch = cleanAiSents.some(as => isEssentiallySameSentence(trimmed, as));
-        if (isAiMatch) {
-          return `<mark class="inline-hl-ai">${escapeHtml(token)}</mark>`;
-        }
-
-        return escapeHtml(token);
-      }).join('');
-    }).join('');
+    if (pct >= 82) {
+      return {
+        ratio: diceRatio,
+        pct,
+        grade: 'VERBATIM',
+        badgeText: `⚠️ 원문 문장 거의 동일 (유사도 ${pct}% · 직접 인용)`,
+        color: '#C92A2A',
+        bg: '#FFF5F5',
+        border: '#FFC9C9'
+      };
+    }
+    if (pct >= 45) {
+      return {
+        ratio: diceRatio,
+        pct,
+        grade: 'PARTIAL_REWRITE',
+        badgeText: `🔄 원문 팩트 기반 부분 리라이팅 (유사도 ${pct}%)`,
+        color: '#B45309',
+        bg: '#FFFBEB',
+        border: '#FDE68A'
+      };
+    }
+    return {
+      ratio: diceRatio,
+      pct,
+      grade: 'REWRITTEN',
+      badgeText: `✨ 팩트 참고 AI 독창적 재구성 (유사도 ${pct}% · 복붙 아님)`,
+      color: '#1B7F3B',
+      bg: '#EBFBEE',
+      border: '#B2F2BB'
+    };
   }
 
-  // contenteditable 인라인 본문 에디터 또는 textarea에서 순수 텍스트(줄바꿈 유지)를 추출하는 헬퍼
-  function extractPlainTextFromEditable(el) {
-    if (!el) return '';
-    if (typeof el.value === 'string') return el.value;
-    return String(el.innerText || el.textContent || '')
-      .replace(/\r\n/g, '\n')
-      .replace(/\u00A0/g, ' ');
+  // 기사 전체(도입부 + 본문 1~4단락)와 취재 팩트 메모/원문 출처 간의 문장 유사도 및 독창성을 종합 분석하는 함수
+  function evaluateWorkOriginalityAndSimilarity(w) {
+    if (!w) {
+      return {
+        totalSentences: 0,
+        verbatimCount: 0,
+        partialCount: 0,
+        rewrittenCount: 0,
+        rewriteRatePct: 100,
+        avgSimilarityPct: 0,
+        sentenceReports: [],
+        sourceSimilarityMap: {}
+      };
+    }
+    const memos = Array.isArray(w.researchItems) ? w.researchItems : [];
+    const sources = Array.isArray(w.sources) ? w.sources : [];
+    const allBodySents = [];
+
+    if (w.summaryBlocks?.includeLeadIntro !== false && w.summaryBlocks?.leadIntro) {
+      splitIntoSentences(w.summaryBlocks.leadIntro).forEach(s => {
+        if (s.length >= 12) allBodySents.push({ secId: 'block-step-3', secLabel: '도입부', text: s });
+      });
+    }
+    (w.draftSections || []).forEach((sec, idx) => {
+      splitIntoSentences(sec.content || '').forEach(s => {
+        if (s.length >= 12) allBodySents.push({ secId: `secWrap-${sec.id}`, rawSecId: sec.id, secLabel: `단락 0${idx + 1}`, text: s });
+      });
+    });
+
+    const sourceSimilarityMap = {};
+    sources.forEach(src => {
+      sourceSimilarityMap[src.id] = {
+        maxSimPct: 0,
+        bestMatchedBodySent: '',
+        bestMatchedMemoFact: '',
+        bestSecLabel: '',
+        bestTargetId: '',
+        grade: 'REWRITTEN',
+        badgeText: '✨ 팩트만 참고해 AI 재구성됨 (동일 문장 없음)'
+      };
+    });
+
+    let verbatimCount = 0;
+    let partialCount = 0;
+    let rewrittenCount = 0;
+    let sumSimPct = 0;
+
+    const sentenceReports = allBodySents.map(bs => {
+      let bestSim = { ratio: 0, pct: 0, grade: 'REWRITTEN', badgeText: '✨ AI 독창적 서술 (유사도 0%)' };
+      let bestMemo = null;
+
+      memos.forEach(m => {
+        const info = computeSentenceSimilarityInfo(bs.text, m.fact || '');
+        if (info.pct >= bestSim.pct) {
+          bestSim = info;
+          bestMemo = m;
+        }
+      });
+
+      if (bestSim.grade === 'VERBATIM') verbatimCount++;
+      else if (bestSim.grade === 'PARTIAL_REWRITE') partialCount++;
+      else rewrittenCount++;
+      sumSimPct += bestSim.pct;
+
+      if (bestMemo && Array.isArray(bestMemo.sourceIds)) {
+        bestMemo.sourceIds.forEach(srcId => {
+          const cur = sourceSimilarityMap[srcId];
+          if (cur && bestSim.pct >= cur.maxSimPct) {
+            cur.maxSimPct = bestSim.pct;
+            cur.bestMatchedBodySent = bs.text;
+            cur.bestMatchedMemoFact = bestMemo.fact || '';
+            cur.bestSecLabel = bs.secLabel;
+            cur.bestTargetId = bs.secId;
+            cur.grade = bestSim.grade;
+            cur.badgeText = bestSim.badgeText;
+          }
+        });
+      }
+
+      return {
+        ...bs,
+        simInfo: bestSim,
+        matchedMemo: bestMemo
+      };
+    });
+
+    // sourceIds로 연결되지 않은 출처라도 제목 키워드가 본문에 어떻게 쓰였는지 추정
+    sources.forEach(src => {
+      const cur = sourceSimilarityMap[src.id];
+      if (!cur || cur.maxSimPct > 0) return;
+      const cleanTitle = String(src.title || '').replace(/^\[[^\]]+\]\s*/, '').trim();
+      if (!cleanTitle) return;
+      allBodySents.forEach(bs => {
+        const info = computeSentenceSimilarityInfo(bs.text, cleanTitle);
+        if (info.pct > cur.maxSimPct) {
+          cur.maxSimPct = info.pct;
+          cur.bestMatchedBodySent = bs.text;
+          cur.bestMatchedMemoFact = cleanTitle;
+          cur.bestSecLabel = bs.secLabel;
+          cur.bestTargetId = bs.secId;
+          cur.grade = info.grade;
+          cur.badgeText = info.badgeText;
+        }
+      });
+    });
+
+    const total = Math.max(1, sentenceReports.length);
+    const rewriteRatePct = Math.round(((rewrittenCount + partialCount) / total) * 100);
+    const avgSimilarityPct = Math.round(sumSimPct / total);
+
+    return {
+      totalSentences: sentenceReports.length,
+      verbatimCount,
+      partialCount,
+      rewrittenCount,
+      rewriteRatePct,
+      avgSimilarityPct,
+      sentenceReports,
+      sourceSimilarityMap
+    };
   }
 
   // 본문 텍스트 내 특정 문장(matchedSentences)이나 키워드(matchTokens)를 출처별 색상(AI 채팅=블루, 취재 메모=앰버)으로 구분해 하이라이팅
@@ -1582,19 +1714,45 @@ ${url ? `- 참고 URL: ${url}\n` : ''}${rawText ? `- 추가 메모: ${rawText}\n
       `;
     }
 
-    // [모드 2: 📌 취재 팩트 메모 반영 내역 바 (앰버/옐로우 테마 — AI 채팅 블루와 100% 시각적 분리)]
+    // [모드 2: 📌 취재 팩트 메모 반영 내역 바 (앰버/옐로우 테마 — 원문 동일 복붙 vs AI 재구성(리라이팅) 여부 및 유사도 % 명시!)]
     const memoSecId = options?.secId || '';
     const memoId = options?.memoId || state.activeMemoHighlight?.memoId || '';
+    const refMemoFacts = Array.isArray(options?.memoFacts) && options.memoFacts.length > 0
+      ? options.memoFacts
+      : cleanSentences;
+
+    // 하이라이트된 본문 문장과 취재 메모 원문 사이의 유사도 판정
+    let maxSimInfo = { ratio: 0, pct: 0, grade: 'REWRITTEN', badgeText: '✨ 팩트 참고 AI 재구성 (복붙 아님)', color: '#1B7F3B', bg: '#EBFBEE', border: '#B2F2BB' };
+    let matchedBodySentForCompare = '';
+    let matchedMemoSentForCompare = refMemoFacts[0] || '';
+    const bodySents = splitIntoSentences(rawText);
+    bodySents.forEach(bs => {
+      const isHlSent = cleanSentences.some(ms => isEssentiallySameSentence(bs, ms)) ||
+        (cleanTokens.length > 0 && cleanTokens.filter(tk => bs.includes(tk)).length >= 2);
+      if (!isHlSent) return;
+      refMemoFacts.forEach(mf => {
+        const sim = computeSentenceSimilarityInfo(bs, mf);
+        if (sim.pct >= maxSimInfo.pct) {
+          maxSimInfo = sim;
+          matchedBodySentForCompare = bs;
+          matchedMemoSentForCompare = mf;
+        }
+      });
+    });
+
     return `
       <div style="margin-top: 8px; padding: 10px 12px; background-color: var(--memo-fact-bg); border: 1px solid var(--memo-fact-border); border-radius: 8px; font-size: 13px; color: var(--text-primary);">
         <div class="flex-between" style="flex-wrap: wrap; gap: 6px; margin-bottom: 6px;">
-          <div class="flex-row" style="gap: 6px;">
+          <div class="flex-row" style="gap: 6px; flex-wrap: wrap;">
             <span style="display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 800; color: #78350F; background-color: var(--memo-fact-mark); padding: 2px 8px; border-radius: 99px;">
               📌 취재 메모 반영
             </span>
             <strong style="font-size: 12px; font-weight: 700; color: var(--memo-fact);">
               ${escapeHtml(badgeTitle || '취재 팩트 메모장에서 반영된 문장')}
             </strong>
+            <span style="display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 99px; font-size: 11px; font-weight: 800; color: ${maxSimInfo.color}; background-color: ${maxSimInfo.bg}; border: 1px solid ${maxSimInfo.border};">
+              ${escapeHtml(maxSimInfo.badgeText)}
+            </span>
           </div>
           <div class="flex-row" style="gap: 8px;">
             ${memoSecId && cleanSentences.length > 0 ? `
@@ -1602,6 +1760,7 @@ ${url ? `- 참고 URL: ${url}\n` : ''}${rawText ? `- 추가 메모: ${rawText}\n
                 type="button"
                 class="text-action"
                 data-remove-memo-sent-sec="${escapeHtml(memoSecId)}"
+                data-remove-memo-sent-text="${escapeHtml(cleanSentences[cleanSentences.length - 1] || '')}"
                 data-remove-memo-id="${escapeHtml(memoId)}"
                 style="font-size: 11px; font-weight: 700; color: #B45309;"
                 title="이 단락에서 방금 반영한 취재 메모 문장을 뺍니다"
@@ -1612,6 +1771,16 @@ ${url ? `- 참고 URL: ${url}\n` : ''}${rawText ? `- 추가 메모: ${rawText}\n
             <button type="button" class="text-action" data-clear-highlight="memo" style="font-size: 11px; color: var(--text-muted);">표시 닫기</button>
           </div>
         </div>
+        ${matchedMemoSentForCompare ? `
+          <div style="margin-bottom: 6px; padding: 6px 10px; background-color: rgba(255,255,255,0.75); border: 1px dashed #FCD34D; border-radius: 6px; font-size: 11.5px; color: #78350F; line-height: 1.5;">
+            <strong>취재 메모 원문 비교:</strong> "${escapeHtml(matchedMemoSentForCompare)}"
+            <span style="margin-left: 6px; color: ${maxSimInfo.color}; font-weight: 800;">
+              → ${maxSimInfo.grade === 'VERBATIM'
+                ? '취재 메모 문장이 본문에 직접 반영(동일 문장)되었습니다. 필요 시 [✨ 문체 다듬기]나 직접 수정으로 다듬어 주세요.'
+                : '원문 팩트·수치만 참고하여 AI가 매경 문체로 새롭게 리라이팅(재구성)한 문장입니다.'}
+            </span>
+          </div>
+        ` : ''}
         <div style="padding: 8px 10px; background-color: #FFFFFF; border: 1px solid #FDE68A; border-radius: 6px;">
           ${renderedParas.join('')}
         </div>
@@ -4011,6 +4180,30 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
   }
 
   let draftTimerId = null;
+  let currentDraftAbortController = null;
+  let currentDraftRunId = 0;
+
+  function cancelDraftGeneration() {
+    if (!state.isSearchingNews && !state.isRefreshingInEditor && !currentDraftAbortController) return;
+    currentDraftRunId += 1;
+    if (currentDraftAbortController) {
+      try {
+        currentDraftAbortController.abort();
+      } catch (e) {}
+      currentDraftAbortController = null;
+    }
+    if (draftTimerId) {
+      clearInterval(draftTimerId);
+      draftTimerId = null;
+    }
+    state.isSearchingNews = false;
+    state.isRefreshingInEditor = false;
+    state.generatingKeyword = '';
+    state.generatingTypeName = '';
+    syncDraftFloatingBannerDOM();
+    render(true);
+    showToast('⏹ 기사 초안 생성을 중단했습니다.');
+  }
 
   function formatDraftRemainingInfo(elapsedSec) {
     const selectedModel = getSelectedWriterModel();
@@ -4074,7 +4267,7 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
 
     banner.innerHTML = `
       <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 8px;">
-        <div style="font-size: 14px; font-weight: 800; color: var(--text-primary); display: flex; align-items: center; gap: 6px;">
+        <div style="font-size: 14px; font-weight: 800; color: var(--text-primary); display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
           <span style="display: inline-block; width: 9px; height: 9px; border-radius: 50%; background-color: var(--mk-orange);"></span>
           <span>'${escapeHtml(kw)}'</span>
           <span style="font-size: 11.5px; font-weight: 700; color: var(--mk-orange); background-color: var(--mk-orange-light); padding: 2px 7px; border-radius: 4px;">
@@ -4082,9 +4275,19 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
           </span>
           <span>맞춤 초안 생성 중</span>
         </div>
-        <span id="draftFloatingTimerBadge" style="font-size: 12.5px; font-weight: 800; color: var(--mk-orange); background-color: var(--mk-orange-light); padding: 3px 10px; border-radius: 99px;">
-          ⏱ ${escapeHtml(info.timeBadgeText)}
-        </span>
+        <div style="display: flex; align-items: center; gap: 6px; flex-shrink: 0;">
+          <span id="draftFloatingTimerBadge" style="font-size: 12.5px; font-weight: 800; color: var(--mk-orange); background-color: var(--mk-orange-light); padding: 3px 10px; border-radius: 99px;">
+            ⏱ ${escapeHtml(info.timeBadgeText)}
+          </span>
+          <button
+            type="button"
+            id="cancelDraftFloatingBtn"
+            style="padding: 4px 10px; border-radius: 99px; border: 1.5px solid #DC2626; background-color: #FEF2F2; color: #DC2626; font-size: 12px; font-weight: 800; cursor: pointer; font-family: inherit; white-space: nowrap;"
+            title="진행 중인 초안 생성을 즉시 멈춥니다 (Esc)"
+          >
+            ⏹ 생성 중단
+          </button>
+        </div>
       </div>
       <div style="width: 100%; height: 7px; background-color: #F1F1EE; border-radius: 99px; overflow: hidden; margin-bottom: 8px;">
         <div id="draftFloatingProgressBar" style="width: ${info.pct}%; height: 100%; background: linear-gradient(90deg, #F37021 0%, #FF9248 100%); border-radius: 99px; transition: width 0.25s ease;"></div>
@@ -4094,6 +4297,10 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
         <span style="font-size: 11.5px; color: var(--text-muted); white-space: nowrap;">완성 즉시 편집 화면으로 이동합니다</span>
       </div>
     `;
+    document.getElementById('cancelDraftFloatingBtn')?.addEventListener('click', e => {
+      e.stopPropagation();
+      cancelDraftGeneration();
+    });
   }
 
   function startDraftProgressTimer(keyword, typeName) {
@@ -4142,9 +4349,16 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
     };
   }
 
-  // 트렌드 키워드 또는 직접 입력으로 바로 기사 초안 생성하는 공통 함수 (서브 키워드 및 편집자 기획 방향·맥락 반영)
+  // 트렌드 키워드 또는 직접 입력으로 바로 기사 초안 생성하는 공통 함수 (서브 키워드 및 편집자 기획 방향·맥락 반영 + 언제든 생성 중단 가능)
   async function startWorkWithKeyword(rawKeyword, typeId = 4, rawCompany = '', autoMatchType = false, customSubKeywords = undefined, customDirection = undefined) {
     if (state.isSearchingNews) return;
+    if (currentDraftAbortController) {
+      try { currentDraftAbortController.abort(); } catch (e) {}
+    }
+    const abortController = new AbortController();
+    currentDraftAbortController = abortController;
+    const runId = ++currentDraftRunId;
+
     const keyword = cleanTrendTopicKeyword ? cleanTrendTopicKeyword(rawKeyword) : String(rawKeyword || '').trim();
     const company = extractBrandFromTopic ? extractBrandFromTopic(keyword, rawCompany) : String(rawCompany || '').trim();
     const subKeywords = (customSubKeywords !== undefined ? customSubKeywords : (state.homeInput.subKeywords || '')).trim();
@@ -4168,6 +4382,7 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
       }
       const res = await apiFetch('/api/works', {
         method: 'POST',
+        signal: abortController.signal,
         body: JSON.stringify({
           mode: 'dynamic',
           keyword,
@@ -4181,10 +4396,13 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
           autoMatchType
         })
       });
+      if (abortController.signal.aborted || runId !== currentDraftRunId) return;
       if (!res.usedPerplexity && getClientPerplexityKey()) {
         throw new Error('SERVER_FALLBACK_RETRY_IN_CLIENT');
       }
       await loadConfig();
+      if (abortController.signal.aborted || runId !== currentDraftRunId) return;
+      currentDraftAbortController = null;
       state.isSearchingNews = false;
       const elapsed = stopTimer();
       res.work.createdAtFormatted = formatHistoryTimestamp(new Date());
@@ -4203,6 +4421,9 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
       showToast(`✓ [${finalTypeName} · ${finalCat}] '${keyword}' 맞춤 초안이 완성되었습니다! (${getWriterModelShortLabel(selectedWriter)} · ${elapsed}초 소요)`);
       render(false);
     } catch (err) {
+      if (err?.isUserCancelled || abortController.signal.aborted || runId !== currentDraftRunId) {
+        return;
+      }
       // 브라우저 2단계 하이브리드 파이프라인 직접 실행 (Stage 1: Perplexity sonar-pro 검색 -> Stage 2: 선택된 집필 AI)
       const matchedTrendNews = extractMatchingTrendNewsItems(keyword, company);
       let fallbackScenario = (buildDynamicScenario || buildPresetScenario)({
@@ -4229,16 +4450,27 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
             url: state.homeInput.url || '',
             rawText: state.homeInput.rawText || '',
             typeId: matchedType,
-            baseScenario: fallbackScenario
+            baseScenario: fallbackScenario,
+            abortSignal: abortController.signal
           });
         } catch (pplxErr) {
+          if (pplxErr?.isUserCancelled || abortController.signal.aborted || runId !== currentDraftRunId) {
+            return;
+          }
           console.warn('Client Perplexity draft fallback:', pplxErr.message);
           clientPplxError = pplxErr.message || 'AI 응답 시간 초과(Timeout)';
         }
       } else {
         clientPplxError = 'API 키 미설정';
       }
+      if (abortController.signal.aborted || runId !== currentDraftRunId) {
+        return;
+      }
       await loadConfig();
+      if (abortController.signal.aborted || runId !== currentDraftRunId) {
+        return;
+      }
+      currentDraftAbortController = null;
       state.isSearchingNews = false;
       const elapsed = stopTimer();
       const fallbackWork = createWorkObject
@@ -4564,10 +4796,15 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
               </label>
               <input type="text" class="input" id="homeCompanyInput" placeholder="예: 이디야커피, 맘스터치, 메가MGC커피" value="${escapeHtml(hi.company)}" style="height: 42px; padding: 0 14px; font-size: 13.5px;" />
             </div>
-            <div>
+            <div style="display: flex; align-items: center; gap: 6px;">
               <button class="btn btn-primary btn-lg" id="homeStartDynamicBtn" style="height: 42px; padding: 0 24px; font-size: 14px; font-weight: 800;" ${state.isSearchingNews ? 'disabled' : ''}>
                 ${state.isSearchingNews ? formatDraftRemainingInfo(state.draftElapsedSec || 0).shortBtnText : '✨ 초안 만들기 →'}
               </button>
+              ${state.isSearchingNews ? `
+                <button type="button" data-cancel-draft-gen="1" style="height: 42px; padding: 0 14px; font-size: 13px; font-weight: 800; color: #DC2626; background-color: #FEF2F2; border: 1.5px solid #EF4444; border-radius: var(--radius-general); cursor: pointer; white-space: nowrap; font-family: inherit;">
+                  ⏹ 중단
+                </button>
+              ` : ''}
             </div>
           </div>
 
@@ -4851,6 +5088,16 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
                       <span ${isThisRowGenerating ? 'data-active-generating-badge="1"' : ''} style="font-size: 12.5px; font-weight: 800; color: var(--mk-orange); white-space: nowrap; margin-left: 4px; ${isThisRowGenerating ? 'background-color: #FFFFFF; padding: 4px 10px; border-radius: 99px; border: 1px solid var(--mk-orange);' : ''}">
                         ${isThisRowGenerating ? escapeHtml(formatDraftRemainingInfo(state.draftElapsedSec || 0).shortBtnText) : '초안 생성 →'}
                       </span>
+                      ${isThisRowGenerating ? `
+                        <button
+                          type="button"
+                          data-cancel-draft-gen="1"
+                          style="font-size: 12px; font-weight: 800; color: #FFFFFF; background-color: #DC2626; border: 1px solid #B91C1C; padding: 4px 11px; border-radius: 99px; cursor: pointer; white-space: nowrap; font-family: inherit; box-shadow: 0 2px 6px rgba(220, 38, 38, 0.25);"
+                          title="현재 진행 중인 기사 초안 생성을 즉시 중단합니다"
+                        >
+                          ⏹ 생성 중단
+                        </button>
+                      ` : ''}
                     </div>
                   </div>
                 `;
@@ -5481,10 +5728,22 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
       });
     });
 
+    // 초안 생성 중단 버튼 이벤트 바인딩
+    root.querySelectorAll('[data-cancel-draft-gen]').forEach(btn => {
+      btn.addEventListener('click', e => {
+        e.stopPropagation();
+        cancelDraftGeneration();
+      });
+    });
+
     // 실시간 트렌드 키워드 클릭 시 최적 유형(1~5)으로 즉시 초안 생성
     root.querySelectorAll('[data-use-trend-kw]').forEach(btn => {
       btn.addEventListener('click', () => {
         const kw = btn.getAttribute('data-use-trend-kw');
+        if (state.isSearchingNews && state.searchingKeyword === kw) {
+          cancelDraftGeneration();
+          return;
+        }
         const trendComp = (btn.getAttribute('data-use-trend-comp') || '').trim();
         const finalComp = trendComp || hi.company;
         const matchedType = Number(btn.getAttribute('data-use-trend-type')) || detectBestContentType(kw, finalComp, '', 4);
@@ -5784,6 +6043,7 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
     const fullText = buildPlainTextArticle(w);
     const unverifiedCount = (w.factChecks || []).filter(f => f.status === '미처리').length;
     const geoEval = evaluateGeoChecklist(w);
+    const origEval = evaluateWorkOriginalityAndSimilarity(w);
     const isPreview = state.editorViewMode === 'preview';
 
     // 편집 화면 왼쪽에서도 바로 눌러 쓸 수 있는 인기 트렌드 태그 모음 (10개)
@@ -5939,17 +6199,25 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
 
                           <div class="flex-between" style="flex-wrap: wrap; gap: 6px;">
                             <div class="flex-row" style="gap: 5px; flex-wrap: wrap;">
-                              ${reflectionInfo.isReflected ? reflectionInfo.locations.map((loc, lIdx) => `
-                                <button
-                                  type="button"
-                                  data-locate-memo-id="${escapeHtml(item.id)}"
-                                  data-locate-memo-loc="${lIdx}"
-                                  style="display: inline-flex; align-items: center; gap: 3px; padding: 2px 8px; border-radius: 99px; border: 1px solid var(--memo-fact-border); background-color: var(--memo-fact-bg); color: var(--memo-fact); font-size: 11px; font-weight: 800; cursor: pointer; font-family: inherit;"
-                                  title="클릭하면 오른쪽 본문의 해당 단락으로 이동하여 이 메모가 반영된 문장을 노란색으로 표시합니다"
-                                >
-                                  📌 ${escapeHtml(loc.label)} 반영됨 · 보기 ↘
-                                </button>
-                              `).join('') : `
+                              ${reflectionInfo.isReflected ? reflectionInfo.locations.map((loc, lIdx) => {
+                                const firstMatchSent = (loc.matchedSentences && loc.matchedSentences[0]) || '';
+                                const locSim = computeSentenceSimilarityInfo(firstMatchSent, item.fact || '');
+                                return `
+                                  <button
+                                    type="button"
+                                    data-locate-memo-id="${escapeHtml(item.id)}"
+                                    data-locate-memo-loc="${lIdx}"
+                                    style="display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 99px; border: 1px solid var(--memo-fact-border); background-color: var(--memo-fact-bg); color: var(--memo-fact); font-size: 11px; font-weight: 800; cursor: pointer; font-family: inherit;"
+                                    title="클릭하면 오른쪽 본문의 해당 단락 아래에 이 메모가 반영된 문장과 원문 유사도(${locSim.pct}%)를 표시합니다"
+                                  >
+                                    <span>📌 ${escapeHtml(loc.label)} 반영됨</span>
+                                    <span style="font-size: 10px; font-weight: 800; color: ${locSim.color}; background: ${locSim.bg}; padding: 0 5px; border-radius: 99px;">
+                                      ${locSim.grade === 'VERBATIM' ? `직접인용 ${locSim.pct}%` : `AI재구성 · 유사 ${locSim.pct}%`}
+                                    </span>
+                                    <span>↘</span>
+                                  </button>
+                                `;
+                              }).join('') : `
                                 <span style="font-size: 11px; font-weight: 600; color: var(--text-muted); background-color: var(--bg-subtle); padding: 1px 7px; border-radius: 99px;">
                                   미반영
                                 </span>
@@ -5976,7 +6244,7 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
                   </div>
                 </div>
               ` : state.leftPanelTab === 'check' ? `
-                <!-- [탭 2: 점검·팩트] GEO 7대 체크리스트 (클릭 시 우측 영역 점프) + 수치·날짜 형광펜 팩트체크 -->
+                <!-- [탭 2: 점검·팩트] GEO 7대 체크리스트 + 원문 출처·보도 기사 유사도 검증 + 수치·날짜 형광펜 팩트체크 -->
                 <div style="margin-bottom: 18px; padding-bottom: 14px; border-bottom: var(--border-thin);">
                   <div class="flex-between mb-6">
                     <strong style="font-size: 13.5px; font-weight: 800;">✅ GEO 최적화 7대 체크리스트</strong>
@@ -5990,6 +6258,75 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
                   <div id="geoChecklistContainer">
                     ${renderGeoChecklistItemsHtml(geoEval.details)}
                   </div>
+                </div>
+
+                <!-- 🔍 원문 출처·기보도 기사 유사도 및 독창성 검증 단계 -->
+                <div style="margin-bottom: 18px; padding-bottom: 14px; border-bottom: var(--border-thin);">
+                  <div class="flex-between mb-6" style="flex-wrap: wrap; gap: 4px;">
+                    <strong style="font-size: 13.5px; font-weight: 800;">🔍 원문·기보도 기사 유사도 검증</strong>
+                    <span style="font-size: 11.5px; font-weight: 800; padding: 2px 8px; border-radius: 99px; color: ${origEval.verbatimCount === 0 ? '#1B7F3B' : '#B45309'}; background-color: ${origEval.verbatimCount === 0 ? '#EBFBEE' : '#FFFBEB'}; border: 1px solid ${origEval.verbatimCount === 0 ? '#B2F2BB' : '#FDE68A'};">
+                      ${origEval.verbatimCount === 0 ? `✓ AI 독창적 재구성 ${origEval.rewriteRatePct}%` : `직접 인용 ${origEval.verbatimCount}문장 포함`}
+                    </span>
+                  </div>
+                  <p class="text-muted mb-8" style="line-height: 1.45;">
+                    취재 메모·원문 출처 문장과 본문(${origEval.totalSentences}문장)을 대조해 <strong>단순 복붙(동일 문장)인지 AI 리라이팅(재구성)인지</strong> 판별하고, 외부 포털의 기보도 유사 기사를 교차 검색합니다.
+                  </p>
+
+                  <div style="padding: 10px 12px; background-color: var(--bg-subtle); border: var(--border-thin); border-radius: 8px; margin-bottom: 10px;">
+                    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; text-align: center; margin-bottom: 8px;">
+                      <div style="padding: 6px 4px; background: #FFFFFF; border-radius: 6px; border: 1px solid #E5E7EB;">
+                        <div style="font-size: 10.5px; color: var(--text-muted); font-weight: 600;">AI 재구성(독창)</div>
+                        <div style="font-size: 13.5px; font-weight: 800; color: #1B7F3B;">${origEval.rewrittenCount}문장</div>
+                      </div>
+                      <div style="padding: 6px 4px; background: #FFFFFF; border-radius: 6px; border: 1px solid #E5E7EB;">
+                        <div style="font-size: 10.5px; color: var(--text-muted); font-weight: 600;">팩트 부분 리라이팅</div>
+                        <div style="font-size: 13.5px; font-weight: 800; color: #B45309;">${origEval.partialCount}문장</div>
+                      </div>
+                      <div style="padding: 6px 4px; background: #FFFFFF; border-radius: 6px; border: 1px solid #E5E7EB;">
+                        <div style="font-size: 10.5px; color: var(--text-muted); font-weight: 600;">원문 동일(복붙)</div>
+                        <div style="font-size: 13.5px; font-weight: 800; color: ${origEval.verbatimCount > 0 ? '#C92A2A' : 'var(--text-secondary)'};">${origEval.verbatimCount}문장</div>
+                      </div>
+                    </div>
+                    <div style="font-size: 11.5px; color: var(--text-secondary); line-height: 1.45;">
+                      • 평균 원문 어절 유사도: <strong>${origEval.avgSimilarityPct}%</strong> (${origEval.verbatimCount === 0 ? '모든 문장이 원문 팩트만 참고하여 새롭게 재구성되었습니다' : `취재 메모에서 직접 반영한 동일 문장 ${origEval.verbatimCount}건이 있습니다`})
+                    </div>
+                  </div>
+
+                  <!-- 기보도 기사 유사도 실시간 웹 검색 (네이버 뉴스 / 구글 뉴스) -->
+                  <div style="margin-bottom: 8px;">
+                    <div style="font-size: 11.5px; font-weight: 700; color: var(--text-primary); margin-bottom: 5px;">
+                      🌐 현재 보도된 외부 뉴스 중 유사 기사 검색
+                    </div>
+                    <div style="display: flex; flex-wrap: wrap; gap: 5px;">
+                      <a
+                        href="https://search.naver.com/search.naver?where=news&query=${encodeURIComponent(w.title || w.keyword || '')}"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style="flex: 1; text-align: center; padding: 5px 8px; font-size: 11px; font-weight: 700; color: #1B7F3B; background-color: #EBFBEE; border: 1px solid #B2F2BB; border-radius: 6px; text-decoration: none; white-space: nowrap;"
+                        title="완성된 기사 헤드라인과 유사한 기보도 기사가 있는지 네이버 뉴스에서 즉시 검색합니다"
+                      >
+                        네이버 뉴스 제목 유사도 검색 ↗
+                      </a>
+                      <a
+                        href="https://www.google.com/search?tbm=nws&q=${encodeURIComponent((w.keyword || '') + ' ' + ((w.draftSections?.[0]?.title || '').slice(0, 18)))}"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style="flex: 1; text-align: center; padding: 5px 8px; font-size: 11px; font-weight: 700; color: #1D4ED8; background-color: #EFF6FF; border: 1px solid #BFDBFE; border-radius: 6px; text-decoration: none; white-space: nowrap;"
+                        title="구글 뉴스에서 핵심 키워드·소제목과 유사한 기보도 기사를 검색합니다"
+                      >
+                        구글 뉴스 본문 유사도 검색 ↗
+                      </a>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    class="text-action-orange"
+                    data-jump-block="block-step-8"
+                    style="font-size: 11.5px; font-weight: 700;"
+                  >
+                    하단 참고 출처별(1~${(w.sources || []).length}번) 유사도 상세 보기 ↘
+                  </button>
                 </div>
 
                 <div>
@@ -6243,14 +6580,32 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
 
               ${(w.sources || []).filter(s => !s.excluded).length > 0 ? `
                 <div style="padding: 14px 16px; background-color: var(--bg-subtle); border: var(--border-thin); border-radius: var(--radius-general);">
-                  <div style="font-size: 13px; font-weight: 800; color: var(--text-primary); margin-bottom: 8px;">🔗 [참고 자료 및 실시간 검증 출처 목록]</div>
+                  <div class="flex-between mb-8" style="flex-wrap: wrap; gap: 6px;">
+                    <div style="font-size: 13px; font-weight: 800; color: var(--text-primary);">🔗 [참고 자료 및 실시간 검증 출처 목록]</div>
+                    <span style="font-size: 11px; color: var(--text-muted); font-weight: 600;">각 출처와 본문 문장의 유사도(리라이팅/동일문장 여부)를 실시간 검증합니다</span>
+                  </div>
                   <div style="display: flex; flex-direction: column; gap: 6px;">
-                    ${(w.sources || []).filter(s => !s.excluded).map((s, idx) => `
-                      <div style="font-size: 12.5px; color: var(--text-secondary); display: flex; align-items: center; justify-content: space-between; gap: 10px;">
-                        <span><strong>${idx + 1}.</strong> ${escapeHtml(s.title || s.url)}</span>
-                        ${s.url ? `<a href="${escapeHtml(s.url)}" target="_blank" rel="noopener noreferrer" class="text-action-orange" style="white-space: nowrap;">원문 열기 ↗</a>` : ''}
-                      </div>
-                    `).join('')}
+                    ${(w.sources || []).filter(s => !s.excluded).map((s, idx) => {
+                      const srcSim = origEval.sourceSimilarityMap?.[s.id] || { maxSimPct: 0, grade: 'REWRITTEN' };
+                      const simBadgeLabel = srcSim.grade === 'VERBATIM'
+                        ? `⚠️ 동일 문장 포함 (유사도 ${srcSim.maxSimPct}%)`
+                        : srcSim.grade === 'PARTIAL_REWRITE'
+                          ? `🔄 팩트 리라이팅 (유사도 ${srcSim.maxSimPct}%)`
+                          : `✨ AI 독창적 재구성 (유사도 ${srcSim.maxSimPct}%)`;
+                      const simBadgeColor = srcSim.grade === 'VERBATIM' ? '#C92A2A' : (srcSim.grade === 'PARTIAL_REWRITE' ? '#B45309' : '#1B7F3B');
+                      const simBadgeBg = srcSim.grade === 'VERBATIM' ? '#FFF5F5' : (srcSim.grade === 'PARTIAL_REWRITE' ? '#FFFBEB' : '#EBFBEE');
+                      return `
+                        <div style="font-size: 12.5px; color: var(--text-secondary); display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap;">
+                          <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap; flex: 1; min-width: 0;">
+                            <span><strong>${idx + 1}.</strong> ${escapeHtml(s.title || s.url)}</span>
+                            <span style="font-size: 10.5px; font-weight: 800; color: ${simBadgeColor}; background-color: ${simBadgeBg}; padding: 1px 7px; border-radius: 99px; white-space: nowrap;">
+                              ${escapeHtml(simBadgeLabel)}${srcSim.bestSecLabel ? ` · ${escapeHtml(srcSim.bestSecLabel)}` : ''}
+                            </span>
+                          </div>
+                          ${s.url ? `<a href="${escapeHtml(s.url)}" target="_blank" rel="noopener noreferrer" class="text-action-orange" style="white-space: nowrap;">원문 열기 ↗</a>` : ''}
+                        </div>
+                      `;
+                    }).join('')}
                   </div>
                 </div>
               ` : ''}
@@ -6510,36 +6865,23 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
                     const activeAiEdit = w.lastAiEdit || (state.activeHighlight?.mode === 'ai-edit' ? state.activeHighlight : null);
                     const activeMemoHl = state.activeMemoHighlight || (state.activeHighlight?.mode === 'memo' ? state.activeHighlight : null);
 
-                    // 1) 취재 메모 반영 여부 확인 (메모장에서 [+ 본문 반영]을 눌렀거나, [보기 ↘]로 선택했거나, 메모 문장이 이 단락에 반영된 경우)
+                    // 1) 취재 메모 반영 여부 확인 (메모장에서 [+ 본문 반영]을 눌렀거나 [보기 ↘]로 선택한 단락만 깔끔하게 하단 박스로 표시!)
                     const insertedMemosForSec = (w.researchItems || []).filter(m =>
                       Array.isArray(m.insertedIntoSecIds) && m.insertedIntoSecIds.includes(sec.id) && (sec.content || '').includes((m.fact || '').trim().slice(0, 18))
                     );
-                    const autoMatchedMemoSents = [];
-                    (w.researchItems || []).forEach(m => {
-                      const refInfo = getMemoReflectionLocations(m, w);
-                      (refInfo.locations || []).forEach(loc => {
-                        if (loc.secId === sec.id && Array.isArray(loc.matchedSentences)) {
-                          loc.matchedSentences.forEach(ms => {
-                            if (ms && !autoMatchedMemoSents.includes(ms)) autoMatchedMemoSents.push(ms);
-                          });
-                        }
-                      });
-                    });
-
-                    const isMemoExplicitlyHidden = Boolean(state.hiddenMemoHighlightSecIds?.[sec.id]);
-                    const memoSentences = isMemoExplicitlyHidden ? [] : [
-                      ...(activeMemoHl?.sentencesBySecId?.[sec.id] || []),
-                      ...insertedMemosForSec.map(m => m.fact),
-                      ...autoMatchedMemoSents
-                    ].filter((v, i, a) => v && a.indexOf(v) === i);
-                    const memoTokens = isMemoExplicitlyHidden ? [] : (activeMemoHl?.tokensBySecId?.[sec.id] || []);
                     const isMemoActiveOnSec = Boolean(
-                      !isMemoExplicitlyHidden && (
-                        (activeMemoHl && activeMemoHl.secIds?.includes(sec.id)) ||
-                        insertedMemosForSec.length > 0 ||
-                        memoSentences.length > 0
-                      )
+                      (activeMemoHl && activeMemoHl.secIds?.includes(sec.id)) ||
+                      insertedMemosForSec.length > 0
                     );
+                    const memoSentences = [
+                      ...(activeMemoHl?.sentencesBySecId?.[sec.id] || []),
+                      ...insertedMemosForSec.map(m => m.fact)
+                    ].filter((v, i, a) => v && a.indexOf(v) === i);
+                    const memoTokens = activeMemoHl?.tokensBySecId?.[sec.id] || [];
+                    const memoOriginalFacts = [
+                      ...(activeMemoHl?.memoId ? [(w.researchItems || []).find(r => r.id === activeMemoHl.memoId)?.fact] : []),
+                      ...insertedMemosForSec.map(m => m.fact)
+                    ].filter(Boolean);
 
                     // 2) AI 채팅 수정 여부 확인 (추가된 문장 또는 제외된 문장이 있는 단락)
                     const aiAddedSents = activeAiEdit?.sentencesBySecId?.[sec.id] || [];
@@ -6548,12 +6890,11 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
                       activeAiEdit &&
                       (activeAiEdit.secIds?.includes(sec.id) || aiAddedSents.length > 0 || aiRemovedSents.length > 0)
                     );
-                    const inlineAiSents = (isAiSecEdited && activeAiEdit.isApplied !== false) ? aiAddedSents : [];
 
-                    // 카드 테두리 스타일: AI 채팅 수정(블루) / 취재 메모 포커스(앰버) / 기본(심플 화이트)
+                    // 카드 테두리 스타일: AI 채팅 수정(블루) / 취재 메모 반영(앰버) / 기본(심플 화이트)
                     const borderStyle = isAiSecEdited && activeAiEdit.isApplied !== false
                       ? '1.5px solid #93C5FD'
-                      : (activeMemoHl && activeMemoHl.secIds?.includes(sec.id))
+                      : isMemoActiveOnSec
                         ? '1.5px solid #FCD34D'
                         : '1px solid #E5E7EB';
 
@@ -6566,23 +6907,8 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
                             </span>
                             <span class="text-muted" id="secCharCount-${sec.id}">${secCharLen.toLocaleString()}자</span>
                             ${isMemoActiveOnSec ? `
-                              <span style="display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 800; color: #92400E; background-color: #FEF9C3; border: 1px solid #FDE047; padding: 2px 8px; border-radius: 99px;">
+                              <span style="font-size: 11px; font-weight: 800; color: #B45309; background-color: #FFFBEB; border: 1px solid #FDE68A; padding: 2px 8px; border-radius: 99px;">
                                 📌 취재 메모 반영됨
-                                ${insertedMemosForSec.length > 0 ? `
-                                  <button
-                                    type="button"
-                                    data-remove-memo-sent-sec="${escapeHtml(sec.id)}"
-                                    data-remove-memo-sent-text="${escapeHtml(insertedMemosForSec[insertedMemosForSec.length - 1].fact || '')}"
-                                    style="border: none; background: rgba(180,83,9,0.12); color: #92400E; font-size: 10.5px; font-weight: 800; padding: 0 5px; border-radius: 99px; cursor: pointer; font-family: inherit;"
-                                    title="방금 반영한 취재 메모 문장을 본문에서 뺍니다"
-                                  >본문에서 빼기 ✕</button>
-                                ` : ''}
-                                <button
-                                  type="button"
-                                  data-hide-sec-memo-hl="${escapeHtml(sec.id)}"
-                                  style="border: none; background: transparent; color: #B45309; font-size: 10.5px; font-weight: 700; padding: 0 2px; cursor: pointer; font-family: inherit;"
-                                  title="이 단락의 노란색 하이라이트 표시 끄기"
-                                >✕</button>
                               </span>
                             ` : ''}
                             ${isAiSecEdited ? `
@@ -6610,13 +6936,14 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
                         </div>
 
                         <div class="mb-8">
-                          <div
-                            contenteditable="true"
-                            class="doc-editable-textarea doc-body-textarea doc-body-inline-editor"
-                            id="secBody-${sec.id}"
-                            data-doc-sec-body="${sec.id}"
-                            data-placeholder="본문 내용을 '~합니다' 체로 입력하세요"
-                          >${buildInlineHighlightedBodyInnerHtml(sec.content, { memoSentences, memoTokens, aiAddedSents: inlineAiSents })}</div>
+                          <textarea class="doc-editable-textarea doc-body-textarea" id="secBody-${sec.id}" data-doc-sec-body="${sec.id}" rows="5" placeholder="본문 내용을 '~합니다' 체로 입력하세요">${escapeHtml(sec.content)}</textarea>
+                          ${isMemoActiveOnSec ? renderHighlightedBodyHtml(
+                            sec.content,
+                            memoSentences,
+                            memoTokens,
+                            `단락 0${sIdx + 1}에 반영된 취재 메모 문장`,
+                            { sourceType: 'memo', secId: sec.id, memoFacts: memoOriginalFacts }
+                          ) : ''}
                           ${isAiSecEdited ? renderHighlightedBodyHtml(
                             sec.content,
                             aiAddedSents,
@@ -6855,12 +7182,17 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
                   </div>
                 </div>
 
-                <!-- 참고 자료 및 출처 목록 -->
+                <!-- 참고 자료 및 출처 목록 (각 원문 출처별 본문 문장 유사도 및 AI 리라이팅 여부 검증 포함) -->
                 <div style="padding-top: 12px; border-top: 1px solid #F3F4F6;">
                   <div class="flex-between mb-6" style="flex-wrap: wrap; gap: 6px;">
-                    <strong style="font-size: 13px; font-weight: 700; color: var(--text-primary);">
-                      🔗 참고 출처 (${(w.sources || []).filter(s => !s.excluded).length}/${(w.sources || []).length}건 포함)
-                    </strong>
+                    <div class="flex-row" style="gap: 8px; flex-wrap: wrap;">
+                      <strong style="font-size: 13px; font-weight: 700; color: var(--text-primary);">
+                        🔗 참고 출처 및 본문 유사도 검증 (${(w.sources || []).filter(s => !s.excluded).length}/${(w.sources || []).length}건 포함)
+                      </strong>
+                      <span style="font-size: 11px; font-weight: 700; color: ${origEval.verbatimCount === 0 ? '#1B7F3B' : '#B45309'}; background-color: ${origEval.verbatimCount === 0 ? '#EBFBEE' : '#FFFBEB'}; padding: 2px 8px; border-radius: 99px;">
+                        ${origEval.verbatimCount === 0 ? `✓ 전체 문장 AI 독창적 재구성 완료 (평균 유사도 ${origEval.avgSimilarityPct}%)` : `직접 인용(동일 문장) ${origEval.verbatimCount}건 있음`}
+                      </span>
+                    </div>
                   </div>
 
                   ${(w.sources || []).length === 0 ? `
@@ -6869,18 +7201,34 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
                     <div style="display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px;">
                       ${(w.sources || []).map((src, sIdx) => {
                         const isIncluded = !src.excluded;
+                        const srcSim = origEval.sourceSimilarityMap?.[src.id] || { maxSimPct: 0, grade: 'REWRITTEN', bestSecLabel: '', bestTargetId: '' };
+                        const simBadgeLabel = srcSim.grade === 'VERBATIM'
+                          ? `⚠️ 동일 문장 직접 인용 (유사도 ${srcSim.maxSimPct}%)`
+                          : srcSim.grade === 'PARTIAL_REWRITE'
+                            ? `🔄 팩트 리라이팅 (유사도 ${srcSim.maxSimPct}%)`
+                            : `✨ AI 독창적 재구성 (유사도 ${srcSim.maxSimPct}%)`;
+                        const simBadgeColor = srcSim.grade === 'VERBATIM' ? '#C92A2A' : (srcSim.grade === 'PARTIAL_REWRITE' ? '#B45309' : '#1B7F3B');
+                        const simBadgeBg = srcSim.grade === 'VERBATIM' ? '#FFF5F5' : (srcSim.grade === 'PARTIAL_REWRITE' ? '#FFFBEB' : '#EBFBEE');
+                        const simBadgeBorder = srcSim.grade === 'VERBATIM' ? '#FFC9C9' : (srcSim.grade === 'PARTIAL_REWRITE' ? '#FDE68A' : '#B2F2BB');
                         return `
-                          <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 7px 10px; border: 1px solid #E5E7EB; border-radius: 6px; background-color: ${isIncluded ? '#FAFAFA' : '#FFFFFF'}; opacity: ${isIncluded ? '1' : '0.55'};">
-                            <label style="display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; cursor: pointer;">
+                          <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 10px; border: 1px solid #E5E7EB; border-radius: 6px; background-color: ${isIncluded ? '#FAFAFA' : '#FFFFFF'}; opacity: ${isIncluded ? '1' : '0.55'}; flex-wrap: wrap;">
+                            <label style="display: flex; align-items: center; gap: 8px; flex: 1; min-width: 220px; cursor: pointer;">
                               <input type="checkbox" data-toggle-src-exclude="${escapeHtml(src.id)}" ${isIncluded ? 'checked' : ''} style="accent-color: var(--mk-orange); width: 14px; height: 14px; cursor: pointer; flex-shrink: 0;" />
-                              <span style="font-size: 12px; color: var(--text-primary); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(src.title || src.url)}">
-                                ${escapeHtml(src.title || src.url)}
+                              <span style="font-size: 12.5px; color: var(--text-primary); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(src.title || src.url)}">
+                                ${sIdx + 1}. ${escapeHtml(src.title || src.url)}
                               </span>
                             </label>
-                            <div class="flex-row" style="gap: 8px; flex-shrink: 0;">
+                            <div class="flex-row" style="gap: 8px; flex-shrink: 0; flex-wrap: wrap;">
+                              <span
+                                ${srcSim.bestTargetId ? `data-jump-block="${escapeHtml(srcSim.bestTargetId)}"` : ''}
+                                style="font-size: 11px; font-weight: 800; color: ${simBadgeColor}; background-color: ${simBadgeBg}; border: 1px solid ${simBadgeBorder}; padding: 2px 8px; border-radius: 99px; white-space: nowrap; ${srcSim.bestTargetId ? 'cursor: pointer;' : ''}"
+                                title="${srcSim.bestMatchedBodySent ? `본문 반영 문장: &quot;${escapeHtml(srcSim.bestMatchedBodySent)}&quot; (클릭 시 이동)` : '원문 팩트만 참고하여 독창적으로 재구성되었습니다'}"
+                              >
+                                ${escapeHtml(simBadgeLabel)}${srcSim.bestSecLabel ? ` · ${escapeHtml(srcSim.bestSecLabel)} ↗` : ''}
+                              </span>
                               ${src.url ? `
-                                <a href="${escapeHtml(src.url)}" target="_blank" rel="noopener noreferrer" class="text-action" style="font-size: 11.5px; font-weight: 600; white-space: nowrap;">
-                                  원문 ↗
+                                <a href="${escapeHtml(src.url)}" target="_blank" rel="noopener noreferrer" class="text-action-orange" style="font-size: 11.5px; font-weight: 700; white-space: nowrap;">
+                                  원문 열기 ↗
                                 </a>
                               ` : ''}
                               <button type="button" class="text-action" data-del-src="${escapeHtml(src.id)}" style="font-size: 11.5px; color: var(--text-muted);">삭제</button>
@@ -7387,6 +7735,13 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
       const nextTypeId = shouldAutoMatch ? detectBestContentType(kw, comp, `${subKeywords} ${direction}`, 0) : w.typeId;
       const nextTypeName = CONTENT_TYPES[nextTypeId]?.shortName || '맞춤 유형';
       const selectedWriter = getSelectedWriterModel();
+
+      if (currentDraftAbortController) {
+        try { currentDraftAbortController.abort(); } catch (e) {}
+      }
+      const abortController = new AbortController();
+      currentDraftAbortController = abortController;
+
       state.isRefreshingInEditor = true;
       const stopEditorTimer = startDraftProgressTimer(kw, nextTypeName);
       render(true);
@@ -7397,6 +7752,7 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
         }
         const res = await apiFetch(`/api/works/${w.id}/refresh-news`, {
           method: 'POST',
+          signal: abortController.signal,
           body: JSON.stringify({
             keyword: kw,
             company: comp,
@@ -7410,10 +7766,14 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
             existingResearchItems: w.researchItems || []
           })
         });
+        if (abortController.signal.aborted) {
+          throw new Error('DRAFT_GENERATION_ABORTED');
+        }
         if (rebuildDraft && !res.usedPerplexity && getClientPerplexityKey()) {
           throw new Error('SERVER_FALLBACK_RETRY_IN_CLIENT');
         }
         state.isRefreshingInEditor = false;
+        currentDraftAbortController = null;
         const elapsed = stopEditorTimer();
         if (rebuildDraft && res.work) {
           res.work.createdAtFormatted = formatHistoryTimestamp(new Date());
@@ -7437,6 +7797,13 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
         );
         render(true);
       } catch (err) {
+        if (abortController.signal.aborted || err?.name === 'AbortError' || err?.message === 'DRAFT_GENERATION_ABORTED') {
+          state.isRefreshingInEditor = false;
+          currentDraftAbortController = null;
+          stopEditorTimer();
+          render(true);
+          return;
+        }
         // 정적 배포(GitHub Pages) 또는 폴백: 브라우저에서 직접 시나리오 생성/갱신
         try {
           const clientKey = getClientPerplexityKey();
@@ -7446,12 +7813,16 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
               keyword: kw,
               company: comp
             });
+            if (abortController.signal.aborted) {
+              throw new Error('DRAFT_GENERATION_ABORTED');
+            }
             await loadConfig();
             const existingUrls = new Set((w.sources || []).map(s => s.url));
             const dedupSources = (memoRes.newSources || []).filter(s => !existingUrls.has(s.url));
             w.sources = [...dedupSources, ...(w.sources || [])];
             w.researchItems = [...(memoRes.newResearchItems || []), ...(w.researchItems || [])];
             state.isRefreshingInEditor = false;
+            currentDraftAbortController = null;
             const elapsed = stopEditorTimer();
             saveCurrentWork(true);
             showToast(`✓ '${kw}' 가장 최신 보도 기사 ${memoRes.count || 0}건과 원문 링크를 취재 메모장에 추가했습니다! (${elapsed}초 소요)`);
@@ -7483,14 +7854,21 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
                 url: w.inputUrl || '',
                 rawText: w.inputRawText || '',
                 typeId: nextTypeId,
-                baseScenario: baseScen
+                baseScenario: baseScen,
+                signal: abortController.signal
               });
             } catch (pplxErr) {
+              if (abortController.signal.aborted || pplxErr?.name === 'AbortError' || pplxErr?.message === 'DRAFT_GENERATION_ABORTED') {
+                throw new Error('DRAFT_GENERATION_ABORTED');
+              }
               console.warn('Client refresh fallback:', pplxErr.message);
               refreshPplxError = pplxErr.message || 'AI 응답 시간 초과(Timeout)';
             }
           } else {
             refreshPplxError = 'API 키 미설정';
+          }
+          if (abortController.signal.aborted) {
+            throw new Error('DRAFT_GENERATION_ABORTED');
           }
           await loadConfig();
           w.keyword = kw;
@@ -7526,6 +7904,7 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
             w.researchItems = [...(baseScen.researchItems || []), ...(w.researchItems || [])];
           }
           state.isRefreshingInEditor = false;
+          currentDraftAbortController = null;
           const elapsed = stopEditorTimer();
           saveCurrentWork(true);
           if (rebuildDraft && !w.usedPerplexity) {
@@ -7540,7 +7919,12 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
           render(true);
         } catch (fallbackErr) {
           state.isRefreshingInEditor = false;
+          currentDraftAbortController = null;
           stopEditorTimer();
+          if (abortController.signal.aborted || fallbackErr?.name === 'AbortError' || fallbackErr?.message === 'DRAFT_GENERATION_ABORTED') {
+            render(true);
+            return;
+          }
           showToast(err.message);
           render(true);
         }
@@ -8234,31 +8618,23 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
 
     root.querySelectorAll('[data-doc-sec-body]').forEach(ta => {
       ta.addEventListener('focus', () => {
-        ta._prevBodyVal = extractPlainTextFromEditable(ta);
-      });
-      ta.addEventListener('paste', e => {
-        if (ta.getAttribute('contenteditable') === 'true') {
-          e.preventDefault();
-          const text = (e.clipboardData || window.clipboardData).getData('text/plain');
-          document.execCommand('insertText', false, text);
-        }
+        ta._prevBodyVal = ta.value;
       });
       ta.addEventListener('input', () => {
-        if (ta.tagName === 'TEXTAREA') autoResizeTextarea(ta);
+        autoResizeTextarea(ta);
         const secId = ta.getAttribute('data-doc-sec-body');
         const sec = w.draftSections.find(s => s.id === secId);
         if (sec) {
-          const val = extractPlainTextFromEditable(ta);
-          sec.content = val;
+          sec.content = ta.value;
           const secCountEl = document.getElementById(`secCharCount-${secId}`);
-          if (secCountEl) secCountEl.textContent = `${val.length.toLocaleString()}자`;
+          if (secCountEl) secCountEl.textContent = `${ta.value.length.toLocaleString()}자`;
           updateLiveStatsAndGeoUI();
           persistWorksToLocalStorageReliably();
         }
       });
-      const onFinishBodyEdit = () => {
+      ta.addEventListener('change', () => {
         const prevBody = ta._prevBodyVal || '';
-        const newBody = extractPlainTextFromEditable(ta) || '';
+        const newBody = ta.value || '';
         if (prevBody === newBody) return;
         ta._prevBodyVal = newBody;
         w.factChecks = extractFactSentencesFromSections(w.draftSections, w.sources);
@@ -8268,9 +8644,7 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
           render(true);
           showToast(`🔄 본문에서 삭제·편집된 내용을 감지해 하단 FAQ(${syncRes.removedFaqCount}건 제거)를 자동으로 동기화했습니다!`);
         }
-      };
-      ta.addEventListener('change', onFinishBodyEdit);
-      ta.addEventListener('blur', onFinishBodyEdit);
+      });
     });
 
     // 본문 단락별 [✨ 매경 문체(~합니다) 다듬기]
