@@ -1009,6 +1009,7 @@ ${url ? `- 참고 URL: ${url}\n` : ''}${rawText ? `- 추가 메모: ${rawText}\n
     {"category": "핵심 팩트", "sourceTitle": "[언론사 · YYYY-MM-DD] 실제 기사 제목", "sourceUrl": "위 출처 목록의 실제 URL", "pubDate": "YYYY-MM-DD", "usedInSection": 1, "fact": "본문 반영 팩트 1문장 (~합니다 체, 총 5개)"}
   ],
   "subtitle": "메인 헤드라인 아래 한줄 소제목",
+  "leadIntro": "본문 소제목 단락 시작 전에 들어가는 2~3문단 기사 도입부 내용 (공백 포함 320~480자, 첫 문단은 독자의 공감을 여는 일상적 화두, 두 번째 문단은 왜 지금 이 주제가 주목받는지 핵심 배경과 최신 팩트, 마지막 문단은 '이번 기사에서는 ~부터 ~까지 상세히 정리해 드립니다.'로 마무리, 문단 사이 줄바꿈 \\n\\n)",
   "aiFactSummary": ["1. 핵심 요약 1 (~합니다 체)", "2. 핵심 요약 2 (~합니다 체)", "3. 핵심 요약 3 (~합니다 체)"],
   "draftSections": [
     {"id": "sec-1", "title": "1단락 자연스러운 매거진 소제목", "content": "2문단 본문 (~합니다 체)", "imageCaption": "< 출처 : 관련 공식 자료 >"},
@@ -1169,12 +1170,15 @@ ${url ? `- 참고 URL: ${url}\n` : ''}${rawText ? `- 추가 메모: ${rawText}\n
 
     const validCategories = MK_PICK_CATEGORIES.map(c => c.id);
     const chosenCat = validCategories.includes(parsed.mkCategory) ? parsed.mkCategory : fallbackCat.recommendedCategory || fallbackCat;
+    const rawLeadIntro = normalizeNewlines(parsed.leadIntro || baseScenario.summaryBlocks?.leadIntro || '').trim();
     const summaryBlocks = {
       ...baseScenario.summaryBlocks,
       mkCategory: chosenCat,
       mkCategoryReason: normalizeNewlines(parsed.mkCategoryReason || baseScenario.summaryBlocks.mkCategoryReason).trim(),
       byline: `${chosenCat} | 남궁선희 기자 | 입력 ${new Date().toISOString().slice(0, 10).replace(/-/g, '.')} 10:00`,
       subtitle: rawSubtitle,
+      leadIntro: rawLeadIntro,
+      includeLeadIntro: baseScenario.summaryBlocks?.includeLeadIntro !== false,
       aiFactSummary: Array.isArray(parsed.aiFactSummary) && parsed.aiFactSummary.length > 0
         ? parsed.aiFactSummary.map(s => normalizeNewlines(s).trim())
         : baseScenario.summaryBlocks.aiFactSummary,
@@ -2116,9 +2120,60 @@ ${currentBodyText}
     return `${prefixTag}${trimmedTopic} ${actionSuffix}`.trim();
   }
 
+  // 본문 소제목 단락 시작 전에 들어가는 MK Pick 스타일 도입부 내용(300~500자, 2~3문단) 자동 생성 도우미
+  function buildDefaultLeadIntroText(w) {
+    if (!w) return '';
+    const kw = String(w.keyword || '주요 트렌드').trim();
+    const comp = String(w.inputCompany || '').trim();
+    const subKw = String(w.inputSubKeywords || '').trim();
+    const firstFact = String(
+      w.researchItems?.[0]?.fact ||
+      w.summaryBlocks?.aiFactSummary?.[0]?.replace(/^\d+\.\s*/, '') ||
+      ''
+    ).trim();
+    const secondFact = String(
+      w.researchItems?.[1]?.fact ||
+      w.summaryBlocks?.aiFactSummary?.[1]?.replace(/^\d+\.\s*/, '') ||
+      ''
+    ).trim();
+
+    const secTitles = (w.draftSections || [])
+      .map(s => String(s?.title || '').replace(/^["“”'‘’]|["“”'‘’]$/g, '').trim())
+      .filter(Boolean);
+
+    const p1 = comp
+      ? `빠르게 변화하는 소비 트렌드 속에서 최근 '${kw}'을(를) 둘러싼 소비자와 업계의 관심이 한층 뜨거워지고 있습니다. 특히 ${comp} 등 주요 기업들이 고객의 세분화된 취향과 실용적 가치를 겨냥한 맞춤형 행보를 본격화하면서 시장의 이목이 집중되고 있습니다.`
+      : `계절과 일상 속 라이프스타일이 빠르게 변화하면서 최근 '${kw}'에 대한 독자와 소비자들의 관심이 부쩍 높아지고 있습니다. 단순한 유행을 넘어 나에게 꼭 맞는 실질적인 혜택과 차별화된 경험을 찾으려는 똑똑한 소비 흐름이 뚜렷해지고 있기 때문입니다.`;
+
+    const p2 = firstFact
+      ? `${firstFact}${secondFact && (p1.length + firstFact.length + secondFact.length < 360) ? ` ${secondFact}` : (subKw ? ` 아울러 '${subKw}' 등 연관 키워드에 대한 관심도 함께 확산하며 실생활에 도움이 되는 알찬 정보 탐색이 활발히 이어지고 있습니다.` : '')}`
+      : `최근 관련 업계에서도 이러한 흐름에 발맞춰 다채로운 기획 상품과 프로모션, 실생활 활용 가이드를 잇달아 선보이며 소비자 접점을 넓히고 있습니다.${subKw ? ` 특히 '${subKw}' 등 핵심 포인트가 함께 주목받으며 선택의 폭이 더욱 다양해졌습니다.` : ''}`;
+
+    const guideSummary = secTitles.length >= 2
+      ? `'${kw}'의 주목 배경과 핵심 트렌드부터 주요 특징·혜택 비교, 그리고 알아두면 유익한 실전 체크포인트까지`
+      : `'${kw}'의 핵심 배경부터 주요 특징과 혜택, 실생활 활용 팁까지`;
+
+    const p3 = `이번 기사에서는 ${guideSummary} 상세히 정리해 드립니다.`;
+
+    return [p1, p2, p3].join('\n\n');
+  }
+
+  function ensureWorkLeadIntro(w) {
+    if (!w) return;
+    w.summaryBlocks = w.summaryBlocks || {};
+    if (typeof w.summaryBlocks.includeLeadIntro !== 'boolean') {
+      w.summaryBlocks.includeLeadIntro = true;
+    }
+    const curIntro = String(w.summaryBlocks.leadIntro || '').trim();
+    if (!curIntro && !w.isBlankTemplate && w.draftSections?.[0]?.id !== 'sec-blank-1') {
+      w.summaryBlocks.leadIntro = buildDefaultLeadIntroText(w);
+    }
+  }
+
   // 기사의 버전 히스토리 배열(w.editVersionHistory)이 항상 '원문 초안'부터 존재하도록 보장하는 함수
   function ensureWorkVersionHistory(w) {
     if (!w) return [];
+    ensureWorkLeadIntro(w);
     if (!w.initialDraftSnapshot && !w.isBlankTemplate && w.draftSections?.[0]?.id !== 'sec-blank-1') {
       // 만약 이미 AI 편집을 거친 기사인데 initialDraftSnapshot이 없다면 가장 첫 편집 이전 스냅샷을 원문 초안으로 사용
       const earliestBefore = (Array.isArray(w.aiEditHistory) && w.aiEditHistory[0]) || w.lastAiEdit?.beforeSnapshot || null;
@@ -2132,6 +2187,8 @@ ${currentBodyText}
           summaryBlocks: {
             ...(w.summaryBlocks || {}),
             subtitle: earliestBefore.subtitle ?? w.summaryBlocks?.subtitle ?? '',
+            leadIntro: earliestBefore.leadIntro ?? w.summaryBlocks?.leadIntro ?? '',
+            includeLeadIntro: earliestBefore.includeLeadIntro ?? (w.summaryBlocks?.includeLeadIntro !== false),
             aiFactSummary: earliestBefore.aiFactSummary || w.summaryBlocks?.aiFactSummary || [],
             summaryTable: earliestBefore.summaryTable || w.summaryBlocks?.summaryTable || {},
             faqs: earliestBefore.faqs || w.summaryBlocks?.faqs || [],
@@ -2327,11 +2384,13 @@ ${currentBodyText}
       }
     });
 
-    // 2) 제목, 3줄 요약, 요약표, 하단 FAQ, 한 줄 요약 동시 동기화
+    // 2) 제목, 도입부, 요약표, 하단 FAQ, 한 줄 요약 동시 동기화
     if (!anyActive) {
       w.title = beforeSnap.title;
       if (w.summaryBlocks) {
         w.summaryBlocks.subtitle = beforeSnap.subtitle;
+        if (beforeSnap.leadIntro !== undefined) w.summaryBlocks.leadIntro = beforeSnap.leadIntro;
+        if (typeof beforeSnap.includeLeadIntro === 'boolean') w.summaryBlocks.includeLeadIntro = beforeSnap.includeLeadIntro;
         w.summaryBlocks.aiFactSummary = JSON.parse(JSON.stringify(beforeSnap.aiFactSummary || []));
         w.summaryBlocks.summaryTable = JSON.parse(JSON.stringify(beforeSnap.summaryTable || {}));
         w.summaryBlocks.faqs = JSON.parse(JSON.stringify(beforeSnap.faqs || []));
@@ -2342,6 +2401,8 @@ ${currentBodyText}
       w.title = afterSnap.title;
       if (w.summaryBlocks) {
         w.summaryBlocks.subtitle = afterSnap.subtitle;
+        if (afterSnap.leadIntro !== undefined) w.summaryBlocks.leadIntro = afterSnap.leadIntro;
+        if (typeof afterSnap.includeLeadIntro === 'boolean') w.summaryBlocks.includeLeadIntro = afterSnap.includeLeadIntro;
         w.summaryBlocks.aiFactSummary = JSON.parse(JSON.stringify(afterSnap.aiFactSummary || []));
         w.summaryBlocks.summaryTable = JSON.parse(JSON.stringify(afterSnap.summaryTable || {}));
         w.summaryBlocks.faqs = JSON.parse(JSON.stringify(afterSnap.faqs || []));
@@ -2376,6 +2437,8 @@ ${currentBodyText}
     const beforeSnapshot = JSON.parse(JSON.stringify({
       title: w.title,
       subtitle: w.summaryBlocks?.subtitle || '',
+      leadIntro: w.summaryBlocks?.leadIntro || '',
+      includeLeadIntro: w.summaryBlocks?.includeLeadIntro !== false,
       aiFactSummary: w.summaryBlocks?.aiFactSummary || [],
       draftSections: w.draftSections || [],
       summaryTable: w.summaryBlocks?.summaryTable || {},
@@ -2397,7 +2460,7 @@ ${currentBodyText}
 
     const currentArticlePayload = {
       title: w.title,
-      subtitle: w.summaryBlocks?.subtitle || '',
+      leadIntro: w.summaryBlocks?.leadIntro || '',
       draftSections: (w.draftSections || []).map(s => ({ id: s.id, title: s.title, content: s.content })),
       summaryTable: w.summaryBlocks?.summaryTable || {},
       faqs: (w.summaryBlocks?.faqs || []).map(f => ({ q: f.q, a: f.a, relatedSection: f.relatedSection })),
@@ -2409,7 +2472,7 @@ ${currentBodyText}
 편집자가 작성된 초안을 보고 **AI 채팅으로 기사 수정 지시**를 입력했습니다.
 필요 시 web_search로 오늘(${todayStr}) 기준 최신 뉴스 팩트를 추가 검색하여 편집자의 지시를 정확히 반영해 기사를 수정하세요.
 [필수 규칙]
-1. 편집자의 지시('${instruction}')를 충실히 반영하여 해당되는 단락(draftSections), 제목(title), 리드 부제(subtitle), 한 줄 요약(oneLineSummary)을 수정하세요. 지시와 무관한 단락은 원문 그대로 유지하세요.
+1. 편집자의 지시('${instruction}')를 충실히 반영하여 해당되는 단락(draftSections), 제목(title), 기사 도입부(leadIntro, 300~500자), 한 줄 요약(oneLineSummary)을 수정하세요. 지시와 무관한 단락은 원문 그대로 유지하세요.
 2. [글 목차 순서 & 단락 소제목 동시 반영]
    - 단락의 내용이 수정·추가·제외되었거나 단락 순서 변경 요청이 있다면, **수정된 본문 핵심 내용에 맞춰 해당 단락의 소제목(\`draftSections[].title\`)과 단락 목차 순서도 함께 자연스럽게 업데이트**하세요. (제외된 내용이 소제목에 남아 있으면 절대 안 됩니다!)
 3. [하단 FAQ 내용 & 목차 순서 100% 필수 동시 반영]
@@ -2434,7 +2497,7 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
     "a": "이번에 새로 추가·보강된 본문 핵심 문장과 팩트를 100% 반영한 2문장 답변 (~합니다 체)"
   },
   "title": "수정된 기사 제목 (변경 없으면 기존 제목 그대로)",
-  "subtitle": "수정된 부제 (줄바꿈 \\n 사용)",
+  "leadIntro": "수정된 기사 도입부 내용 (공백 포함 300~500자, 2~3문단, 변경 없으면 기존 leadIntro 그대로)",
   "draftSections": [
     {"id": "sec-1", "title": "수정된 본문 핵심을 반영한 단락 소제목", "content": "단락 본문 (~합니다 체)"}
   ],
@@ -2466,6 +2529,7 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
 
     if (parsed.title) w.title = normalizeNl(parsed.title);
     if (parsed.subtitle) w.summaryBlocks.subtitle = normalizeNl(parsed.subtitle);
+    if (parsed.leadIntro) w.summaryBlocks.leadIntro = normalizeNl(parsed.leadIntro);
     if (Array.isArray(parsed.aiFactSummary) && parsed.aiFactSummary.length > 0) {
       w.summaryBlocks.aiFactSummary = parsed.aiFactSummary.map(s => normalizeNl(s));
     }
@@ -2616,6 +2680,8 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
     const afterSnapshot = JSON.parse(JSON.stringify({
       title: w.title,
       subtitle: w.summaryBlocks?.subtitle || '',
+      leadIntro: w.summaryBlocks?.leadIntro || '',
+      includeLeadIntro: w.summaryBlocks?.includeLeadIntro !== false,
       aiFactSummary: w.summaryBlocks?.aiFactSummary || [],
       draftSections: w.draftSections || [],
       summaryTable: w.summaryBlocks?.summaryTable || {},
@@ -2671,7 +2737,9 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
 
     const checks = {
       'geo-1': /["“”']/.test(title) && (title.includes('…') || title.includes('...')),
-      'geo-2': String(sb.subtitle || sb.oneLineSubtitle || '').trim().length >= 8,
+      'geo-2': sb.includeLeadIntro !== false
+        ? String(sb.leadIntro || '').trim().length >= 80
+        : String(sb.oneLineSubtitle || '').trim().length >= 6,
       'geo-3': firstBody.includes('?'),
       'geo-4': numberRegex.test(allBody),
       'geo-5': (sb.summaryTable?.rows || []).length >= 2,
@@ -2687,7 +2755,7 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
     return { passedCount, total: details.length, details };
   }
 
-  // CMS 붙여넣기용 전체 순수 텍스트 생성
+  // CMS 붙여넣기용 전체 순수 텍스트 생성 (도입부 ON일 때 본문 단락 시작 전에 도입부 내용 포함, OFF일 때는 자동 제외)
   function buildPlainTextArticle(w) {
     if (!w) return '';
     const sb = w.summaryBlocks || {};
@@ -2705,8 +2773,8 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
     }
     lines.push('');
 
-    if (sb.subtitle) {
-      lines.push(String(sb.subtitle || '').replace(/\\n/g, '\n'));
+    if (sb.includeLeadIntro !== false && sb.leadIntro && String(sb.leadIntro).trim()) {
+      lines.push(String(sb.leadIntro).replace(/\\n/g, '\n').trim());
       lines.push('');
     }
 
@@ -5656,6 +5724,7 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
       return render();
     }
     sanitizePoisonedWork(w);
+    ensureWorkLeadIntro(w);
 
     // 최초 초안 스냅샷(initialDraftSnapshot)이 아직 없고 빈 양식 상태도 아니라면 현재 정상 기사를 최초 초안 스냅샷으로 보존
     if (!w.initialDraftSnapshot && !w.isBlankTemplate && w.draftSections?.[0]?.id !== 'sec-blank-1') {
@@ -6003,7 +6072,12 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
                     <span class="text-muted">→</span>
                   </button>
                   <button type="button" class="headline-pick-row" data-jump-block="block-step-3" style="text-align: left;">
-                    <span style="font-size: 12.5px; font-weight: 700;">STEP 03 · 리드 부제</span>
+                    <span style="font-size: 12.5px; font-weight: 700;">
+                      STEP 03 · 도입부 내용
+                      <span style="font-size: 10.5px; font-weight: 800; margin-left: 4px; padding: 1px 6px; border-radius: 99px; background-color: ${sb.includeLeadIntro !== false ? '#FFF3EB' : '#F3F4F6'}; color: ${sb.includeLeadIntro !== false ? 'var(--mk-orange)' : '#6B7280'};">
+                        ${sb.includeLeadIntro !== false ? 'ON' : 'OFF'}
+                      </span>
+                    </span>
                     <span class="text-muted">→</span>
                   </button>
                   ${(w.draftSections || []).map((sec, sIdx) => {
@@ -6094,15 +6168,15 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
                 </div>
               ` : ''}
 
-              ${sb.subtitle ? `
-                <div class="article-subtitle-box" style="font-size: 15px; font-weight: 700; color: var(--text-secondary); line-height: 1.6; white-space: pre-line;">${escapeHtml(sb.subtitle)}</div>
-              ` : ''}
-
               <hr class="doc-divider" />
 
+              ${sb.includeLeadIntro !== false && (sb.leadIntro || '').trim() ? `
+                <div style="font-size: 15.5px; line-height: 1.85; color: var(--text-primary); white-space: pre-line; margin-bottom: 28px;">${escapeHtml(String(sb.leadIntro).trim())}</div>
+              ` : ''}
+
               ${(w.draftSections || []).map(sec => `
-                <div style="margin-bottom: 28px;">
-                  <h2 style="font-size: 19px; font-weight: 800; color: var(--text-primary); margin-bottom: 10px;">
+                <div style="margin-bottom: 30px;">
+                  <h2 style="font-size: 19px; font-weight: 800; color: var(--text-primary); padding: 10px 0; margin-bottom: 14px; border-top: 2px solid var(--mk-orange); border-bottom: 1px solid var(--mk-orange);">
                     ${escapeHtml(sec.title)}
                   </h2>
                   <div style="font-size: 15.5px; line-height: 1.85; color: var(--text-primary); white-space: pre-line;">${escapeHtml(sec.content)}</div>
@@ -6361,16 +6435,70 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
                 })()}
               </section>
 
-              <!-- STEP 03: 리드 부제(Subtitle) -->
+              <!-- STEP 03: 기사 도입부 내용 (ON/OFF 토글 지원 · 권장 300~500자) -->
               <section class="editor-block-section" id="block-step-3">
                 <div id="block-step-4">
-                  <div class="editor-step-header">
-                    <div class="flex-row" style="gap: 8px;">
-                      <span class="editor-step-badge">STEP 03 · 리드 부제</span>
-                      <span class="text-muted">본문 도입 전 맥락을 요약하는 부제</span>
-                    </div>
-                  </div>
-                  <textarea class="doc-editable-textarea" id="docSubtitle" rows="2" style="font-size: 13.5px; font-weight: 600; color: var(--text-secondary); line-height: 1.55;" placeholder="기사 핵심 맥락을 요약하는 부제(1~2줄)를 입력하세요">${escapeHtml(sb.subtitle || '')}</textarea>
+                  ${(() => {
+                    const isIntroOn = sb.includeLeadIntro !== false;
+                    const introText = String(sb.leadIntro || '');
+                    const introLen = introText.length;
+                    const isGoodRange = introLen >= 250 && introLen <= 550;
+                    return `
+                      <div class="editor-step-header">
+                        <div class="flex-row" style="gap: 8px; flex-wrap: wrap;">
+                          <span class="editor-step-badge">STEP 03 · 도입부 내용</span>
+                          <span class="text-muted">본문 단락(소제목) 시작 전 독자의 시선을 끄는 도입부 (권장 300~500자)</span>
+                          <span
+                            id="leadIntroCharBadge"
+                            style="font-size: 11.5px; font-weight: 700; padding: 2px 8px; border-radius: 99px; border: 1px solid ${!isIntroOn ? '#E5E7EB' : (isGoodRange ? '#D1FAE5' : '#FDE68A')}; background-color: ${!isIntroOn ? '#F3F4F6' : (isGoodRange ? '#ECFDF5' : '#FFFBEB')}; color: ${!isIntroOn ? '#6B7280' : (isGoodRange ? '#047857' : '#B45309')};"
+                          >
+                            ${!isIntroOn ? 'OFF · 미리보기 및 전체 복사에서 제외됨' : `공백 포함 ${introLen.toLocaleString()}자 (권장 300~500자)`}
+                          </span>
+                        </div>
+                        <div class="flex-row" style="gap: 8px; flex-wrap: wrap;">
+                          <button
+                            type="button"
+                            id="toggleLeadIntroBtn"
+                            style="display: inline-flex; align-items: center; gap: 6px; padding: 4px 11px; border-radius: 99px; font-size: 12px; font-weight: 800; cursor: pointer; font-family: inherit; border: 1px solid ${isIntroOn ? 'var(--mk-orange)' : '#D1D5DB'}; background-color: ${isIntroOn ? 'var(--mk-orange)' : '#F3F4F6'}; color: ${isIntroOn ? '#FFFFFF' : '#4B5563'};"
+                            title="클릭하여 기사 도입부 내용을 켜거나(ON) 끕니다(OFF)"
+                          >
+                            <span style="width: 7px; height: 7px; border-radius: 50%; background-color: ${isIntroOn ? '#FFFFFF' : '#9CA3AF'}; display: inline-block;"></span>
+                            도입부 ${isIntroOn ? 'ON' : 'OFF'}
+                          </button>
+                          ${isIntroOn ? `
+                            <button
+                              type="button"
+                              class="text-action-orange"
+                              id="regenerateLeadIntroBtn"
+                              style="font-size: 11.5px; font-weight: 700;"
+                              title="현재 키워드와 핵심 팩트에 맞춰 300~500자 분량의 MK Pick 매거진 도입부를 자동 생성합니다"
+                            >
+                              ✨ 300~500자 자동 생성
+                            </button>
+                            <button type="button" class="text-action" data-copy-part="leadintro">📋 도입부 복사</button>
+                          ` : ''}
+                        </div>
+                      </div>
+
+                      ${isIntroOn ? `
+                        <textarea
+                          class="doc-editable-textarea doc-body-textarea"
+                          id="docLeadIntro"
+                          rows="5"
+                          placeholder="본문 소제목 단락이 시작되기 전에 들어갈 도입부 내용(약 300~500자, 2~3문단)을 입력하세요. 마지막 문장은 '~상세히 정리해 드립니다.' 형태로 마무리하면 본문 단락과 자연스럽게 이어집니다."
+                        >${escapeHtml(introText)}</textarea>
+                      ` : `
+                        <div class="flex-between" style="padding: 12px 14px; background-color: #F9FAFB; border: 1px dashed #D1D5DB; border-radius: 8px; gap: 10px; flex-wrap: wrap;">
+                          <span style="font-size: 12.5px; color: var(--text-muted); font-weight: 600;">
+                            현재 도입부 내용이 <strong>OFF</strong> 상태입니다. 실제 기사 미리보기와 CMS 전체 복사에서 제외되며, 바로 아래 본문 단락(소제목)부터 시작됩니다.
+                          </span>
+                          <button type="button" class="btn btn-sm" id="enableLeadIntroQuickBtn" style="font-size: 11.5px; font-weight: 700;">
+                            도입부 켜기 (ON)
+                          </button>
+                        </div>
+                      `}
+                    `;
+                  })()}
                 </div>
               </section>
 
@@ -6858,6 +6986,9 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
                     <button type="button" class="text-action" data-ai-target-jump="block-step-2" data-ai-target-prefix="[제목·소제목 수정] " style="font-size: 11px; background: #F9FAFB; border: 1px solid #E5E7EB; padding: 3px 8px; border-radius: 6px; font-weight: 600; color: #374151;">
                       제목
                     </button>
+                    <button type="button" class="text-action" data-ai-target-jump="block-step-3" data-ai-target-prefix="[도입부 수정] " style="font-size: 11px; background: #F9FAFB; border: 1px solid #E5E7EB; padding: 3px 8px; border-radius: 6px; font-weight: 600; color: #374151;">
+                      도입부
+                    </button>
                     ${(w.draftSections || []).map((sec, sIdx) => `
                       <button type="button" class="text-action" data-ai-target-jump="secWrap-${sec.id}" data-ai-target-prefix="[단락 0${sIdx + 1} 수정] " style="font-size: 11px; background: #F9FAFB; border: 1px solid #E5E7EB; padding: 3px 8px; border-radius: 6px; font-weight: 600; color: #374151;">
                         단락 0${sIdx + 1}
@@ -7104,7 +7235,9 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
           sourceIds: []
         }
       ];
-      w.summaryBlocks.subtitle = '기사 핵심 내용을 요약하는 부제(1~3줄)를 입력하세요';
+      w.summaryBlocks.subtitle = '';
+      w.summaryBlocks.leadIntro = '본문 소제목 단락에 들어가기 전, 독자의 공감을 열고 기사의 배경과 안내를 전하는 도입부(권장 300~500자)를 입력해 주세요.';
+      w.summaryBlocks.includeLeadIntro = true;
       w.summaryBlocks.aiFactSummary = [
         '1. 첫 번째 핵심 팩트 요약을 입력하세요.',
         '2. 두 번째 핵심 팩트 요약을 입력하세요.',
@@ -7194,6 +7327,8 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
         let textToCopy = '';
         if (part === 'headline') {
           textToCopy = w.title || '';
+        } else if (part === 'leadintro') {
+          textToCopy = sb.leadIntro || '';
         } else if (part === 'aisummary') {
           textToCopy = (sb.aiFactSummary || []).join('\n');
         } else if (part === 'table') {
@@ -7622,6 +7757,8 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
       w.draftSections = prev.draftSections;
       if (w.summaryBlocks) {
         w.summaryBlocks.subtitle = prev.subtitle;
+        if (prev.leadIntro !== undefined) w.summaryBlocks.leadIntro = prev.leadIntro;
+        if (typeof prev.includeLeadIntro === 'boolean') w.summaryBlocks.includeLeadIntro = prev.includeLeadIntro;
         w.summaryBlocks.aiFactSummary = prev.aiFactSummary;
         w.summaryBlocks.summaryTable = prev.summaryTable;
         w.summaryBlocks.faqs = prev.faqs;
@@ -7977,9 +8114,46 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
       showToast(`현재 헤드라인(${curTitle.length}자)은 이미 ${maxLen}자 이내로 메인 화면에서 잘리지 않습니다.`);
     });
 
-    document.getElementById('docSubtitle')?.addEventListener('input', e => {
-      sb.subtitle = e.target.value;
+    // STEP 03: 기사 도입부 내용 ON/OFF 토글, 300~500자 자동 생성 및 인라인 편집
+    function toggleLeadIntroState(forceState) {
+      const nextState = typeof forceState === 'boolean' ? forceState : !(sb.includeLeadIntro !== false);
+      sb.includeLeadIntro = nextState;
+      if (nextState && !String(sb.leadIntro || '').trim()) {
+        sb.leadIntro = buildDefaultLeadIntroText(w);
+      }
+      saveCurrentWork(false);
+      render(true);
+      showToast(
+        nextState
+          ? '✓ 기사 도입부 내용이 켜졌습니다(ON). 실제 기사 미리보기 및 전체 복사에 포함됩니다.'
+          : '○ 기사 도입부 내용이 꺼졌습니다(OFF). 미리보기 및 전체 복사에서 제외됩니다.'
+      );
+    }
+
+    document.getElementById('toggleLeadIntroBtn')?.addEventListener('click', () => toggleLeadIntroState());
+    document.getElementById('enableLeadIntroQuickBtn')?.addEventListener('click', () => toggleLeadIntroState(true));
+
+    document.getElementById('regenerateLeadIntroBtn')?.addEventListener('click', () => {
+      sb.includeLeadIntro = true;
+      sb.leadIntro = buildDefaultLeadIntroText(w);
+      saveCurrentWork(false);
+      render(true);
+      flashElement('docLeadIntro');
+      showToast(`✨ '${w.keyword}' 핵심 팩트를 바탕으로 도입부 내용(${sb.leadIntro.length}자)을 자동 완성했습니다!`);
+    });
+
+    document.getElementById('docLeadIntro')?.addEventListener('input', e => {
+      sb.leadIntro = e.target.value;
       autoResizeTextarea(e.target);
+      const len = String(sb.leadIntro || '').length;
+      const isGood = len >= 250 && len <= 550;
+      const badgeEl = document.getElementById('leadIntroCharBadge');
+      if (badgeEl) {
+        badgeEl.textContent = `공백 포함 ${len.toLocaleString()}자 (권장 300~500자)`;
+        badgeEl.style.borderColor = isGood ? '#D1FAE5' : '#FDE68A';
+        badgeEl.style.backgroundColor = isGood ? '#ECFDF5' : '#FFFBEB';
+        badgeEl.style.color = isGood ? '#047857' : '#B45309';
+      }
       saveCurrentWork(true);
     });
 

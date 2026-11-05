@@ -1214,8 +1214,8 @@ const GEO_CHECKLIST_ITEMS = [
   },
   {
     id: 'geo-2',
-    title: '상단 핵심 맥락 [리드 부제] 구성',
-    desc: '생성형 AI와 독자가 기사의 핵심 주제를 한눈에 파악할 수 있도록 리드 부제를 작성했나요?'
+    title: '상단 [기사 도입부(300~500자)] 또는 [한줄 소제목] 구성',
+    desc: '본문 소제목 단락 시작 전 독자의 몰입을 돕는 도입부(300~500자) 또는 한줄 소제목을 구성했나요?'
   },
   {
     id: 'geo-3',
@@ -2157,6 +2157,12 @@ function buildDynamicWorkFromNews({ keyword, company, subKeywords = '', directio
         { term: '체감 만족도 · 실속 소비', desc: '단순 브랜드 인지도보다 실제 이용 시 느껴지는 직관적인 만족도와 합리적인 가격·구성을 중시하는 소비 흐름입니다.' }
       ];
 
+  const leadIntroText = [
+    `일상 속 작은 변화가 새로운 소비 트렌드로 자리 잡으면서 최근 '${kw}'에 대한 독자와 소비자들의 관심이 빠르게 높아지고 있습니다.${comp ? ` 특히 ${comp} 등 주요 기업과 브랜드들이 차별화된 상품과 맞춤형 혜택을 잇달아 선보이며 선택의 폭을 한층 넓히고 있습니다.` : ''}`,
+    `${fact1}${userSubKeywordsStr ? ` 아울러 '${userSubKeywordsStr}' 등 연관 키워드와 맞물려 실생활에서 바로 활용할 수 있는 실속 정보와 최신 트렌드를 찾는 움직임도 더욱 활발해졌습니다.` : ''}`,
+    `이번 기사에서는 '${kw}'의 핵심 등장 배경부터 주목해야 할 주요 특징과 실제 사례, 그리고 소비자가 꼭 챙겨야 할 실전 체크포인트까지 상세히 정리해 드립니다.`
+  ].join('\n\n');
+
   const summaryBlocks = {
     mkCategory: catInfo.recommendedCategory,
     mkCategoryReason: catInfo.categoryReason,
@@ -2167,6 +2173,8 @@ function buildDynamicWorkFromNews({ keyword, company, subKeywords = '', directio
       coreTopic !== kw ? coreTopic : kw
     ].filter((v, i, a) => v && a.indexOf(v) === i),
     subtitle: subtitleText,
+    leadIntro: leadIntroText,
+    includeLeadIntro: true,
     oneLineSubtitle: titleCandidates[0]?.overflowSubhead || `${comp ? comp + ' · ' : ''}'${coreTopic}' 핵심 특징·가격·체크포인트 한줄 요약`,
     oneLineSubhead: titleCandidates[0]?.overflowSubhead || '',
     aiFactSummary: [
