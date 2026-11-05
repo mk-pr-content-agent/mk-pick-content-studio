@@ -523,16 +523,43 @@
     return searchResults[0] || null;
   }
 
-  // 개별 AI 단계 호출 시 무한 대기(Hang)를 원천 차단하는 스마트 타임아웃 헬퍼
+  // AI 채팅 기사 수정 진행 중 사용자가 [⏹ 수정 중단]을 눌렀을 때 즉시 요청을 취소하기 위한 컨트롤러
+  let currentAiEditAbortController = null;
+  let currentAiEditRunId = 0;
+
+  // 개별 AI 단계 호출 시 무한 대기(Hang)를 원천 차단하고 사용자 중단(Abort)을 즉시 반영하는 스마트 타임아웃 헬퍼
   async function fetchWithTimeout(url, options = {}, timeoutMs = 28000, stepLabel = 'AI 호출') {
+    const extSignal = options.abortSignal || null;
+    if (extSignal && extSignal.aborted) {
+      const cancelErr = new Error('USER_CANCELLED_AI_EDIT');
+      cancelErr.isUserCancelled = true;
+      throw cancelErr;
+    }
     const controller = new AbortController();
+    let userAborted = false;
+    const onExternalAbort = () => {
+      userAborted = true;
+      controller.abort();
+    };
+    if (extSignal) {
+      extSignal.addEventListener('abort', onExternalAbort, { once: true });
+    }
     const timerId = setTimeout(() => controller.abort(), timeoutMs);
+    const fetchOpts = { ...options, signal: controller.signal };
+    delete fetchOpts.abortSignal;
     try {
-      const res = await fetch(url, { ...options, signal: controller.signal });
+      const res = await fetch(url, fetchOpts);
       clearTimeout(timerId);
+      if (extSignal) extSignal.removeEventListener('abort', onExternalAbort);
       return res;
     } catch (err) {
       clearTimeout(timerId);
+      if (extSignal) extSignal.removeEventListener('abort', onExternalAbort);
+      if (userAborted || (extSignal && extSignal.aborted)) {
+        const cancelErr = new Error('USER_CANCELLED_AI_EDIT');
+        cancelErr.isUserCancelled = true;
+        throw cancelErr;
+      }
       if (err && (err.name === 'AbortError' || String(err.message || '').includes('aborted'))) {
         throw new Error(`${stepLabel} 응답 시간 초과 (${Math.round(timeoutMs / 1000)}초 Timeout)`);
       }
@@ -599,7 +626,7 @@
     };
   }
 
-  async function callPerplexityDirectFromBrowser(apiKey, systemPrompt, userPrompt, recencyFilter = 'month', callType = 'draft', maxTokensOverride = 0, preferredModel = '') {
+  async function callPerplexityDirectFromBrowser(apiKey, systemPrompt, userPrompt, recencyFilter = 'month', callType = 'draft', maxTokensOverride = 0, preferredModel = '', abortSignal = null) {
     const selectedModel = preferredModel || getSelectedWriterModel() || DEFAULT_PPLX_MODEL;
     const isSonarDirect = selectedModel === 'sonar-pro' || callType === 'trend' || maxTokensOverride === 2500;
 
@@ -607,6 +634,7 @@
     if (isSonarDirect) {
       const res = await fetchWithTimeout('https://api.perplexity.ai/chat/completions', {
         method: 'POST',
+        abortSignal,
         headers: {
           'Authorization': `Bearer ${apiKey.trim()}`,
           'Content-Type': 'application/json'
@@ -650,6 +678,7 @@
       try {
         const s1Res = await fetchWithTimeout('https://api.perplexity.ai/chat/completions', {
           method: 'POST',
+          abortSignal,
           headers: {
             'Authorization': `Bearer ${apiKey.trim()}`,
             'Content-Type': 'application/json'
@@ -683,6 +712,7 @@
           ].filter((u, idx, arr) => arr.indexOf(u) === idx);
         }
       } catch (s1Err) {
+        if (s1Err?.isUserCancelled || abortSignal?.aborted) throw s1Err;
         console.warn('Stage 1 sonar-pro search warning:', s1Err.message);
       }
     }
@@ -714,6 +744,7 @@
 
         const res = await fetchWithTimeout('https://api.perplexity.ai/v1/responses', {
           method: 'POST',
+          abortSignal,
           headers: {
             'Authorization': `Bearer ${apiKey.trim()}`,
             'Content-Type': 'application/json'
@@ -778,6 +809,7 @@
           fallbackReason: modelName !== selectedModel ? firstFailedReason : ''
         };
       } catch (err) {
+        if (err?.isUserCancelled || abortSignal?.aborted) throw err;
         if (!firstFailedModel) {
           firstFailedModel = modelName;
           firstFailedReason = err.message || '응답 지연';
@@ -791,6 +823,7 @@
       try {
         const fbRes = await fetchWithTimeout('https://api.perplexity.ai/chat/completions', {
           method: 'POST',
+          abortSignal,
           headers: {
             'Authorization': `Bearer ${apiKey.trim()}`,
             'Content-Type': 'application/json'
@@ -828,6 +861,7 @@
           fallbackReason: firstFailedReason || (lastError ? lastError.message : '선택 모델 응답 지연')
         };
       } catch (fbErr) {
+        if (fbErr?.isUserCancelled || abortSignal?.aborted) throw fbErr;
         lastError = fbErr;
       }
     }
@@ -1235,7 +1269,7 @@ ${url ? `- 참고 URL: ${url}\n` : ''}${rawText ? `- 추가 메모: ${rawText}\n
       .filter(Boolean);
   }
 
-  // 취재 팩트 메모장(researchItems)의 각 항목이 본문 어느 단락(또는 AI 3줄 요약)에 반영되었는지 정밀 분석
+  // 취재 팩트 메모장(researchItems)의 각 항목이 본문 어느 단락에 반영되었는지 정밀 분석
   function getMemoReflectionLocations(memoItem, w) {
     if (!memoItem || !w) return { isReflected: false, locations: [] };
     const factStr = String(memoItem.fact || '').trim();
@@ -1247,26 +1281,7 @@ ${url ? `- 참고 URL: ${url}\n` : ''}${rawText ? `- 추가 메모: ${rawText}\n
     const memoNumbers = factStr.match(/\d+(?:,\d+)?(?:\.\d+)?\s*(?:%|원|만\s*원|억|개|종|회|명|일|월|년|배|시간|곳)?/g) || [];
     const insertedTargets = Array.isArray(memoItem.insertedIntoSecIds) ? memoItem.insertedIntoSecIds : [];
 
-    // 1) AI 3줄 요약 반영 여부 확인
-    const aiLines = w.summaryBlocks?.aiFactSummary || [];
-    const matchedAiLines = aiLines.filter(line => {
-      if (line.includes(factStr.slice(0, 18))) return true;
-      const overlap = memoTokens.filter(tk => line.includes(tk));
-      return overlap.length >= 3;
-    });
-    if (insertedTargets.includes('ai-summary') || matchedAiLines.length > 0) {
-      locations.push({
-        targetType: 'ai-summary',
-        targetId: 'block-step-3',
-        secId: 'ai-summary',
-        label: 'AI 3줄 요약',
-        matchedSentences: matchedAiLines.length > 0 ? matchedAiLines : [factStr],
-        matchTokens: memoTokens.slice(0, 6)
-      });
-      addedKeys.add('ai-summary');
-    }
-
-    // 2) 본문 각 단락(draftSections) 내 반영 문장 탐색
+    // 1) 본문 각 단락(draftSections) 내 반영 문장 탐색
     (w.draftSections || []).forEach((sec, sIdx) => {
       const secContent = String(sec.content || '');
       const secTitle = String(sec.title || '');
@@ -2349,8 +2364,8 @@ ${currentBodyText}
     state.activeHighlight = aiEdit;
   }
 
-  // 우측 [💬 AI 채팅으로 기사 수정] 실행 함수 (추가·수정 문장 정밀 추출 & 제외 시 전체 하이라이트 방지 + 목차·FAQ 동시 업데이트 + 히스토리 영구 기록)
-  async function applyAiNaturalLanguageEditToWork(w, promptText) {
+  // 우측 [💬 AI 채팅으로 기사 수정] 실행 함수 (추가·수정 문장 정밀 추출 & 제외 시 전체 하이라이트 방지 + 목차·FAQ 동시 업데이트 + 히스토리 영구 기록 + 중단/취소 완벽 지원)
+  async function applyAiNaturalLanguageEditToWork(w, promptText, abortSignal = null, runId = 0) {
     if (!w || !promptText || !promptText.trim()) return;
     const instruction = promptText.trim();
     const isRemovalInstruction = /(?:제외|빼줘|빼고|삭제|지워|없애|생략|빼\s*달라)/.test(instruction) && !/(?:추가|보강|넣어|대신)/.test(instruction);
@@ -2369,11 +2384,6 @@ ${currentBodyText}
       oneLineSummary: w.summaryBlocks?.oneLineSummary || ''
     }));
 
-    // 되돌리기(Undo)를 위해 현재 상태 스냅샷 저장
-    w.aiEditHistory = Array.isArray(w.aiEditHistory) ? w.aiEditHistory : [];
-    w.aiEditHistory.push(JSON.parse(JSON.stringify(beforeSnapshot)));
-    if (w.aiEditHistory.length > 15) w.aiEditHistory.shift();
-
     const oldSectionsMap = {};
     (w.draftSections || []).forEach(s => {
       oldSectionsMap[s.id] = { title: s.title, content: s.content };
@@ -2388,7 +2398,6 @@ ${currentBodyText}
     const currentArticlePayload = {
       title: w.title,
       subtitle: w.summaryBlocks?.subtitle || '',
-      aiFactSummary: w.summaryBlocks?.aiFactSummary || [],
       draftSections: (w.draftSections || []).map(s => ({ id: s.id, title: s.title, content: s.content })),
       summaryTable: w.summaryBlocks?.summaryTable || {},
       faqs: (w.summaryBlocks?.faqs || []).map(f => ({ q: f.q, a: f.a, relatedSection: f.relatedSection })),
@@ -2400,7 +2409,7 @@ ${currentBodyText}
 편집자가 작성된 초안을 보고 **AI 채팅으로 기사 수정 지시**를 입력했습니다.
 필요 시 web_search로 오늘(${todayStr}) 기준 최신 뉴스 팩트를 추가 검색하여 편집자의 지시를 정확히 반영해 기사를 수정하세요.
 [필수 규칙]
-1. 편집자의 지시('${instruction}')를 충실히 반영하여 해당되는 단락(draftSections), 제목(title), 3줄 요약(aiFactSummary), 한 줄 요약(oneLineSummary)을 수정하세요. 지시와 무관한 단락은 원문 그대로 유지하세요.
+1. 편집자의 지시('${instruction}')를 충실히 반영하여 해당되는 단락(draftSections), 제목(title), 리드 부제(subtitle), 한 줄 요약(oneLineSummary)을 수정하세요. 지시와 무관한 단락은 원문 그대로 유지하세요.
 2. [글 목차 순서 & 단락 소제목 동시 반영]
    - 단락의 내용이 수정·추가·제외되었거나 단락 순서 변경 요청이 있다면, **수정된 본문 핵심 내용에 맞춰 해당 단락의 소제목(\`draftSections[].title\`)과 단락 목차 순서도 함께 자연스럽게 업데이트**하세요. (제외된 내용이 소제목에 남아 있으면 절대 안 됩니다!)
 3. [하단 FAQ 내용 & 목차 순서 100% 필수 동시 반영]
@@ -2426,7 +2435,6 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
   },
   "title": "수정된 기사 제목 (변경 없으면 기존 제목 그대로)",
   "subtitle": "수정된 부제 (줄바꿈 \\n 사용)",
-  "aiFactSummary": ["1. 요약 1", "2. 요약 2", "3. 요약 3"],
   "draftSections": [
     {"id": "sec-1", "title": "수정된 본문 핵심을 반영한 단락 소제목", "content": "단락 본문 (~합니다 체)"}
   ],
@@ -2442,7 +2450,18 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
   "oneLineSummary": "한 줄 요약! 문장"
 }`;
 
-    const { parsed } = await callPerplexityDirectFromBrowser(apiKey, sys, usr, 'month', 'draft', 6000);
+    const { parsed } = await callPerplexityDirectFromBrowser(apiKey, sys, usr, 'month', 'draft', 6000, '', abortSignal);
+    if ((abortSignal && abortSignal.aborted) || (runId && runId !== currentAiEditRunId)) {
+      const cancelErr = new Error('USER_CANCELLED_AI_EDIT');
+      cancelErr.isUserCancelled = true;
+      throw cancelErr;
+    }
+
+    // AI 응답이 중단 없이 정상 완료된 시점에만 되돌리기(Undo) 스냅샷을 추가 (중단 시 히스토리 오염 방지)
+    w.aiEditHistory = Array.isArray(w.aiEditHistory) ? w.aiEditHistory : [];
+    w.aiEditHistory.push(JSON.parse(JSON.stringify(beforeSnapshot)));
+    if (w.aiEditHistory.length > 15) w.aiEditHistory.shift();
+
     const normalizeNl = s => String(s || '').replace(/\\n/g, '\n').trim();
 
     if (parsed.title) w.title = normalizeNl(parsed.title);
@@ -2652,7 +2671,7 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
 
     const checks = {
       'geo-1': /["“”']/.test(title) && (title.includes('…') || title.includes('...')),
-      'geo-2': (sb.aiFactSummary || []).filter(line => line.trim().length > 5).length >= 3,
+      'geo-2': String(sb.subtitle || sb.oneLineSubtitle || '').trim().length >= 8,
       'geo-3': firstBody.includes('?'),
       'geo-4': numberRegex.test(allBody),
       'geo-5': (sb.summaryTable?.rows || []).length >= 2,
@@ -2685,12 +2704,6 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
       lines.push(String(sb.oneLineSubtitle).trim());
     }
     lines.push('');
-
-    if (sb.aiFactSummary && sb.aiFactSummary.length > 0) {
-      lines.push('[AI 팩트 체크 요약]');
-      sb.aiFactSummary.forEach(item => lines.push(String(item || '').replace(/\\n/g, '\n')));
-      lines.push('');
-    }
 
     if (sb.subtitle) {
       lines.push(String(sb.subtitle || '').replace(/\\n/g, '\n'));
@@ -5859,7 +5872,6 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
                                 ${(w.draftSections || []).map((sec, sIdx) => `
                                   <option value="${sec.id}" ${sIdx === (w.draftSections.length > 1 ? 1 : 0) ? 'selected' : ''}>단락 0${sIdx + 1}</option>
                                 `).join('')}
-                                <option value="ai-summary">3줄 요약</option>
                               </select>
                               <button type="button" class="text-action-orange" data-insert-memo="${item.id}" style="font-size: 11.5px;">본문 반영 →</button>
                               <button type="button" class="text-action" data-del-memo="${item.id}" style="font-size: 11px; color: var(--text-muted);">삭제</button>
@@ -6006,7 +6018,7 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
                     <span class="text-muted">→</span>
                   </button>
                   <button type="button" class="headline-pick-row" data-jump-block="block-step-3" style="text-align: left;">
-                    <span style="font-size: 12.5px; font-weight: 700;">STEP 03~04 · 3줄 요약 & 리드 부제</span>
+                    <span style="font-size: 12.5px; font-weight: 700;">STEP 03 · 리드 부제</span>
                     <span class="text-muted">→</span>
                   </button>
                   ${(w.draftSections || []).map((sec, sIdx) => {
@@ -6096,11 +6108,6 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
                   ${escapeHtml(sb.oneLineSubtitle)}
                 </div>
               ` : ''}
-
-              <div class="article-ai-box">
-                <div style="font-size: 12.5px; font-weight: 800; color: var(--mk-orange); margin-bottom: 6px;">AI 팩트 체크 요약</div>
-                ${(sb.aiFactSummary || []).map(line => `<div style="font-size: 14px; line-height: 1.65; font-weight: 600; margin-bottom: 3px;">${escapeHtml(line)}</div>`).join('')}
-              </div>
 
               ${sb.subtitle ? `
                 <div class="article-subtitle-box" style="font-size: 15px; font-weight: 700; color: var(--text-secondary); line-height: 1.6; white-space: pre-line;">${escapeHtml(sb.subtitle)}</div>
@@ -6369,24 +6376,12 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
                 })()}
               </section>
 
-              <!-- STEP 03 & 04: AI 팩트 체크 3줄 요약 + 리드 부제(Subtitle) -->
+              <!-- STEP 03: 리드 부제(Subtitle) -->
               <section class="editor-block-section" id="block-step-3">
-                <div class="editor-step-header">
-                  <div class="flex-row" style="gap: 8px;">
-                    <span class="editor-step-badge">STEP 03 · AI 팩트 체크 3줄 요약</span>
-                    <span class="text-muted">기사 상단 핵심 팩트 3줄 요약</span>
-                  </div>
-                  <button type="button" class="text-action" data-copy-part="aisummary">📋 요약 복사</button>
-                </div>
-
-                <div style="margin: 0 0 14px 0;">
-                  <textarea class="doc-editable-textarea" id="docAiSummary" rows="3" style="font-size: 13.5px; line-height: 1.65; font-weight: 500; background-color: #FAFAFA;">${escapeHtml((sb.aiFactSummary || []).join('\n'))}</textarea>
-                </div>
-
-                <div id="block-step-4" style="padding-top: 12px; border-top: 1px solid #F3F4F6;">
-                  <div class="flex-between mb-6">
+                <div id="block-step-4">
+                  <div class="editor-step-header">
                     <div class="flex-row" style="gap: 8px;">
-                      <span class="editor-step-badge">STEP 04 · 리드 부제</span>
+                      <span class="editor-step-badge">STEP 03 · 리드 부제</span>
                       <span class="text-muted">본문 도입 전 맥락을 요약하는 부제</span>
                     </div>
                   </div>
@@ -6897,21 +6892,38 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
                     class="textarea"
                     id="aiNaturalPromptInput"
                     rows="4"
-                    placeholder="예: 2단락에 최신 수치와 가격을 더 보강해줘 / 특정 브랜드 내용은 제외해줘 (Enter: 바로 적용)"
-                    style="width: 100%; min-height: 88px; padding: 10px 12px; font-size: 12.5px; font-weight: 500; line-height: 1.55; background-color: #F9FAFB; border: 1px solid #D1D5DB; border-radius: 8px;"
-                    ${state.isApplyingAiEdit ? 'disabled' : ''}
+                    placeholder="예: 2단락에 최신 수치와 가격을 더 보강해줘 / 특정 브랜드 내용은 제외해줘 (Enter: 바로 적용 · Shift+Enter: 줄바꿈)"
+                    style="width: 100%; min-height: 88px; padding: 10px 12px; font-size: 12.5px; font-weight: 500; line-height: 1.55; background-color: ${state.isApplyingAiEdit ? '#EFF6FF' : '#F9FAFB'}; border: 1px solid ${state.isApplyingAiEdit ? '#93C5FD' : '#D1D5DB'}; border-radius: 8px;"
                   >${escapeHtml(state.aiPromptDraft || '')}</textarea>
                 </div>
 
-                <button
-                  type="button"
-                  class="btn"
-                  id="applyAiNaturalPromptBtn"
-                  style="width: 100%; justify-content: center; padding: 10px 14px; font-size: 13px; font-weight: 800; margin-bottom: 10px; background-color: #1D4ED8; color: #FFFFFF; border: 1px solid #1E40AF; border-radius: 8px;"
-                  ${state.isApplyingAiEdit ? 'disabled' : ''}
-                >
-                  ${state.isApplyingAiEdit ? '⏳ AI 채팅 요청 반영 중...' : '💬 AI 채팅으로 기사 수정 →'}
-                </button>
+                ${state.isApplyingAiEdit ? `
+                  <div style="display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; padding: 10px 12px; background-color: #FEF2F2; border: 1.5px solid #FCA5A5; border-radius: 8px;">
+                    <div class="flex-between" style="gap: 6px;">
+                      <span style="font-size: 12px; font-weight: 800; color: #991B1B;">
+                        ⏳ AI 수정 버전 작성 중...
+                      </span>
+                      <span style="font-size: 11px; color: #B91C1C; font-weight: 600;">Esc 또는 아래 버튼으로 즉시 중단</span>
+                    </div>
+                    <button
+                      type="button"
+                      class="btn"
+                      id="cancelAiNaturalPromptBtn"
+                      style="width: 100%; justify-content: center; padding: 9px 14px; font-size: 13px; font-weight: 800; background-color: #DC2626; color: #FFFFFF; border: 1px solid #B91C1C; border-radius: 7px; cursor: pointer;"
+                    >
+                      ⏹ 수정 중단 (취소 · 입력 내용 이어쓰기)
+                    </button>
+                  </div>
+                ` : `
+                  <button
+                    type="button"
+                    class="btn"
+                    id="applyAiNaturalPromptBtn"
+                    style="width: 100%; justify-content: center; padding: 10px 14px; font-size: 13px; font-weight: 800; margin-bottom: 10px; background-color: #1D4ED8; color: #FFFFFF; border: 1px solid #1E40AF; border-radius: 8px;"
+                  >
+                    💬 AI 채팅으로 기사 수정 →
+                  </button>
+                `}
 
                 ${(Array.isArray(w.aiEditHistory) && w.aiEditHistory.length > 0) || w.lastAiEdit ? `
                   <div style="display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px;">
@@ -7490,24 +7502,62 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
       });
     });
 
-    // 우측 상단 'AI 채팅으로 기사 수정' 실행 및 되돌리기·하이라이트 제어
+    // 우측 상단 'AI 채팅으로 기사 수정' 실행·중단(취소) 및 되돌리기·하이라이트 제어
     const aiPromptInputEl = document.getElementById('aiNaturalPromptInput');
     aiPromptInputEl?.addEventListener('input', e => {
       state.aiPromptDraft = e.target.value;
     });
 
+    function cancelAiNaturalPromptEdit() {
+      if (!state.isApplyingAiEdit && !currentAiEditAbortController) return;
+      const currentInputVal = document.getElementById('aiNaturalPromptInput')?.value;
+      if (typeof currentInputVal === 'string' && currentInputVal.trim()) {
+        state.aiPromptDraft = currentInputVal;
+      }
+      currentAiEditRunId += 1;
+      if (currentAiEditAbortController) {
+        try {
+          currentAiEditAbortController.abort();
+        } catch (e) {}
+        currentAiEditAbortController = null;
+      }
+      state.isApplyingAiEdit = false;
+      render(true);
+      setTimeout(() => {
+        const restoredInput = document.getElementById('aiNaturalPromptInput');
+        if (restoredInput) {
+          restoredInput.focus();
+          const len = restoredInput.value.length;
+          restoredInput.setSelectionRange(len, len);
+        }
+      }, 30);
+      showToast('⏹ AI 채팅 기사 수정을 중단했습니다. 입력하던 내용을 이어서 작성하실 수 있습니다.');
+    }
+
     async function triggerAiNaturalPromptEdit(customPrompt = '') {
+      if (state.isApplyingAiEdit) return;
       const promptVal = (customPrompt || document.getElementById('aiNaturalPromptInput')?.value || state.aiPromptDraft || '').trim();
       if (!promptVal) {
         showToast('AI 채팅으로 수정할 내용을 입력해 주세요!');
         document.getElementById('aiNaturalPromptInput')?.focus();
         return;
       }
+      if (currentAiEditAbortController) {
+        try { currentAiEditAbortController.abort(); } catch (e) {}
+      }
+      const abortController = new AbortController();
+      currentAiEditAbortController = abortController;
+      const runId = ++currentAiEditRunId;
+
       state.aiPromptDraft = promptVal;
       state.isApplyingAiEdit = true;
       render(true);
       try {
-        const hl = await applyAiNaturalLanguageEditToWork(w, promptVal);
+        const hl = await applyAiNaturalLanguageEditToWork(w, promptVal, abortController.signal, runId);
+        if (abortController.signal.aborted || runId !== currentAiEditRunId) {
+          return;
+        }
+        currentAiEditAbortController = null;
         state.isApplyingAiEdit = false;
         state.aiPromptDraft = '';
         await loadConfig();
@@ -7519,6 +7569,10 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
         }
         showToast(`💬 AI 채팅으로 기사 수정 완료! 변경 내역(파란색)과 하단 FAQ가 자동 반영되었습니다.`);
       } catch (err) {
+        if (err?.isUserCancelled || abortController.signal.aborted || runId !== currentAiEditRunId) {
+          return;
+        }
+        currentAiEditAbortController = null;
         state.isApplyingAiEdit = false;
         showToast(`AI 채팅 수정 중 오류가 발생했습니다: ${err.message}`);
         render(true);
@@ -7526,9 +7580,18 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
     }
 
     document.getElementById('applyAiNaturalPromptBtn')?.addEventListener('click', () => triggerAiNaturalPromptEdit());
+    document.getElementById('cancelAiNaturalPromptBtn')?.addEventListener('click', () => cancelAiNaturalPromptEdit());
     aiPromptInputEl?.addEventListener('keydown', e => {
+      if (e.key === 'Escape' && state.isApplyingAiEdit) {
+        e.preventDefault();
+        cancelAiNaturalPromptEdit();
+        return;
+      }
+      // 한글 IME 조합 중(isComposing / keyCode 229)일 때 엔터 입력으로 오작동하는 현상 방지
+      if (e.isComposing || e.keyCode === 229) return;
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
+        if (state.isApplyingAiEdit) return;
         triggerAiNaturalPromptEdit();
       }
     });
@@ -7738,14 +7801,14 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
       });
     });
 
-    // 취재 메모 [+ 반영] 클릭 시 선택한 단락(또는 AI 요약)에 매경 문체 팩트 삽입 + 해당 단락 노란색(앰버) 하이라이트!
+    // 취재 메모 [+ 반영] 클릭 시 선택한 본문 단락에 매경 문체 팩트 삽입 + 해당 단락 노란색(앰버) 하이라이트!
     root.querySelectorAll('[data-insert-memo]').forEach(btn => {
       btn.addEventListener('click', () => {
         const id = btn.getAttribute('data-insert-memo');
         const memo = (w.researchItems || []).find(r => r.id === id);
         if (!memo) return;
         const targetSelect = document.getElementById(`targetSecForMemo-${id}`);
-        const targetVal = targetSelect ? targetSelect.value : (w.draftSections?.[0]?.id || 'ai-summary');
+        const targetVal = targetSelect ? targetSelect.value : (w.draftSections?.[0]?.id || 'sec-1');
 
         if (state.editorViewMode === 'preview') {
           state.editorViewMode = 'edit';
@@ -7756,42 +7819,23 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
           memo.insertedIntoSecIds.push(targetVal);
         }
 
-        if (targetVal === 'ai-summary') {
-          const nextNum = (sb.aiFactSummary || []).length + 1;
-          sb.aiFactSummary = sb.aiFactSummary || [];
-          sb.aiFactSummary.push(`${nextNum}. ${memo.fact}`);
+        const targetSec = (w.draftSections || []).find(s => s.id === targetVal) || w.draftSections?.[0];
+        if (targetSec) {
+          targetSec.content = (targetSec.content ? targetSec.content.trim() + '\n\n' : '') + memo.fact;
+          w.factChecks = extractFactSentencesFromSections(w.draftSections, w.sources);
           const memoHlObj = {
             mode: 'memo',
             memoId: memo.id,
-            summary: `[AI 3줄 요약]에 방금 반영된 취재 팩트 문장입니다.`,
-            secIds: ['ai-summary'],
-            sentencesBySecId: { 'ai-summary': [memo.fact] },
+            summary: `[${targetSec.title.slice(0, 24)}...] 단락에 반영된 취재 팩트 문장입니다.`,
+            secIds: [targetSec.id],
+            sentencesBySecId: { [targetSec.id]: [memo.fact] },
             tokensBySecId: {}
           };
           state.activeMemoHighlight = memoHlObj;
           saveCurrentWork(false);
           render(true);
-          flashElement('docAiSummary');
-          showToast('📌 취재 팩트 메모가 오른쪽 [STEP 03 · AI 팩트 체크 요약]에 반영되었습니다!');
-        } else {
-          const targetSec = (w.draftSections || []).find(s => s.id === targetVal) || w.draftSections?.[0];
-          if (targetSec) {
-            targetSec.content = (targetSec.content ? targetSec.content.trim() + '\n\n' : '') + memo.fact;
-            w.factChecks = extractFactSentencesFromSections(w.draftSections, w.sources);
-            const memoHlObj = {
-              mode: 'memo',
-              memoId: memo.id,
-              summary: `[${targetSec.title.slice(0, 24)}...] 단락에 반영된 취재 팩트 문장입니다.`,
-              secIds: [targetSec.id],
-              sentencesBySecId: { [targetSec.id]: [memo.fact] },
-              tokensBySecId: {}
-            };
-            state.activeMemoHighlight = memoHlObj;
-            saveCurrentWork(false);
-            render(true);
-            flashElement(`secWrap-${targetSec.id}`);
-            showToast(`📌 취재 팩트 메모가 오른쪽 [${targetSec.title.slice(0, 16)}...] 단락에 반영(노란색 표시)되었습니다!`);
-          }
+          flashElement(`secWrap-${targetSec.id}`);
+          showToast(`📌 취재 팩트 메모가 오른쪽 [${targetSec.title.slice(0, 16)}...] 단락에 반영(노란색 표시)되었습니다!`);
         }
       });
     });
@@ -7948,11 +7992,6 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
       showToast(`현재 헤드라인(${curTitle.length}자)은 이미 ${maxLen}자 이내로 메인 화면에서 잘리지 않습니다.`);
     });
 
-    document.getElementById('docAiSummary')?.addEventListener('input', e => {
-      sb.aiFactSummary = e.target.value.split('\n').filter(line => line.trim().length > 0);
-      autoResizeTextarea(e.target);
-      saveCurrentWork(true);
-    });
     document.getElementById('docSubtitle')?.addEventListener('input', e => {
       sb.subtitle = e.target.value;
       autoResizeTextarea(e.target);
