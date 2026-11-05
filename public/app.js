@@ -5992,58 +5992,7 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
                   `}
                 </div>
               ` : `
-                <!-- [탭 3: 목차·흐름] 상단: 다른 키워드로 기사 새로 쓰기 + 하단: 기사 구성 블록 빠른 이동 -->
-                <div style="margin-bottom: 18px; padding-bottom: 16px; border-bottom: var(--border-thin);">
-                  <div class="flex-between mb-8">
-                    <strong style="font-size: 13.5px; font-weight: 800; color: var(--text-primary);">🔄 다른 키워드로 기사 새로 쓰기</strong>
-                    <span class="text-muted">실시간 검색 연동</span>
-                  </div>
-
-                  <div class="mb-8">
-                    <select class="select" id="leftQuickTrendSelect" style="width: 100%; padding: 7px 10px; font-size: 12.5px; font-weight: 600; background-color: var(--bg-subtle); color: var(--text-primary); cursor: pointer;">
-                      <option value="">🔥 실시간 인기 키워드에서 바로 골라 바꾸기 (${quickTrendTags.length}선) ▼</option>
-                      ${quickTrendTags.map(tag => {
-                        const autoT = detectBestContentType(tag, '', '', 4);
-                        const autoTName = CONTENT_TYPES[autoT]?.shortName || '유형 04';
-                        return `<option value="${escapeHtml(tag)}" ${w.keyword === tag ? 'selected' : ''}>[${escapeHtml(autoTName)}] ${escapeHtml(tag)}</option>`;
-                      }).join('')}
-                    </select>
-                  </div>
-
-                  <div style="display: grid; grid-template-columns: 1fr 96px; gap: 6px; margin-bottom: 8px;">
-                    <div>
-                      <label for="leftSearchKwInput" style="display: block; font-size: 11.5px; font-weight: 700; color: var(--text-primary); margin-bottom: 3px;">메인 키워드</label>
-                      <input type="text" class="input" id="leftSearchKwInput" value="${escapeHtml(w.keyword)}" placeholder="메인 키워드 입력" style="width: 100%; padding: 6px 9px; font-size: 12.5px; font-weight: 700;" />
-                    </div>
-                    <div>
-                      <label for="leftSearchCompInput" style="display: block; font-size: 11.5px; font-weight: 700; color: var(--text-secondary); margin-bottom: 3px;">기업명(선택)</label>
-                      <input type="text" class="input" id="leftSearchCompInput" value="${escapeHtml(w.inputCompany || '')}" placeholder="예: 하나투어" style="width: 100%; padding: 6px 8px; font-size: 12px;" />
-                    </div>
-                  </div>
-                  <div class="mb-8">
-                    <label for="leftSearchSubKwInput" style="display: block; font-size: 11.5px; font-weight: 700; color: var(--text-secondary); margin-bottom: 3px;">서브 키워드 <span style="font-weight: 400; color: var(--text-muted);">(쉼표 구분)</span></label>
-                    <input type="text" class="input" id="leftSearchSubKwInput" value="${escapeHtml(w.inputSubKeywords || '')}" placeholder="예: 가래떡데이, 떡 디저트, 농업인의 날" style="width: 100%; padding: 6px 9px; font-size: 12px;" />
-                  </div>
-                  <div class="mb-8">
-                    <label for="leftSearchDirectionInput" style="display: block; font-size: 11.5px; font-weight: 700; color: var(--text-secondary); margin-bottom: 3px;">원하는 글의 방향·맥락 <span style="font-weight: 400; color: var(--text-muted);">(기획 의도)</span></label>
-                    <textarea class="textarea" id="leftSearchDirectionInput" rows="2" placeholder="예: 빼빼로데이만 알고 있던 독자에게 가래떡데이를 알려주고, 요즘 유행하는 떡 디저트와 엮어서 소개" style="width: 100%; min-height: 48px; padding: 6px 9px; font-size: 12px; line-height: 1.45; resize: vertical;">${escapeHtml(w.inputDirection || '')}</textarea>
-                  </div>
-
-                  <div class="mb-8">
-                    ${renderWriterModelSelectHtml('width: 100%;')}
-                  </div>
-
-                  <button
-                    type="button"
-                    class="btn btn-sm btn-outline-orange"
-                    id="leftRebuildDraftBtn"
-                    style="width: 100%; justify-content: center; padding: 8px 12px; font-weight: 800;"
-                    ${state.isRefreshingInEditor ? 'disabled' : ''}
-                  >
-                    ${state.isRefreshingInEditor ? `⏳ Perplexity + ${escapeHtml(getWriterModelShortLabel())} 집필 중...` : '🔄 위 키워드·방향으로 기사 새로 쓰기 →'}
-                  </button>
-                </div>
-
+                <!-- [탭 3: 목차·흐름] 기사 구성 블록 빠른 이동 및 단락 순서 변경 -->
                 <div style="margin-bottom: 12px; padding: 10px 12px; background-color: var(--bg-subtle); border: var(--border-thin); border-radius: var(--radius-general);">
                   <div style="font-size: 11.5px; font-weight: 800; color: var(--text-primary); margin-bottom: 2px;">
                     현재 템플릿 · ${escapeHtml(tInfo.shortName)}
