@@ -688,7 +688,7 @@
             messages: [
               {
                 role: 'system',
-                content: '당신은 매일경제 실시간 뉴스 취재 데스크입니다. 요청된 메인 키워드, 서브 키워드, 편집자 기획 방향에 관련된 가장 최신 한국 언론 보도 팩트 6가지(날짜·언론사·구체적 수치·브랜드·신제품·트렌드 배경 포함)를 각 1~2문장(~합니다 체)으로 간결하고 정확하게 요약하세요.'
+                content: '당신은 매일경제 실시간 뉴스 취재 데스크입니다. 요청된 메인 키워드, 서브 키워드, 편집자 기획 방향에 관련된 가장 최신 한국 언론 보도 기사 6건을 찾아, 각 기사별로 실제 보도에 등장하는 구체적 사실·수치·배경 문장을 2~3문장씩(~합니다 체) 상세하고 정확하게 발췌·정리하세요.'
               },
               {
                 role: 'user',
@@ -886,7 +886,7 @@
       "sourceTitle": "[언론사명 · YYYY-MM-DD] 실제 최신 보도 기사 제목",
       "sourceUrl": "웹 검색 결과에 있는 해당 기사의 실제 원문 URL (https://... 절대 google.com/search 검색창 주소 금지)",
       "pubDate": "YYYY-MM-DD",
-      "fact": "최신 수치·조회수·출시 메뉴·근황이 포함된 매경 경어체(~합니다/습니다) 취재 팩트 문장"
+      "fact": "해당 원문 기사에서 발췌한 핵심 팩트 2~3문장 (수치·출시 내용·배경이 드러나도록 2~3문장으로 구체적 작성, ~합니다 체)"
     }
   ]
 }`;
@@ -1060,7 +1060,7 @@ ${url ? `- 참고 URL: ${url}\n` : ''}${rawText ? `- 추가 메모: ${rawText}\n
     {"id": "tc-1", "title": "공백 포함 38자 이내 매력적인 헤드라인 (총 5개)", "totalScore": 96}
   ],
   "researchFacts": [
-    {"category": "핵심 팩트", "sourceTitle": "[언론사 · YYYY-MM-DD] 실제 기사 제목", "sourceUrl": "위 출처 목록의 실제 URL", "pubDate": "YYYY-MM-DD", "usedInSection": 1, "fact": "본문 반영 팩트 1문장 (~합니다 체, 총 5개)"}
+    {"category": "핵심 팩트", "sourceTitle": "[언론사 · YYYY-MM-DD] 실제 기사 제목", "sourceUrl": "위 출처 목록의 실제 URL", "pubDate": "YYYY-MM-DD", "usedInSection": 1, "fact": "해당 기사에서 발췌해 본문 단락 집필에 참고한 원문 핵심 팩트 2~3문장 (~합니다 체, 총 5개)", "rewrittenBodySentence": "본문 해당 단락(usedInSection)에서 이 원문 팩트를 바탕으로 재구성하여 작성한 실제 본문 문장 1문장"}
   ],
   "subtitle": "메인 헤드라인 아래 한줄 소제목",
   "leadIntro": "본문 소제목 단락 시작 전에 들어가는 2~3문단 기사 도입부 내용 (공백 포함 320~480자, 첫 문단은 독자의 공감을 여는 일상적 화두, 두 번째 문단은 왜 지금 이 주제가 주목받는지 핵심 배경과 최신 팩트, 마지막 문단은 '이번 기사에서는 ~부터 ~까지 상세히 정리해 드립니다.'로 마무리, 문단 사이 줄바꿈 \\n\\n)",
@@ -1109,6 +1109,7 @@ ${url ? `- 참고 URL: ${url}\n` : ''}${rawText ? `- 추가 메모: ${rawText}\n
         id: `ri-pplx-${i + 1}`,
         category: rf.category || `최신 보도 · ${pubDate}`,
         fact: rf.fact,
+        rewrittenBodySentence: rf.rewrittenBodySentence || '',
         rawReference: srcTitle,
         sourceUrl: directUrl,
         sourceIds: [srcId],
@@ -1327,70 +1328,192 @@ ${url ? `- 참고 URL: ${url}\n` : ''}${rawText ? `- 추가 메모: ${rawText}\n
       .filter(Boolean);
   }
 
-  // 취재 팩트 메모장(researchItems)의 각 항목이 본문 어느 단락에 반영되었는지 정밀 분석
+  // 취재 팩트 메모장(researchItems)의 각 항목이 본문 어느 단락·어느 문장으로 재구성되었는지 1:1 정밀 매칭 (단순 2단어 겹침 오탐 원천 차단)
   function getMemoReflectionLocations(memoItem, w) {
     if (!memoItem || !w) return { isReflected: false, locations: [] };
     const factStr = String(memoItem.fact || '').trim();
     if (!factStr) return { isReflected: false, locations: [] };
 
-    const locations = [];
-    const addedKeys = new Set();
-    const memoTokens = extractDistinctiveTokens(factStr, w.keyword || '');
-    const memoNumbers = factStr.match(/\d+(?:,\d+)?(?:\.\d+)?\s*(?:%|원|만\s*원|억|개|종|회|명|일|월|년|배|시간|곳)?/g) || [];
+    const sections = Array.isArray(w.draftSections) ? w.draftSections : [];
+    if (sections.length === 0) return { isReflected: false, locations: [] };
+
+    const memoSents = splitIntoSentences(factStr);
+    const effectiveMemoSents = memoSents.length > 0 ? memoSents : [factStr];
+    const memoTokens = extractDistinctiveTokens(factStr, `${w.keyword || ''} ${w.inputCompany || ''}`);
+    const memoNumbers = (factStr.match(/\d+(?:,\d+)?(?:\.\d+)?\s*(?:%|원|만\s*원|억|개|종|회|명|일|월|년|배|시간|곳)?/g) || [])
+      .map(n => n.trim())
+      .filter(n => n.length >= 2);
     const insertedTargets = Array.isArray(memoItem.insertedIntoSecIds) ? memoItem.insertedIntoSecIds : [];
 
-    // 1) 본문 각 단락(draftSections) 내 반영 문장 탐색
-    (w.draftSections || []).forEach((sec, sIdx) => {
-      const secContent = String(sec.content || '');
-      const secTitle = String(sec.title || '');
-      const secFull = `${secTitle}\n${secContent}`;
-      const sentences = splitIntoSentences(secContent);
-      const matchedSentences = [];
+    // 1) 기사 전체(2개 이상 단락)에 반복 등장하는 공통 주제어(예: '비타데이', '아스타잔틴', '석류맛', 'CU' 등)를 판별해 오탐(False Positive) 원천 차단
+    const tokenSecCountMap = {};
+    memoTokens.forEach(tk => {
+      let secHits = 0;
+      sections.forEach(sec => {
+        if (String(sec.content || '').includes(tk)) secHits++;
+      });
+      tokenSecCountMap[tk] = secHits;
+    });
+    const specificMemoTokens = memoTokens.filter(tk => (tokenSecCountMap[tk] || 0) <= 1);
 
-      sentences.forEach(sent => {
-        if (factStr.length >= 12 && (sent.includes(factStr.slice(0, 18)) || factStr.includes(sent.slice(0, 18)))) {
-          matchedSentences.push(sent);
-          return;
-        }
-        const tokenHits = memoTokens.filter(tk => sent.includes(tk));
-        const numHits = memoNumbers.filter(num => num.trim().length >= 2 && sent.includes(num.trim()));
-        if (tokenHits.length >= 2 || (tokenHits.length >= 1 && numHits.length >= 1)) {
-          matchedSentences.push(sent);
-        }
+    const locations = [];
+    const addedSecIds = new Set();
+
+    // 2) 사용자가 [+ 본문 반영 →] 버튼으로 직접 삽입한 단락은 최우선 100% 반영
+    insertedTargets.forEach(targetSecId => {
+      const sIdx = sections.findIndex(s => s.id === targetSecId);
+      if (sIdx === -1) return;
+      const sec = sections[sIdx];
+      const secSents = splitIntoSentences(sec.content || '');
+      const directMatches = secSents.filter(bs =>
+        effectiveMemoSents.some(ms => isEssentiallySameSentence(bs, ms) || (ms.length >= 12 && bs.includes(ms.slice(0, 16))))
+      );
+      const chosenBodySent = directMatches[0] || secSents[secSents.length - 1] || factStr;
+      const simInfo = computeSentenceSimilarityInfo(chosenBodySent, effectiveMemoSents[0] || factStr);
+      addedSecIds.add(sec.id);
+      locations.push({
+        targetType: 'section',
+        targetId: `secWrap-${sec.id}`,
+        secId: sec.id,
+        secIdx: sIdx,
+        label: `단락 0${sIdx + 1}`,
+        matchedSentences: directMatches.length > 0 ? directMatches : [chosenBodySent],
+        matchedMemoSent: effectiveMemoSents[0] || factStr,
+        bestSimInfo: simInfo,
+        sentencePairs: (directMatches.length > 0 ? directMatches : [chosenBodySent]).map(bs => {
+          let bestMs = effectiveMemoSents[0] || factStr;
+          let bestSim = computeSentenceSimilarityInfo(bs, bestMs);
+          effectiveMemoSents.forEach(ms => {
+            const s = computeSentenceSimilarityInfo(bs, ms);
+            if (s.pct > bestSim.pct) {
+              bestSim = s;
+              bestMs = ms;
+            }
+          });
+          return { memoSent: bestMs, bodySent: bs, simInfo: bestSim };
+        }),
+        matchTokens: specificMemoTokens.slice(0, 6)
+      });
+    });
+
+    // 3) 각 메모 문장(effectiveMemoSents)별로 본문 전체에서 가장 정확하게 재구성된 단 1개의 본문 문장(1:1)을 탐색
+    const candidateBySecId = {};
+    effectiveMemoSents.forEach(ms => {
+      const msTokens = extractDistinctiveTokens(ms, `${w.keyword || ''} ${w.inputCompany || ''}`);
+      const msSpecificTokens = msTokens.filter(tk => (tokenSecCountMap[tk] || 0) <= 1);
+      const msNums = (ms.match(/\d+(?:,\d+)?(?:\.\d+)?\s*(?:%|원|만\s*원|억|개|종|회|명|일|월|년|배|시간|곳)?/g) || [])
+        .map(n => n.trim())
+        .filter(n => n.length >= 2);
+
+      let bestOverall = null;
+
+      sections.forEach((sec, sIdx) => {
+        const secSents = splitIntoSentences(sec.content || '');
+        secSents.forEach(bs => {
+          const simInfo = computeSentenceSimilarityInfo(bs, ms);
+          const specificHits = msSpecificTokens.filter(tk => bs.includes(tk));
+          const allHits = msTokens.filter(tk => bs.includes(tk));
+          const numHits = msNums.filter(n => bs.includes(n));
+          const isExplicitRewrite = Boolean(
+            memoItem.rewrittenBodySentence && isEssentiallySameSentence(bs, memoItem.rewrittenBodySentence)
+          );
+          const isUsedSecHint = Number(memoItem.usedInSection) === (sIdx + 1);
+
+          // 핵심 판정 점수: 고유 단어(다른 단락엔 없는 이 메모만의 핵심 어휘) + 문장 2-gram 유사도 + 숫자 일치
+          const score =
+            (isExplicitRewrite ? 500 : 0) +
+            (simInfo.pct * 1.8) +
+            (specificHits.length * 22) +
+            (allHits.length * 4) +
+            (numHits.length * 16) +
+            (isUsedSecHint ? 8 : 0);
+
+          // 최소 매칭 기준: 고유 어휘가 2개 이상 일치하거나, 문장 유사도가 32% 이상이거나, 고유 어휘 1개 + 숫자 1개 일치 시에만 유효 후보로 인정
+          const passesThreshold =
+            isExplicitRewrite ||
+            simInfo.pct >= 32 ||
+            specificHits.length >= 2 ||
+            (specificHits.length >= 1 && numHits.length >= 1) ||
+            (msSpecificTokens.length === 0 && allHits.length >= 3 && simInfo.pct >= 24);
+
+          if (passesThreshold && (!bestOverall || score > bestOverall.score)) {
+            bestOverall = {
+              sec,
+              sIdx,
+              bodySent: bs,
+              memoSent: ms,
+              simInfo,
+              score
+            };
+          }
+        });
       });
 
-      const isExplicitlyInserted = insertedTargets.includes(sec.id);
-      if (isExplicitlyInserted || matchedSentences.length > 0) {
-        const key = sec.id;
-        if (!addedKeys.has(key)) {
-          addedKeys.add(key);
-          locations.push({
-            targetType: 'section',
-            targetId: `secWrap-${sec.id}`,
-            secId: sec.id,
-            secIdx: sIdx,
-            label: `단락 0${sIdx + 1}`,
-            matchedSentences: matchedSentences.length > 0 ? matchedSentences : [sentences[sentences.length - 1] || factStr],
-            matchTokens: memoTokens.slice(0, 6)
+      if (bestOverall) {
+        const secId = bestOverall.sec.id;
+        if (!candidateBySecId[secId]) {
+          candidateBySecId[secId] = {
+            sec: bestOverall.sec,
+            sIdx: bestOverall.sIdx,
+            maxScore: bestOverall.score,
+            pairs: []
+          };
+        }
+        if (bestOverall.score > candidateBySecId[secId].maxScore) {
+          candidateBySecId[secId].maxScore = bestOverall.score;
+        }
+        if (!candidateBySecId[secId].pairs.some(p => p.bodySent === bestOverall.bodySent)) {
+          candidateBySecId[secId].pairs.push({
+            memoSent: bestOverall.memoSent,
+            bodySent: bestOverall.bodySent,
+            simInfo: bestOverall.simInfo,
+            score: bestOverall.score
           });
         }
       }
     });
 
-    // 3) 직접 문장 매칭이 안 되었더라도 초안 생성 시 지정된 usedInSection이 있으면 해당 단락의 가장 연관도 높은 문장을 연결
+    // 후보 단락들을 최고 점수순으로 정렬하고, 가장 점수가 높은 대표 단락 1곳(또는 별도 문장이 강하게 매칭된 단락)만 반영 위치로 확정
+    const sortedSecCandidates = Object.values(candidateBySecId).sort((a, b) => b.maxScore - a.maxScore);
+    sortedSecCandidates.forEach((cand, idx) => {
+      if (addedSecIds.has(cand.sec.id)) return;
+      // 1위 단락은 항상 채택하고, 2위 이하 단락은 메모가 여러 문장일 때 별도 문장이 매우 높은 유사도(45% 이상)로 쓰인 경우에만 허용
+      if (idx > 0 && (effectiveMemoSents.length <= 1 || cand.maxScore < 85)) return;
+
+      addedSecIds.add(cand.sec.id);
+      const topPair = cand.pairs[0];
+      locations.push({
+        targetType: 'section',
+        targetId: `secWrap-${cand.sec.id}`,
+        secId: cand.sec.id,
+        secIdx: cand.sIdx,
+        label: `단락 0${cand.sIdx + 1}`,
+        matchedSentences: cand.pairs.map(p => p.bodySent),
+        matchedMemoSent: topPair.memoSent,
+        bestSimInfo: topPair.simInfo,
+        sentencePairs: cand.pairs,
+        matchTokens: specificMemoTokens.slice(0, 6)
+      });
+    });
+
+    // 4) 만약 위 조건으로도 매칭된 단락이 전혀 없고 초안 생성 시 지정된 usedInSection이 있다면 해당 단락의 최고 유사 문장 1개만 연결
     if (locations.length === 0 && memoItem.usedInSection) {
-      const targetIdx = Math.max(0, Math.min((w.draftSections || []).length - 1, Number(memoItem.usedInSection) - 1));
-      const sec = (w.draftSections || [])[targetIdx];
+      const targetIdx = Math.max(0, Math.min(sections.length - 1, Number(memoItem.usedInSection) - 1));
+      const sec = sections[targetIdx];
       if (sec) {
         const sentences = splitIntoSentences(sec.content || '');
         let bestSent = sentences[0] || '';
-        let bestScore = -1;
+        let bestMemoSent = effectiveMemoSents[0] || factStr;
+        let bestSim = computeSentenceSimilarityInfo(bestSent, bestMemoSent);
         sentences.forEach(sent => {
-          const hits = memoTokens.filter(tk => sent.includes(tk)).length;
-          if (hits > bestScore) {
-            bestScore = hits;
-            bestSent = sent;
-          }
+          effectiveMemoSents.forEach(ms => {
+            const sim = computeSentenceSimilarityInfo(sent, ms);
+            if (sim.pct >= bestSim.pct) {
+              bestSim = sim;
+              bestSent = sent;
+              bestMemoSent = ms;
+            }
+          });
         });
         locations.push({
           targetType: 'section',
@@ -1399,7 +1522,10 @@ ${url ? `- 참고 URL: ${url}\n` : ''}${rawText ? `- 추가 메모: ${rawText}\n
           secIdx: targetIdx,
           label: `단락 0${targetIdx + 1}`,
           matchedSentences: bestSent ? [bestSent] : [],
-          matchTokens: memoTokens.slice(0, 6)
+          matchedMemoSent: bestMemoSent,
+          bestSimInfo: bestSim,
+          sentencePairs: bestSent ? [{ memoSent: bestMemoSent, bodySent: bestSent, simInfo: bestSim }] : [],
+          matchTokens: specificMemoTokens.slice(0, 6)
         });
       }
     }
@@ -1837,12 +1963,6 @@ ${url ? `- 참고 URL: ${url}\n` : ''}${rawText ? `- 추가 메모: ${rawText}\n
         if (isFullSentenceMatch) {
           return `<mark style="${markStyle}">${escapeHtml(trimmed)}</mark>`;
         }
-        if (!isAiMode && cleanTokens.length > 0) {
-          const tokenHitCount = cleanTokens.filter(tk => trimmed.includes(tk)).length;
-          if (tokenHitCount >= 2) {
-            return `<mark style="${markStyle}">${escapeHtml(trimmed)}</mark>`;
-          }
-        }
         return escapeHtml(trimmed);
       });
       return `<p style="margin: 0 0 6px 0; line-height: 1.7;">${renderedSents.join(' ')}</p>`;
@@ -1962,31 +2082,44 @@ ${url ? `- 참고 URL: ${url}\n` : ''}${rawText ? `- 추가 메모: ${rawText}\n
       `;
     }
 
-    // [모드 2: 📌 취재 팩트 메모 반영 내역 바 (앰버/옐로우 테마 — 원문 동일 복붙 vs AI 재구성(리라이팅) 여부 및 유사도 % 명시!)]
+    // [모드 2: 📌 취재 팩트 메모 반영 내역 바 (앰버/옐로우 테마 — 원문 발췌 문장 ↔ 본문 재구성 문장 1:1 정밀 매핑 및 유사도 % 명시!)]
     const memoSecId = options?.secId || '';
     const memoId = options?.memoId || state.activeMemoHighlight?.memoId || '';
     const refMemoFacts = Array.isArray(options?.memoFacts) && options.memoFacts.length > 0
-      ? options.memoFacts
+      ? options.memoFacts.flatMap(f => splitIntoSentences(f))
       : cleanSentences;
+    const explicitPairs = Array.isArray(options?.sentencePairs) && options.sentencePairs.length > 0
+      ? options.sentencePairs
+      : null;
 
-    // 하이라이트된 본문 문장과 취재 메모 원문 사이의 유사도 판정
+    // 하이라이트된 본문 문장과 취재 메모 원문 사이의 1:1 유사도 판정
     let maxSimInfo = { ratio: 0, pct: 0, grade: 'REWRITTEN', badgeText: '✨ 팩트 참고 AI 재구성 (복붙 아님)', color: '#1B7F3B', bg: '#EBFBEE', border: '#B2F2BB' };
-    let matchedBodySentForCompare = '';
-    let matchedMemoSentForCompare = refMemoFacts[0] || '';
-    const bodySents = splitIntoSentences(rawText);
-    bodySents.forEach(bs => {
-      const isHlSent = cleanSentences.some(ms => isEssentiallySameSentence(bs, ms)) ||
-        (cleanTokens.length > 0 && cleanTokens.filter(tk => bs.includes(tk)).length >= 2);
-      if (!isHlSent) return;
-      refMemoFacts.forEach(mf => {
-        const sim = computeSentenceSimilarityInfo(bs, mf);
-        if (sim.pct >= maxSimInfo.pct) {
-          maxSimInfo = sim;
-          matchedBodySentForCompare = bs;
-          matchedMemoSentForCompare = mf;
-        }
+    const resolvedPairs = [];
+
+    if (explicitPairs) {
+      explicitPairs.forEach(p => {
+        const sim = p.simInfo || computeSentenceSimilarityInfo(p.bodySent, p.memoSent);
+        if (sim.pct >= maxSimInfo.pct) maxSimInfo = sim;
+        resolvedPairs.push({ memoSent: p.memoSent, bodySent: p.bodySent, simInfo: sim });
       });
-    });
+    } else {
+      const bodySents = splitIntoSentences(rawText);
+      bodySents.forEach(bs => {
+        const isHlSent = cleanSentences.some(ms => isEssentiallySameSentence(bs, ms));
+        if (!isHlSent) return;
+        let bestMf = refMemoFacts[0] || '';
+        let bestSim = computeSentenceSimilarityInfo(bs, bestMf);
+        refMemoFacts.forEach(mf => {
+          const sim = computeSentenceSimilarityInfo(bs, mf);
+          if (sim.pct >= bestSim.pct) {
+            bestSim = sim;
+            bestMf = mf;
+          }
+        });
+        if (bestSim.pct >= maxSimInfo.pct) maxSimInfo = bestSim;
+        resolvedPairs.push({ memoSent: bestMf, bodySent: bs, simInfo: bestSim });
+      });
+    }
 
     return `
       <div style="margin-top: 8px; padding: 10px 12px; background-color: var(--memo-fact-bg); border: 1px solid var(--memo-fact-border); border-radius: 8px; font-size: 13px; color: var(--text-primary);">
@@ -2011,7 +2144,7 @@ ${url ? `- 참고 URL: ${url}\n` : ''}${rawText ? `- 추가 메모: ${rawText}\n
                 data-remove-memo-sent-text="${escapeHtml(cleanSentences[cleanSentences.length - 1] || '')}"
                 data-remove-memo-id="${escapeHtml(memoId)}"
                 style="font-size: 11px; font-weight: 700; color: #B45309;"
-                title="이 단락에서 방금 반영한 취재 메모 문장을 뺍니다"
+                title="이 단락에서 반영된 취재 메모 문장을 뺍니다"
               >
                 본문에서 빼기 ✕
               </button>
@@ -2019,14 +2152,23 @@ ${url ? `- 참고 URL: ${url}\n` : ''}${rawText ? `- 추가 메모: ${rawText}\n
             <button type="button" class="text-action" data-clear-highlight="memo" style="font-size: 11px; color: var(--text-muted);">표시 닫기</button>
           </div>
         </div>
-        ${matchedMemoSentForCompare ? `
-          <div style="margin-bottom: 6px; padding: 6px 10px; background-color: rgba(255,255,255,0.75); border: 1px dashed #FCD34D; border-radius: 6px; font-size: 11.5px; color: #78350F; line-height: 1.5;">
-            <strong>취재 메모 원문 비교:</strong> "${escapeHtml(matchedMemoSentForCompare)}"
-            <span style="margin-left: 6px; color: ${maxSimInfo.color}; font-weight: 800;">
-              → ${maxSimInfo.grade === 'VERBATIM'
-                ? '취재 메모 문장이 본문에 직접 반영(동일 문장)되었습니다. 필요 시 [✨ 문체 다듬기]나 직접 수정으로 다듬어 주세요.'
-                : '원문 팩트·수치만 참고하여 AI가 매경 문체로 새롭게 리라이팅(재구성)한 문장입니다.'}
-            </span>
+        ${resolvedPairs.length > 0 ? `
+          <div style="margin-bottom: 8px; display: flex; flex-direction: column; gap: 5px;">
+            ${resolvedPairs.map((pair, pIdx) => `
+              <div style="padding: 7px 10px; background-color: rgba(255,255,255,0.85); border: 1px dashed #FCD34D; border-radius: 6px; font-size: 11.5px; color: #78350F; line-height: 1.5;">
+                <div style="margin-bottom: 3px;">
+                  <strong style="color: #92400E;">① 취재 원문(메모) 문장${resolvedPairs.length > 1 ? ` #${pIdx + 1}` : ''}:</strong>
+                  <span style="color: var(--text-secondary);">"${escapeHtml(pair.memoSent)}"</span>
+                </div>
+                <div>
+                  <strong style="color: #78350F;">② 본문 재구성(리라이팅) 문장:</strong>
+                  <span style="color: var(--text-primary); font-weight: 700;">"${escapeHtml(pair.bodySent)}"</span>
+                  <span style="margin-left: 6px; color: ${pair.simInfo.color}; font-weight: 800; font-size: 11px;">
+                    (${pair.simInfo.grade === 'VERBATIM' ? `직접 인용 · 유사도 ${pair.simInfo.pct}%` : `AI 재구성 · 유사도 ${pair.simInfo.pct}%`})
+                  </span>
+                </div>
+              </div>
+            `).join('')}
           </div>
         ` : ''}
         <div style="padding: 8px 10px; background-color: #FFFFFF; border: 1px solid #FDE68A; border-radius: 6px;">
@@ -6446,21 +6588,23 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
                             </div>
                           ` : ''}
                           <div style="font-size: 12.5px; color: var(--text-primary); line-height: 1.55; margin-bottom: 8px;">
-                            ${escapeHtml(item.fact)}
+                            ${splitIntoSentences(item.fact || '').length > 1
+                              ? splitIntoSentences(item.fact || '').map(s => `<div style="margin-bottom: 3px;">• ${escapeHtml(s)}</div>`).join('')
+                              : escapeHtml(item.fact)}
                           </div>
 
                           <div class="flex-between" style="flex-wrap: wrap; gap: 6px;">
                             <div class="flex-row" style="gap: 5px; flex-wrap: wrap;">
                               ${reflectionInfo.isReflected ? reflectionInfo.locations.map((loc, lIdx) => {
                                 const firstMatchSent = (loc.matchedSentences && loc.matchedSentences[0]) || '';
-                                const locSim = computeSentenceSimilarityInfo(firstMatchSent, item.fact || '');
+                                const locSim = loc.bestSimInfo || computeSentenceSimilarityInfo(firstMatchSent, loc.matchedMemoSent || item.fact || '');
                                 return `
                                   <button
                                     type="button"
                                     data-locate-memo-id="${escapeHtml(item.id)}"
                                     data-locate-memo-loc="${lIdx}"
                                     style="display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 99px; border: 1px solid var(--memo-fact-border); background-color: var(--memo-fact-bg); color: var(--memo-fact); font-size: 11px; font-weight: 800; cursor: pointer; font-family: inherit;"
-                                    title="클릭하면 오른쪽 본문의 해당 단락 아래에 이 메모가 반영된 문장과 원문 유사도(${locSim.pct}%)를 표시합니다"
+                                    title="클릭하면 오른쪽 본문 [${escapeHtml(loc.label)}] 아래에 원문 문장과 재구성된 본문 문장(&quot;${escapeHtml(firstMatchSent.slice(0, 42))}...&quot;)을 1:1로 비교 표시합니다"
                                   >
                                     <span>📌 ${escapeHtml(loc.label)} 반영됨</span>
                                     <span style="font-size: 10px; font-weight: 800; color: ${locSim.color}; background: ${locSim.bg}; padding: 0 5px; border-radius: 99px;">
@@ -7339,7 +7483,12 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
                             memoSentences,
                             memoTokens,
                             `단락 0${sIdx + 1}에 반영된 취재 메모 문장`,
-                            { sourceType: 'memo', secId: sec.id, memoFacts: memoOriginalFacts }
+                            {
+                              sourceType: 'memo',
+                              secId: sec.id,
+                              memoFacts: memoOriginalFacts,
+                              sentencePairs: activeMemoHl?.sentencePairsBySecId?.[sec.id] || null
+                            }
                           ) : ''}
                           ${isAiSecEdited ? renderHighlightedBodyHtml(
                             sec.content,
@@ -8415,6 +8564,7 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
           summary: `[${loc.label}]에 반영된 취재 팩트 문장입니다: "${memo.fact.slice(0, 48)}..."`,
           secIds: [loc.secId],
           sentencesBySecId: { [loc.secId]: loc.matchedSentences || [memo.fact] },
+          sentencePairsBySecId: { [loc.secId]: loc.sentencePairs || [] },
           tokensBySecId: { [loc.secId]: loc.matchTokens || [] }
         };
         state.activeMemoHighlight = memoHlObj;
