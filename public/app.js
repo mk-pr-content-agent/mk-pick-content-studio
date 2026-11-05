@@ -1335,135 +1335,231 @@ ${url ? `- 참고 URL: ${url}\n` : ''}${rawText ? `- 추가 메모: ${rawText}\n
     };
   }
 
-  // 본문 텍스트 내 특정 문장(matchedSentences)이나 키워드(matchTokens)를 형광펜(<mark>)으로 하이라이팅하여 HTML로 반환
+  // 문장 비교 시 접속부사·공백·문장부호 차이로 인해 기존 문장이 '새 문장'으로 오판되는 것을 막는 정규화 함수
+  function normalizeSentForCompare(str = '') {
+    return String(str || '')
+      .replace(/^[\s•·\-\d\.\)]+/, '')
+      .replace(/^(?:또한|한편|아울러|특히|여기에|뿐만 아니라|게다가|하지만|그러나|반면|따라서|이처럼|결국|즉|더불어)\s*[,]?\s*/, '')
+      .replace(/[\s"'‘’“”.,?!~·…()\[\]]+/g, '')
+      .trim();
+  }
+
+  // 두 문장이 실질적으로 동일한 기존 문장인지 판별 (삭제 후 남은 문장이 전체 하이라이트되는 버그 원천 차단)
+  function isEssentiallySameSentence(sA = '', sB = '') {
+    const a = normalizeSentForCompare(sA);
+    const b = normalizeSentForCompare(sB);
+    if (!a || !b) return false;
+    if (a === b) return true;
+    const shorter = a.length <= b.length ? a : b;
+    const longer = a.length <= b.length ? b : a;
+    if (shorter.length >= 10 && longer.includes(shorter)) return true;
+    if (shorter.length >= 15 && longer.includes(shorter.slice(0, Math.floor(shorter.length * 0.72)))) return true;
+    if (shorter.length >= 8) {
+      const bigramsA = new Set();
+      for (let i = 0; i < a.length - 1; i++) bigramsA.add(a.slice(i, i + 2));
+      let hit = 0;
+      const totalB = Math.max(1, b.length - 1);
+      for (let i = 0; i < b.length - 1; i++) {
+        if (bigramsA.has(b.slice(i, i + 2))) hit++;
+      }
+      const overlapRatio = hit / Math.min(bigramsA.size || 1, totalB);
+      if (overlapRatio >= 0.68) return true;
+    }
+    return false;
+  }
+
+  // 본문 텍스트 내 특정 문장(matchedSentences)이나 키워드(matchTokens)를 출처별 색상(AI 채팅=블루, 취재 메모=앰버)으로 구분해 하이라이팅
   function renderHighlightedBodyHtml(rawText = '', matchedSentences = [], matchTokens = [], badgeTitle = '', options = {}) {
+    const isAiMode = Boolean(options && options.aiEditState && options.secId);
     const cleanSentences = (matchedSentences || []).map(s => String(s || '').trim()).filter(s => s.length >= 6);
-    const cleanTokens = (matchTokens || []).map(t => String(t || '').trim()).filter(t => t.length >= 2);
+    const cleanTokens = isAiMode ? [] : (matchTokens || []).map(t => String(t || '').trim()).filter(t => t.length >= 2);
     const paragraphs = String(rawText || '').split(/\n+/);
+
+    // 출처별 하이라이트 마크 스타일: AI 채팅 수정 = 소프트 블루(#DBEAFE), 취재 메모 반영 = 소프트 옐로우(#FEF08A)
+    const markStyle = isAiMode
+      ? 'background-color: var(--ai-chat-mark); color: #1E3A8A; font-weight: 700; padding: 2px 5px; border-radius: 4px; border-bottom: 2px solid #3B82F6;'
+      : 'background-color: var(--memo-fact-mark); color: #78350F; font-weight: 700; padding: 2px 5px; border-radius: 4px; border-bottom: 2px solid #F59E0B;';
 
     const renderedParas = paragraphs.map(para => {
       const sents = para.split(/(?<=[.?!])\s+/);
       const renderedSents = sents.map(sent => {
         const trimmed = sent.trim();
         if (!trimmed) return '';
-        const isFullSentenceMatch = cleanSentences.some(ms => trimmed.includes(ms.slice(0, 20)) || ms.includes(trimmed.slice(0, 20)));
+        const isFullSentenceMatch = cleanSentences.some(ms => isEssentiallySameSentence(trimmed, ms));
         if (isFullSentenceMatch) {
-          return `<mark style="background: linear-gradient(180deg, rgba(255,212,59,0.35) 0%, rgba(255,212,59,0.75) 100%); color: #111; font-weight: 700; padding: 2px 5px; border-radius: 4px; border-bottom: 2px solid #F08C00;">${escapeHtml(trimmed)}</mark>`;
+          return `<mark style="${markStyle}">${escapeHtml(trimmed)}</mark>`;
         }
-        // 문장 전체가 일치하지 않으면 핵심 토큰이 2개 이상 포함된 문장을 하이라이트
-        const tokenHitCount = cleanTokens.filter(tk => trimmed.includes(tk)).length;
-        if (tokenHitCount >= 2) {
-          return `<mark style="background-color: #FFF3BF; color: #111; font-weight: 700; padding: 2px 4px; border-radius: 4px; border-bottom: 2px solid #FAB005;">${escapeHtml(trimmed)}</mark>`;
+        if (!isAiMode && cleanTokens.length > 0) {
+          const tokenHitCount = cleanTokens.filter(tk => trimmed.includes(tk)).length;
+          if (tokenHitCount >= 2) {
+            return `<mark style="${markStyle}">${escapeHtml(trimmed)}</mark>`;
+          }
         }
         return escapeHtml(trimmed);
       });
-      return `<p style="margin: 0 0 8px 0; line-height: 1.72;">${renderedSents.join(' ')}</p>`;
+      return `<p style="margin: 0 0 6px 0; line-height: 1.7;">${renderedSents.join(' ')}</p>`;
     });
 
-    // AI 자연어 편집 모드일 때는 [넣었다 / 뺐다] 문장별·전체 토글 및 [하이라이트 접기/펼치기] 영구 컨트롤 박스 제공
-    if (options && options.aiEditState && options.secId) {
+    // [모드 1: 💬 AI 채팅으로 기사 수정 내역 바 (블루 테마 · 추가/수정 vs 제외/삭제 명확 구분)]
+    if (isAiMode) {
       const aiEdit = options.aiEditState;
       const secId = options.secId;
       const sentItems = aiEdit.sentenceStates?.[secId] || [];
-      const includedCount = sentItems.filter(it => it.included !== false).length;
-      const totalCount = sentItems.length;
-      const isSecApplied = totalCount > 0 ? includedCount > 0 : aiEdit.isApplied !== false;
+      const addedItems = sentItems.filter(it => it.type !== 'removed');
+      const removedItems = sentItems.filter(it => it.type === 'removed');
+      const isRemovalOnly = addedItems.length === 0 && removedItems.length > 0;
+
+      const includedAddedCount = addedItems.filter(it => it.included !== false).length;
+      const activeRemovedCount = removedItems.filter(it => it.included === false).length;
+      const isSecApplied = isRemovalOnly
+        ? activeRemovedCount > 0
+        : (addedItems.length > 0 ? includedAddedCount > 0 : aiEdit.isApplied !== false);
       const isHighlightVisible = aiEdit.isHighlightVisible !== false;
+      const showContextPreview = Boolean(aiEdit.showContextBySec?.[secId]);
 
       return `
-        <div style="margin-top: 8px; padding: 12px 14px; background-color: ${isSecApplied ? '#FFFDF4' : '#F8F9FA'}; border: 1.5px solid ${isSecApplied ? '#FAB005' : '#CED4DA'}; border-radius: 8px; font-size: 13.5px; color: var(--text-primary); transition: all 0.2s;">
-          <div class="flex-between" style="flex-wrap: wrap; gap: 8px; ${isHighlightVisible ? 'padding-bottom: 8px; margin-bottom: 8px; border-bottom: 1px dashed #FFD43B;' : ''}">
-            <div class="flex-row" style="gap: 8px; flex-wrap: wrap;">
-              <strong style="font-size: 12px; font-weight: 800; color: ${isSecApplied ? '#D9480F' : '#495057'};">
-                🖍️ ${escapeHtml(badgeTitle || 'AI 프롬프트 편집으로 생성·추가된 내용')}
-              </strong>
-              <span style="font-size: 11px; font-weight: 800; padding: 2px 8px; border-radius: 99px; background-color: ${isSecApplied ? '#EBFBEE' : '#E9ECEF'}; color: ${isSecApplied ? '#1B7F3B' : '#495057'}; border: 1px solid ${isSecApplied ? '#8CE99A' : '#CED4DA'};">
-                ${isSecApplied
-                  ? `✓ 본문·FAQ 반영 중 (${totalCount > 0 ? `${includedCount}/${totalCount}문장` : '적용됨'})`
-                  : '⏸ 현재 본문·FAQ에서 뺌 (적용 전 원문 상태)'}
+        <div style="margin-top: 8px; padding: 10px 12px; background-color: ${isSecApplied ? 'var(--ai-chat-bg)' : '#F8FAFC'}; border: 1px solid ${isSecApplied ? 'var(--ai-chat-border)' : '#E2E8F0'}; border-radius: 8px; font-size: 13px; color: var(--text-primary);">
+          <div class="flex-between" style="flex-wrap: wrap; gap: 8px;">
+            <div class="flex-row" style="gap: 6px; flex-wrap: wrap;">
+              <span style="display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px; font-weight: 800; color: #FFFFFF; background-color: ${isSecApplied ? 'var(--ai-chat-strong)' : '#64748B'}; padding: 2px 8px; border-radius: 99px;">
+                💬 AI 채팅 수정
               </span>
+              <strong style="font-size: 12px; font-weight: 700; color: ${isSecApplied ? 'var(--ai-chat)' : '#475569'};">
+                ${isRemovalOnly
+                  ? (isSecApplied ? `요청하신 내용(${activeRemovedCount}문장)이 이 단락에서 제외되었습니다` : '제외했던 내용을 다시 본문에 복원했습니다')
+                  : (isSecApplied
+                      ? `추가·수정된 문장 ${addedItems.length > 0 ? `${includedAddedCount}/${addedItems.length}건` : ''} 반영됨`
+                      : '추가·수정 내용을 본문에서 뺐습니다 (원문 상태)')}
+              </strong>
             </div>
             <div class="flex-row" style="gap: 6px; flex-wrap: wrap;">
               <button
                 type="button"
                 class="btn btn-sm"
                 data-toggle-ai-sec-all="${escapeHtml(secId)}"
-                style="padding: 3px 10px; font-size: 11.5px; font-weight: 800; border-radius: 6px; cursor: pointer; ${isSecApplied
-                  ? 'background-color: #FFF5F5; color: #C92A2A; border: 1px solid #FFA8A8;'
-                  : 'background-color: #2B8A3E; color: #FFFFFF; border: 1px solid #2B8A3E;'}"
-                title="새로 생성된 내용을 본문과 하단 FAQ에서 한 번에 빼거나 다시 넣습니다"
+                style="padding: 3px 9px; font-size: 11px; font-weight: 700; border-radius: 6px; background-color: #FFFFFF; color: ${isSecApplied ? '#475569' : 'var(--ai-chat)'}; border: 1px solid ${isSecApplied ? '#CBD5E1' : '#93C5FD'};"
               >
-                ${isSecApplied ? '➖ 새로 생성된 내용 빼기' : '➕ 새로 생성된 내용 다시 넣기'}
-              </button>
-              <button
-                type="button"
-                class="btn btn-sm"
-                data-jump-block="block-step-7"
-                style="padding: 3px 9px; font-size: 11px; font-weight: 800; background-color: #FFFFFF; color: var(--mk-orange); border: 1px solid var(--mk-orange-border); border-radius: 6px; cursor: pointer;"
-                title="이 내용과 함께 자동 업데이트된 하단 FAQ(STEP 07) 위치로 이동합니다"
-              >
-                📍 반영된 FAQ 보기 ↘
+                ${isRemovalOnly
+                  ? (isSecApplied ? '↩ 제외 취소 (다시 넣기)' : '🗑️ 다시 제외하기')
+                  : (isSecApplied ? '➖ 수정 내용 빼기' : '➕ 수정 내용 다시 넣기')}
               </button>
               <button
                 type="button"
                 class="text-action"
                 data-toggle-highlight-visibility="1"
-                style="font-size: 11.5px; font-weight: 700; color: var(--text-secondary); padding: 2px 6px;"
-                title="하이라이트 미리보기 박스를 접거나 펼칩니다 (접어도 본문에 추가된 내용은 사라지지 않습니다)"
+                style="font-size: 11px; font-weight: 700; color: var(--text-secondary); padding: 2px 6px;"
               >
-                ${isHighlightVisible ? '하이라이트 접기 ▲' : '하이라이트 펼치기 ▼'}
+                ${isHighlightVisible ? '접기 ▲' : '상세 보기 ▼'}
               </button>
             </div>
           </div>
 
           ${isHighlightVisible ? `
-            ${sentItems.length > 0 ? `
-              <div style="margin-bottom: 10px; padding: 8px 10px; background-color: #FFFFFF; border: 1px solid #FFE066; border-radius: 6px;">
-                <div style="font-size: 11.5px; font-weight: 800; color: #B45309; margin-bottom: 6px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 4px;">
-                  <span>✨ 새로 생성·추가된 문장 개별 넣기 / 빼기 (클릭 시 위 본문 입력창과 하단 FAQ에 즉시 반영됩니다)</span>
-                </div>
-                <div style="display: flex; flex-direction: column; gap: 6px;">
-                  ${sentItems.map((item, sIdx) => {
-                    const isInc = item.included !== false;
-                    return `
-                      <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; padding: 6px 8px; border-radius: 6px; background-color: ${isInc ? '#FFF9DB' : '#F8F9FA'}; border: 1px solid ${isInc ? '#FCC419' : '#DEE2E6'};">
-                        <div style="flex: 1; font-size: 12.5px; line-height: 1.55; color: ${isInc ? '#111827' : '#868E96'}; font-weight: ${isInc ? '700' : '500'}; ${isInc ? '' : 'text-decoration: line-through;'}">
-                          ${escapeHtml(item.text)}
-                        </div>
-                        <button
-                          type="button"
-                          data-toggle-ai-sent="${escapeHtml(secId)}"
-                          data-toggle-ai-sent-idx="${sIdx}"
-                          style="flex-shrink: 0; padding: 3px 9px; font-size: 11px; font-weight: 800; border-radius: 99px; cursor: pointer; font-family: inherit; ${isInc
-                            ? 'background-color: #FFFFFF; color: #D9480F; border: 1px solid #F08C00;'
-                            : 'background-color: #2B8A3E; color: #FFFFFF; border: 1px solid #2B8A3E;'}"
-                        >
-                          ${isInc ? '✓ 적용 중 · 빼기 ✕' : '+ 본문에 넣기'}
-                        </button>
+            <div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid ${isSecApplied ? '#DBEAFE' : '#E2E8F0'}; display: flex; flex-direction: column; gap: 6px;">
+              ${sentItems.map((item, sIdx) => {
+                const isRemovedType = item.type === 'removed';
+                const isInc = item.included !== false;
+                if (isRemovedType) {
+                  return `
+                    <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; padding: 6px 10px; border-radius: 6px; background-color: #FFFFFF; border: 1px solid #E2E8F0;">
+                      <div style="flex: 1; font-size: 12.5px; line-height: 1.5; color: ${isInc ? '#111827' : '#64748B'}; ${isInc ? '' : 'text-decoration: line-through;'}">
+                        <span style="display: inline-block; font-size: 10.5px; font-weight: 800; color: ${isInc ? 'var(--ai-chat)' : '#64748B'}; background-color: ${isInc ? '#DBEAFE' : '#F1F5F9'}; padding: 1px 6px; border-radius: 4px; margin-right: 6px; text-decoration: none;">
+                          ${isInc ? '복원됨' : '제외됨'}
+                        </span>
+                        ${escapeHtml(item.text)}
                       </div>
-                    `;
-                  }).join('')}
+                      <button
+                        type="button"
+                        data-toggle-ai-sent="${escapeHtml(secId)}"
+                        data-toggle-ai-sent-idx="${sIdx}"
+                        style="flex-shrink: 0; padding: 2px 8px; font-size: 11px; font-weight: 700; border-radius: 6px; cursor: pointer; font-family: inherit; background-color: #FFFFFF; color: ${isInc ? '#DC2626' : 'var(--ai-chat)'}; border: 1px solid ${isInc ? '#FECACA' : '#93C5FD'};"
+                      >
+                        ${isInc ? '다시 빼기' : '+ 다시 넣기'}
+                      </button>
+                    </div>
+                  `;
+                }
+                return `
+                  <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; padding: 6px 10px; border-radius: 6px; background-color: #FFFFFF; border: 1px solid ${isInc ? '#93C5FD' : '#E2E8F0'};">
+                    <div style="flex: 1; font-size: 12.5px; line-height: 1.55; color: ${isInc ? '#1E3A8A' : '#94A3B8'}; font-weight: ${isInc ? '600' : '400'}; ${isInc ? '' : 'text-decoration: line-through;'}">
+                      <mark style="${isInc ? 'background-color: var(--ai-chat-mark); color: #1E3A8A; padding: 1px 4px; border-radius: 3px; font-weight: 700;' : 'background: transparent; color: inherit;'}">${escapeHtml(item.text)}</mark>
+                    </div>
+                    <button
+                      type="button"
+                      data-toggle-ai-sent="${escapeHtml(secId)}"
+                      data-toggle-ai-sent-idx="${sIdx}"
+                      style="flex-shrink: 0; padding: 2px 8px; font-size: 11px; font-weight: 700; border-radius: 6px; cursor: pointer; font-family: inherit; background-color: #FFFFFF; color: ${isInc ? '#475569' : 'var(--ai-chat)'}; border: 1px solid ${isInc ? '#CBD5E1' : '#93C5FD'};"
+                    >
+                      ${isInc ? '빼기 ✕' : '+ 다시 넣기'}
+                    </button>
+                  </div>
+                `;
+              }).join('')}
+
+              ${!isRemovalOnly && cleanSentences.length > 0 ? `
+                <div style="display: flex; align-items: center; justify-content: space-between; padding-top: 2px;">
+                  <button
+                    type="button"
+                    class="text-action"
+                    data-toggle-sec-context-preview="${escapeHtml(secId)}"
+                    style="font-size: 11px; color: var(--ai-chat); font-weight: 700;"
+                  >
+                    ${showContextPreview ? '단락 전체 문맥에서 위치 숨기기 ▲' : '단락 전체 문맥에서 위치 보기 ▼'}
+                  </button>
+                  <button
+                    type="button"
+                    class="text-action"
+                    data-jump-block="block-step-7"
+                    style="font-size: 11px; color: var(--ai-chat); font-weight: 700;"
+                  >
+                    반영된 하단 FAQ 이동 ↘
+                  </button>
                 </div>
-              </div>
-            ` : ''}
-            <div style="font-size: 11px; font-weight: 700; color: var(--text-muted); margin-bottom: 4px;">
-              📖 현재 단락 내 형광펜 하이라이트 위치 미리보기:
+                ${showContextPreview ? `
+                  <div style="padding: 10px 12px; background-color: #FFFFFF; border: 1px solid #DBEAFE; border-radius: 6px; font-size: 13px;">
+                    ${renderedParas.join('')}
+                  </div>
+                ` : ''}
+              ` : ''}
             </div>
-            ${renderedParas.join('')}
           ` : ''}
         </div>
       `;
     }
 
+    // [모드 2: 📌 취재 팩트 메모 반영 내역 바 (앰버/옐로우 테마 — AI 채팅 블루와 100% 시각적 분리)]
+    const memoSecId = options?.secId || '';
+    const memoId = options?.memoId || state.activeMemoHighlight?.memoId || '';
     return `
-      <div style="margin-top: 8px; padding: 12px 14px; background-color: #FFFDF4; border: 1.5px solid #FAB005; border-radius: 8px; font-size: 13.5px; color: var(--text-primary);">
-        <div class="flex-between mb-6" style="padding-bottom: 6px; border-bottom: 1px dashed #FFD43B;">
-          <strong style="font-size: 12px; font-weight: 800; color: #D9480F;">
-            🖍️ ${escapeHtml(badgeTitle || '반영된 본문 문장 하이라이트 미리보기')}
-          </strong>
-          <button type="button" class="text-action" data-clear-highlight="1" style="font-size: 11px; color: var(--text-muted);">하이라이트 닫기 ✕</button>
+      <div style="margin-top: 8px; padding: 10px 12px; background-color: var(--memo-fact-bg); border: 1px solid var(--memo-fact-border); border-radius: 8px; font-size: 13px; color: var(--text-primary);">
+        <div class="flex-between" style="flex-wrap: wrap; gap: 6px; margin-bottom: 6px;">
+          <div class="flex-row" style="gap: 6px;">
+            <span style="display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 800; color: #78350F; background-color: var(--memo-fact-mark); padding: 2px 8px; border-radius: 99px;">
+              📌 취재 메모 반영
+            </span>
+            <strong style="font-size: 12px; font-weight: 700; color: var(--memo-fact);">
+              ${escapeHtml(badgeTitle || '취재 팩트 메모장에서 반영된 문장')}
+            </strong>
+          </div>
+          <div class="flex-row" style="gap: 8px;">
+            ${memoSecId && cleanSentences.length > 0 ? `
+              <button
+                type="button"
+                class="text-action"
+                data-remove-memo-sent-sec="${escapeHtml(memoSecId)}"
+                data-remove-memo-id="${escapeHtml(memoId)}"
+                style="font-size: 11px; font-weight: 700; color: #B45309;"
+                title="이 단락에서 방금 반영한 취재 메모 문장을 뺍니다"
+              >
+                본문에서 빼기 ✕
+              </button>
+            ` : ''}
+            <button type="button" class="text-action" data-clear-highlight="memo" style="font-size: 11px; color: var(--text-muted);">표시 닫기</button>
+          </div>
         </div>
-        ${renderedParas.join('')}
+        <div style="padding: 8px 10px; background-color: #FFFFFF; border: 1px solid #FDE68A; border-radius: 6px;">
+          ${renderedParas.join('')}
+        </div>
       </div>
     `;
   }
@@ -1832,7 +1928,7 @@ ${currentBodyText}
     sortFaqsByBodyContextOrder(w);
   }
 
-  // AI 자연어 편집으로 생성된 문장/내용을 [넣었다 / 뺐다] 토글할 때 본문·FAQ·한줄요약을 즉시 동기화하는 함수
+  // AI 채팅으로 기사 수정된 문장/내용을 [넣었다 / 뺐다] 토글할 때 본문·FAQ·한줄요약을 즉시 동기화하는 함수
   function syncWorkWithAiEditState(w) {
     if (!w || !w.lastAiEdit) return;
     const aiEdit = w.lastAiEdit;
@@ -1841,8 +1937,14 @@ ${currentBodyText}
     if (!beforeSnap || !afterSnap) return;
 
     const allSentObjs = Object.values(aiEdit.sentenceStates || {}).flat();
-    const activeSentObjs = allSentObjs.filter(s => s.included !== false);
-    const anyActive = allSentObjs.length > 0 ? activeSentObjs.length > 0 : Boolean(aiEdit.isApplied);
+    const addedObjs = allSentObjs.filter(s => s.type !== 'removed');
+    const removedObjs = allSentObjs.filter(s => s.type === 'removed');
+
+    const anyAddedActive = addedObjs.some(s => s.included !== false);
+    const anyRemovedActive = removedObjs.some(s => s.included === false);
+    const anyActive = allSentObjs.length > 0
+      ? (anyAddedActive || anyRemovedActive)
+      : Boolean(aiEdit.isApplied);
     aiEdit.isApplied = anyActive;
 
     // 1) 단락별 본문(draftSections) 동기화
@@ -1853,8 +1955,8 @@ ${currentBodyText}
       if (!sec) return;
 
       const sentList = aiEdit.sentenceStates?.[secId] || [];
-      const incList = sentList.filter(s => s.included !== false);
-      const excList = sentList.filter(s => s.included === false);
+      const secAdded = sentList.filter(s => s.type !== 'removed');
+      const secRemoved = sentList.filter(s => s.type === 'removed');
 
       if (sentList.length === 0) {
         if (anyActive && afterSec) {
@@ -1866,6 +1968,26 @@ ${currentBodyText}
         }
         return;
       }
+
+      // 삭제·제외 전용 단락인 경우: included === false면 제외 적용(afterSec), included === true면 복원(beforeSec)
+      if (secAdded.length === 0 && secRemoved.length > 0) {
+        const allRestored = secRemoved.every(s => s.included !== false);
+        if (allRestored && beforeSec) {
+          sec.title = beforeSec.title;
+          sec.content = beforeSec.content;
+        } else if (afterSec) {
+          const restoredSents = secRemoved.filter(s => s.included !== false).map(s => s.text);
+          sec.title = afterSec.title;
+          sec.content = restoredSents.length > 0
+            ? [afterSec.content, restoredSents.join(' ')].filter(Boolean).join('\n\n')
+            : afterSec.content;
+        }
+        aiEdit.sentencesBySecId[secId] = [];
+        return;
+      }
+
+      const incList = secAdded.filter(s => s.included !== false);
+      const excList = secAdded.filter(s => s.included === false);
 
       if (incList.length === 0 && beforeSec) {
         sec.title = beforeSec.title;
@@ -1882,12 +2004,7 @@ ${currentBodyText}
           const sents = splitIntoSentences(p);
           const kept = sents.filter(st => {
             const cleanSt = st.trim();
-            return !excList.some(ex => {
-              const cleanEx = String(ex.text || '').trim();
-              return cleanSt === cleanEx ||
-                (cleanEx.length >= 14 && cleanSt.includes(cleanEx.slice(0, 20))) ||
-                (cleanSt.length >= 14 && cleanEx.includes(cleanSt.slice(0, 20)));
-            });
+            return !excList.some(ex => isEssentiallySameSentence(cleanSt, ex.text));
           });
           return kept.join(' ').trim();
         }).filter(Boolean);
@@ -1918,11 +2035,11 @@ ${currentBodyText}
         w.summaryBlocks.closingParagraph = afterSnap.closingParagraph;
         w.summaryBlocks.oneLineSummary = afterSnap.oneLineSummary;
 
-        // 일부 문장만 포함시킨 경우, AI가 반영한 FAQ 답변에서도 포함 중인 문장이 우선 노출되도록 동기화
-        if (activeSentObjs.length < allSentObjs.length && activeSentObjs.length > 0) {
+        const activeAddedObjs = addedObjs.filter(s => s.included !== false);
+        if (activeAddedObjs.length < addedObjs.length && activeAddedObjs.length > 0) {
           (w.summaryBlocks.faqs || []).forEach(f => {
             if (f.isAiEdited) {
-              f.a = activeSentObjs.map(s => s.text).slice(0, 2).join(' ');
+              f.a = activeAddedObjs.map(s => s.text).slice(0, 2).join(' ');
             }
           });
         }
@@ -1933,10 +2050,11 @@ ${currentBodyText}
     state.activeHighlight = aiEdit;
   }
 
-  // 우측 상단 [✨ AI 자연어 기사 편집 프롬프트] 실행 함수 (반영된 문장 자동 추출 & 하이라이팅 + FAQ 자동 동기화)
+  // 우측 [💬 AI 채팅으로 기사 수정] 실행 함수 (추가·수정 문장만 정밀 추출 & 제외 요청 시 전체 하이라이트 방지 + FAQ 자동 동기화)
   async function applyAiNaturalLanguageEditToWork(w, promptText) {
     if (!w || !promptText || !promptText.trim()) return;
     const instruction = promptText.trim();
+    const isRemovalInstruction = /(?:제외|빼줘|빼고|삭제|지워|없애|생략|빼\s*달라)/.test(instruction) && !/(?:추가|보강|넣어|대신)/.test(instruction);
 
     const beforeSnapshot = JSON.parse(JSON.stringify({
       title: w.title,
@@ -1977,28 +2095,28 @@ ${currentBodyText}
     };
 
     const sys = `당신은 매일경제 MK Pick 수석 에디터입니다.
-편집자가 작성된 초안을 보고 **자연어 편집 지시(프롬프트)**를 입력했습니다.
+편집자가 작성된 초안을 보고 **AI 채팅으로 기사 수정 지시**를 입력했습니다.
 필요 시 web_search로 오늘(${todayStr}) 기준 최신 뉴스 팩트를 추가 검색하여 편집자의 지시를 정확히 반영해 기사를 수정하세요.
 [필수 규칙]
-1. 편집자의 지시('${instruction}')를 충실히 반영하여 해당되는 단락(draftSections), 제목(title), 3줄 요약(aiFactSummary), 한 줄 요약(oneLineSummary)을 수정하세요. 지시와 무관한 단락은 원문을 유지하세요.
+1. 편집자의 지시('${instruction}')를 충실히 반영하여 해당되는 단락(draftSections), 제목(title), 3줄 요약(aiFactSummary), 한 줄 요약(oneLineSummary)을 수정하세요. 지시와 무관한 단락은 원문 그대로 유지하세요.
 2. 모든 본문과 답변은 매일경제 경어체("~합니다/습니다")를 유지하세요.
 3. [가장 중요 - 하단 FAQ 100% 필수 동시 반영]
    - 편집자의 지시로 본문 단락에 새로운 개념·트렌드·제품·수치·문장이 추가되거나 보강되었다면, **반드시 \`addedOrUpdatedFaq\`에 그 새로 추가된 핵심 내용을 묻고 답하는 Q&A를 작성하고, 하단 \`faqs\` 배열에도 해당 문항을 추가하거나 업데이트하여 100% 반영**하세요!
-   - 반대로 본문에서 삭제된 내용은 \`faqs\`와 \`summaryTable\`에서도 즉시 제거하세요.
-4. 수정되거나 새로 추가된 본문 문장들을 \`highlightedSentences\` 배열에 정확히 담아 반환하세요 (화면에서 형광펜 하이라이팅 및 문장별 넣기/빼기 토글에 사용됩니다).`;
+   - 반대로 본문에서 삭제·제외된 내용은 \`faqs\`와 \`summaryTable\`에서도 즉시 제거하세요.
+4. \`highlightedSentences\`에는 **이번 편집으로 '새로 추가'되었거나 '새로 작성'된 문장만** 넣으세요. 만약 편집자가 특정 내용을 제외·삭제해달라고 요청하여 문장을 빼기만 한 경우에는 기존 남은 문장을 절대 넣지 말고 빈 배열(\`[]\`)로 반환하세요!`;
 
-    const usr = `[편집자의 자연어 수정 지시]: "${instruction}"
+    const usr = `[편집자의 AI 채팅 수정 지시]: "${instruction}"
 [현재 기사 데이터]:
 ${JSON.stringify(currentArticlePayload, null, 2)}
 
 편집자의 지시를 반영해 수정한 전체 기사 데이터를 아래 순수 JSON 형식으로만 출력하세요:
 {
-  "editSummary": "편집자의 요청에 따라 어떤 단락과 한 줄 요약, 하단 FAQ를 어떻게 수정·추가했는지 1문장 요약 (~했습니다 체)",
-  "editedSectionIds": ["수정된 단락의 id 배열 (예: sec-1, sec-2)"],
-  "highlightedSentences": ["이번 편집으로 새로 추가되었거나 수정된 핵심 문장 원문 그대로 (최소 1~5개 문장)"],
+  "editSummary": "편집자의 요청에 따라 어떤 단락과 한 줄 요약, 하단 FAQ를 어떻게 수정·추가·제외했는지 1문장 요약 (~했습니다 체)",
+  "editedSectionIds": ["실제로 내용이 변경된 단락의 id 배열만 기재"],
+  "highlightedSentences": ["이번 편집으로 새로 추가된 문장 원문 그대로 (내용 제외·삭제만 한 경우 반드시 빈 배열 [])"],
   "addedOrUpdatedFaq": {
     "relatedSection": 2,
-    "q": "Q. 이번에 본문에 새로 추가·보강된 핵심 내용에 대한 독자 구어체 질문 (~나요?)",
+    "q": "Q. 이번에 본문에 새로 추가·보강된 핵심 내용에 대한 독자 구어체 질문 (삭제만 한 경우 빈 문자열)",
     "a": "이번에 새로 추가·보강된 본문 핵심 문장과 팩트를 100% 반영한 2문장 답변 (~합니다 체)"
   },
   "title": "수정된 기사 제목 (변경 없으면 기존 제목 그대로)",
@@ -2028,8 +2146,9 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
       w.summaryBlocks.aiFactSummary = parsed.aiFactSummary.map(s => normalizeNl(s));
     }
 
-    const changedSecIds = new Set(Array.isArray(parsed.editedSectionIds) ? parsed.editedSectionIds : []);
+    const changedSecIds = new Set();
     const highlightedBySecId = {};
+    const removedBySecId = {};
     const sentenceStates = {};
     const globalHighlightedSentences = Array.isArray(parsed.highlightedSentences)
       ? parsed.highlightedSentences.map(s => normalizeNl(s)).filter(Boolean)
@@ -2043,22 +2162,61 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
         const newContent = normalizeNl(sec.content || '');
         const oldSec = oldSectionsMap[secId];
 
-        const oldSents = new Set(splitIntoSentences(oldSec?.content || ''));
+        const oldContent = oldSec?.content || '';
+        const oldTitle = oldSec?.title || '';
+        const oldSents = splitIntoSentences(oldContent);
         const newSents = splitIntoSentences(newContent);
-        const diffSents = newSents.filter(s => !oldSents.has(s));
-        const matchedFromGlobal = globalHighlightedSentences.filter(gs => newContent.includes(gs.slice(0, 18)));
-        const combinedHighlights = [...new Set([...diffSents, ...matchedFromGlobal])];
 
-        if (!oldSec || oldSec.content !== newContent || oldSec.title !== newTitle || combinedHighlights.length > 0) {
+        // 1) 기존 단락에 없던 진짜 새로 추가된 문장만 추출 (기존 문장과 유사도 높은 문장은 제외하여 전체 본문 하이라이트 버그 원천 차단!)
+        let addedSents = newSents.filter(ns => !oldSents.some(os => isEssentiallySameSentence(os, ns)));
+
+        // 2) 기존 단락에 있었으나 이번 편집으로 삭제·제외된 문장 추출
+        const removedSents = oldSents.filter(os => !newSents.some(ns => isEssentiallySameSentence(os, ns)));
+
+        // 3) 만약 문장 추가/삭제 없이 기존 문장 내부 수치·단어만 소폭 수정된 경우 (단, 제외 지시가 아닐 때만)
+        if (addedSents.length === 0 && removedSents.length === 0 && !isRemovalInstruction && normalizeSentForCompare(oldContent) !== normalizeSentForCompare(newContent)) {
+          const modifiedInPlace = newSents.filter(ns => !oldSents.some(os => normalizeSentForCompare(os) === normalizeSentForCompare(ns)));
+          if (modifiedInPlace.length > 0 && modifiedInPlace.length < newSents.length) {
+            addedSents = modifiedInPlace;
+          } else {
+            const validGlobal = globalHighlightedSentences.filter(gs =>
+              newSents.some(ns => isEssentiallySameSentence(ns, gs)) &&
+              !oldSents.some(os => normalizeSentForCompare(os) === normalizeSentForCompare(gs))
+            );
+            addedSents = validGlobal;
+          }
+        }
+
+        // 순수 삭제·제외 요청이거나 실제로 문장이 삭제만 된 경우 addedSents를 강제로 비워 남은 본문에 하이라이트가 칠해지지 않게 보장
+        if (isRemovalInstruction && removedSents.length > 0) {
+          addedSents = [];
+        }
+
+        const titleChanged = normalizeSentForCompare(oldTitle) !== normalizeSentForCompare(newTitle);
+        const hasActualChange = addedSents.length > 0 || removedSents.length > 0 || titleChanged;
+
+        if (hasActualChange) {
           changedSecIds.add(secId);
-          const finalHighlights = combinedHighlights.length > 0 ? combinedHighlights : newSents.slice(-1);
-          highlightedBySecId[secId] = finalHighlights;
-          sentenceStates[secId] = finalHighlights.map((txt, sIdx) => ({
-            id: `${secId}-ai-sent-${sIdx}`,
-            secId,
-            text: txt,
-            included: true
-          }));
+          highlightedBySecId[secId] = addedSents;
+          removedBySecId[secId] = removedSents;
+
+          const stateItems = [
+            ...addedSents.map((txt, sIdx) => ({
+              id: `${secId}-ai-add-${sIdx}`,
+              secId,
+              type: 'added',
+              text: txt,
+              included: true
+            })),
+            ...removedSents.map((txt, rIdx) => ({
+              id: `${secId}-ai-rem-${rIdx}`,
+              secId,
+              type: 'removed',
+              text: txt,
+              included: false
+            }))
+          ];
+          sentenceStates[secId] = stateItems;
         }
 
         return {
@@ -2092,27 +2250,30 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
     if (parsed.oneLineSummary) w.summaryBlocks.oneLineSummary = normalizeNl(parsed.oneLineSummary);
 
     // 1) 로컬 삭제 키워드 검사를 수행해 본문에서 삭제된 내용이 FAQ에 남지 않도록 정리
-    syncFaqsAndTableOnBodyEdit(w, {
+    const syncDelRes = syncFaqsAndTableOnBodyEdit(w, {
       previousBody: Object.values(oldSectionsMap).map(s => s.content).join('\n'),
       newBody: (w.draftSections || []).map(s => s.content).join('\n')
     });
 
-    // 2) 새로 본문에 추가·보강된 문장/개념이 하단 FAQ(STEP 07)에도 반드시 업데이트·반영되도록 보장!
-    ensureAiEditedContentReflectedInFaqs(w, {
-      instruction,
-      oldFaqs,
-      changedSecIds: [...changedSecIds],
-      highlightedBySecId,
-      parsedAddedFaq: parsed.addedOrUpdatedFaq || null
-    });
+    // 2) 새로 본문에 추가·보강된 문장/개념이 있을 때만 하단 FAQ(STEP 07)에 새 Q&A 추가·업데이트
+    const totalAddedCount = Object.values(highlightedBySecId).flat().length;
+    if (totalAddedCount > 0 && !isRemovalInstruction) {
+      ensureAiEditedContentReflectedInFaqs(w, {
+        instruction,
+        oldFaqs,
+        changedSecIds: [...changedSecIds],
+        highlightedBySecId,
+        parsedAddedFaq: (parsed.addedOrUpdatedFaq && parsed.addedOrUpdatedFaq.q) ? parsed.addedOrUpdatedFaq : null
+      });
+    }
 
     const nowTimeStr = new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
     state.lastFaqAutoSyncInfo = {
       time: nowTimeStr,
-      removedFaqCount: 0,
-      updatedFaqCount: (w.summaryBlocks?.faqs || []).filter(f => f.isAiEdited).length || 1,
-      removedKeywords: [],
-      aiPromptSynced: true
+      removedFaqCount: syncDelRes?.removedFaqCount || 0,
+      updatedFaqCount: (w.summaryBlocks?.faqs || []).filter(f => f.isAiEdited).length || (totalAddedCount > 0 ? 1 : 0),
+      removedKeywords: syncDelRes?.removedTokens || [],
+      aiPromptSynced: totalAddedCount > 0
     };
 
     w.factChecks = extractFactSentencesFromSections(w.draftSections, w.sources);
@@ -2128,14 +2289,17 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
       oneLineSummary: w.summaryBlocks?.oneLineSummary || ''
     }));
 
+    const totalRemovedCount = Object.values(removedBySecId).flat().length;
     const aiEditRecord = {
       mode: 'ai-edit',
       prompt: instruction,
+      editType: (totalAddedCount === 0 && totalRemovedCount > 0) ? 'remove' : 'add',
       summary: normalizeNl(parsed.editSummary || `"${instruction}" 요청을 반영해 본문과 한 줄 요약, 하단 FAQ를 동시에 업데이트했습니다.`),
       isApplied: true,
       isHighlightVisible: true,
       secIds: [...changedSecIds],
       sentencesBySecId: highlightedBySecId,
+      removedBySecId,
       sentenceStates,
       beforeSnapshot,
       afterSnapshot,
@@ -4993,7 +5157,7 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
       <!-- 좌·우 2단 분할 레이아웃 -->
       <div class="studio-split-layout">
 
-        <!-- [왼쪽 보조 패널] 이중 스크롤바를 없애고 목적별 3개 탭(취재·메모 / 점검·팩트 / 목차·흐름)으로 깔끔하게 정리 -->
+        <!-- [왼쪽 보조 패널] 목적별 3개 탭(취재·메모 / 점검·팩트 / 목차·흐름) -->
         <aside class="left-panel-sticky">
           <div class="card" style="padding: 0; margin-bottom: 0; overflow: hidden;">
             <!-- 왼쪽 패널 3탭 헤더 -->
@@ -5011,75 +5175,28 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
 
             <div style="padding: 18px 20px;">
               ${state.leftPanelTab === 'memo' ? `
-                <!-- [탭 1: 취재·메모] 다른 키워드로 기사 바꾸기 + 매경 문체 메모장 -->
-                <div style="margin-bottom: 16px; padding-bottom: 14px; border-bottom: var(--border-thin);">
-                  <div class="flex-between mb-6">
-                    <strong style="font-size: 13px; font-weight: 800;">🔄 다른 키워드로 기사 새로 쓰기</strong>
-                    <span class="text-muted">실시간 검색 연동</span>
-                  </div>
-
-                  <!-- 지저분한 해시태그 줄글 대신 깔끔한 1줄 인기 키워드 선택 드롭다운 -->
-                  <div class="mb-8">
-                    <select class="select" id="leftQuickTrendSelect" style="width: 100%; padding: 7px 10px; font-size: 12.5px; font-weight: 700; background-color: var(--mk-orange-light); border-color: var(--mk-orange-border); color: var(--text-primary); cursor: pointer;">
-                      <option value="">🔥 실시간 인기 키워드에서 바로 골라 바꾸기 (${quickTrendTags.length}선) ▼</option>
-                      ${quickTrendTags.map(tag => {
-                        const autoT = detectBestContentType(tag, '', '', 4);
-                        const autoTName = CONTENT_TYPES[autoT]?.shortName || '유형 04';
-                        return `<option value="${escapeHtml(tag)}" ${w.keyword === tag ? 'selected' : ''}>[${escapeHtml(autoTName)}] ${escapeHtml(tag)}</option>`;
-                      }).join('')}
-                    </select>
-                  </div>
-
-                  <div style="display: grid; grid-template-columns: 1fr 96px; gap: 6px; margin-bottom: 8px;">
-                    <div>
-                      <label for="leftSearchKwInput" style="display: block; font-size: 11px; font-weight: 800; color: var(--mk-orange); margin-bottom: 3px;">🔑 메인 키워드</label>
-                      <input type="text" class="input" id="leftSearchKwInput" value="${escapeHtml(w.keyword)}" placeholder="메인 키워드 입력" style="width: 100%; padding: 6px 9px; font-size: 12.5px; font-weight: 700;" />
-                    </div>
-                    <div>
-                      <label for="leftSearchCompInput" style="display: block; font-size: 11px; font-weight: 800; color: var(--text-secondary); margin-bottom: 3px;">🏢 기업명(선택)</label>
-                      <input type="text" class="input" id="leftSearchCompInput" value="${escapeHtml(w.inputCompany || '')}" placeholder="예: 롯데웰푸드" style="width: 100%; padding: 6px 8px; font-size: 12px;" />
-                    </div>
-                  </div>
-                  <div class="mb-8">
-                    <label for="leftSearchSubKwInput" style="display: block; font-size: 11px; font-weight: 800; color: #1971C2; margin-bottom: 3px;">🏷️ 서브 키워드 <span style="font-weight: 600; color: var(--text-muted);">(쉼표로 구분)</span></label>
-                    <input type="text" class="input" id="leftSearchSubKwInput" value="${escapeHtml(w.inputSubKeywords || '')}" placeholder="예: 가래떡데이, 떡 디저트, 농업인의 날" style="width: 100%; padding: 6px 9px; font-size: 12px;" />
-                  </div>
-                  <div class="mb-8">
-                    <label for="leftSearchDirectionInput" style="display: block; font-size: 11px; font-weight: 800; color: #2B8A3E; margin-bottom: 3px;">🧭 원하는 글의 방향·맥락 <span style="font-weight: 600; color: var(--text-muted);">(기획 의도)</span></label>
-                    <textarea class="textarea" id="leftSearchDirectionInput" rows="2" placeholder="예: 빼빼로데이만 알고 있던 독자에게 가래떡데이를 알려주고, 요즘 유행하는 떡 디저트와 엮어서 소개" style="width: 100%; min-height: 48px; padding: 6px 9px; font-size: 12px; line-height: 1.45; resize: vertical;">${escapeHtml(w.inputDirection || '')}</textarea>
-                  </div>
-
-                  <div class="mb-8">
-                    ${renderWriterModelSelectHtml('width: 100%;')}
-                  </div>
-
-                  <button
-                    type="button"
-                    class="btn btn-sm btn-outline-orange"
-                    id="leftRebuildDraftBtn"
-                    style="width: 100%; justify-content: center; padding: 8px 12px; font-weight: 800;"
-                    ${state.isRefreshingInEditor ? 'disabled' : ''}
-                  >
-                    ${state.isRefreshingInEditor ? `⏳ Perplexity + ${escapeHtml(getWriterModelShortLabel())} 집필 중...` : '🔄 위 키워드·방향으로 오른쪽 기사 전체 새로 쓰기 →'}
-                  </button>
-                </div>
-
+                <!-- [탭 1: 취재·메모] 오직 취재 팩트 메모장만 깔끔하게 노출 (키워드 새로 쓰기는 목차·흐름 탭 상단으로 이동) -->
                 <div>
                   <div class="flex-between mb-6" style="flex-wrap: wrap; gap: 4px;">
-                    <strong style="font-size: 13.5px; font-weight: 800;">📌 취재 팩트 메모장 (${(w.researchItems || []).length}건)</strong>
+                    <div class="flex-row" style="gap: 6px;">
+                      <strong style="font-size: 13.5px; font-weight: 800; color: var(--text-primary);">📌 취재 팩트 메모장</strong>
+                      <span style="font-size: 11px; font-weight: 700; color: var(--memo-fact); background-color: var(--memo-fact-bg); border: 1px solid var(--memo-fact-border); padding: 1px 7px; border-radius: 99px;">
+                        ${(w.researchItems || []).length}건
+                      </span>
+                    </div>
                     <button
                       type="button"
                       class="text-action-orange"
                       id="leftFetchMemoOnlyBtn"
-                      style="font-size: 11.5px; font-weight: 800;"
-                      title="오른쪽 작성 중인 기사는 그대로 두고, 위 검색창 키워드의 최신 뉴스 문장만 이 메모장에 추가로 가져옵니다"
+                      style="font-size: 11.5px; font-weight: 700;"
+                      title="오른쪽 작성 중인 기사는 그대로 두고, 현재 키워드의 최신 뉴스 팩트 문장만 메모장에 추가로 가져옵니다"
                       ${state.isRefreshingInEditor ? 'disabled' : ''}
                     >
-                      ${state.isRefreshingInEditor ? '⏳ 뉴스 수집 중...' : '📰 최신 뉴스 문장만 메모장에 더 불러오기'}
+                      ${state.isRefreshingInEditor ? '⏳ 수집 중...' : '+ 최신 뉴스 팩트 더 불러오기'}
                     </button>
                   </div>
-                  <p class="text-muted mb-8" style="line-height: 1.45;">
-                    오른쪽 작성 중인 기사는 그대로 유지하면서, 추가할 보도자료 문장이나 최신 뉴스 팩트를 <strong>매경 경어체("~합니다")</strong>로 다듬어 원하는 단락에 끼워 넣는 메모장입니다.
+                  <p class="text-muted mb-12" style="line-height: 1.45;">
+                    추가할 보도자료나 팩트를 입력하면 <strong>매경 경어체("~합니다")</strong>로 다듬어 원하는 단락에 넣을 수 있습니다. 반영된 문장은 본문에 <strong style="color: var(--memo-fact); background-color: var(--memo-fact-mark); padding: 0 4px; border-radius: 3px;">노란색(취재 메모)</strong>으로 표시됩니다.
                   </p>
 
                   <div class="mb-12" style="padding: 10px; background-color: var(--bg-subtle); border: var(--border-thin); border-radius: var(--radius-general);">
@@ -5096,56 +5213,48 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
                       const directMemoUrl = item.sourceUrl || linkedSource?.url || '';
                       const refTitle = (linkedSource?.title || item.rawReference || '').replace(/^\[Perplexity 실시간 검증 출처 #\d+\]\s*/i, '').trim();
                       const reflectionInfo = getMemoReflectionLocations(item, w);
-                      const isActiveMemoHighlight = state.activeHighlight?.mode === 'memo' && state.activeHighlight?.memoId === item.id;
+                      const activeMemoHl = state.activeMemoHighlight || (state.activeHighlight?.mode === 'memo' ? state.activeHighlight : null);
+                      const isActiveMemoHighlight = activeMemoHl?.memoId === item.id;
                       return `
-                        <div class="clean-list-row" style="${isActiveMemoHighlight ? 'background-color: #FFF9DB; border: 1.5px solid #FAB005; border-radius: 8px; padding: 10px;' : ''}">
+                        <div class="clean-list-row" style="${isActiveMemoHighlight ? 'background-color: var(--memo-fact-bg); border: 1px solid var(--memo-fact-border); border-radius: 8px; padding: 10px; margin-bottom: 4px;' : ''}">
                           ${refTitle && !refTitle.startsWith('http') ? `
-                            <div style="font-size: 11px; font-weight: 700; color: var(--text-muted); margin-bottom: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(refTitle)}">
-                              📰 ${escapeHtml(refTitle)}
+                            <div style="font-size: 11px; font-weight: 600; color: var(--text-muted); margin-bottom: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(refTitle)}">
+                              ${escapeHtml(refTitle)}
                             </div>
                           ` : ''}
-                          <div style="font-size: 12.5px; color: var(--text-primary); line-height: 1.55; margin-bottom: 6px;">
+                          <div style="font-size: 12.5px; color: var(--text-primary); line-height: 1.55; margin-bottom: 8px;">
                             ${escapeHtml(item.fact)}
                           </div>
 
-                          <!-- 취재 팩트 메모가 본문 어디에 반영되었는지 즉시 확인·점프·하이라이트하는 배지 영역 -->
-                          <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 5px; margin-bottom: 7px; padding: 5px 8px; background-color: ${reflectionInfo.isReflected ? '#EBFBEE' : 'var(--bg-subtle)'}; border: 1px solid ${reflectionInfo.isReflected ? '#B2F2BB' : '#E5E7EB'}; border-radius: 6px;">
-                            <span style="font-size: 11px; font-weight: 800; color: ${reflectionInfo.isReflected ? '#1B7F3B' : 'var(--text-muted)'};">
-                              ${reflectionInfo.isReflected ? '📍 본문 반영 위치:' : '⚪ 본문 미반영:'}
-                            </span>
-                            ${reflectionInfo.isReflected ? reflectionInfo.locations.map((loc, lIdx) => `
-                              <button
-                                type="button"
-                                data-locate-memo-id="${escapeHtml(item.id)}"
-                                data-locate-memo-loc="${lIdx}"
-                                style="display: inline-flex; align-items: center; gap: 3px; padding: 2px 8px; border-radius: 99px; border: 1px solid #2B8A3E; background-color: #FFFFFF; color: #1B7F3B; font-size: 11px; font-weight: 800; cursor: pointer; font-family: inherit;"
-                                title="클릭하면 오른쪽 본문의 해당 단락으로 이동하여 이 팩트가 반영된 문장을 형광펜으로 하이라이트합니다"
-                              >
-                                <span>✓ ${escapeHtml(loc.label)} 반영됨</span>
-                                <span style="color: #D9480F;">(하이라이트 보기 ↘)</span>
-                              </button>
-                            `).join('') : `
-                              <span style="font-size: 11px; color: var(--text-secondary);">아래 [본문 반영 →]을 눌러 원하는 단락에 넣으세요</span>
-                            `}
-                          </div>
-
                           <div class="flex-between" style="flex-wrap: wrap; gap: 6px;">
-                            <div class="flex-row" style="gap: 6px;">
-                              <span style="font-size: 11px; font-weight: 700; color: var(--mk-orange); background-color: var(--mk-orange-light); padding: 1px 6px; border-radius: 4px;">
-                                ${escapeHtml(item.category || `팩트 ${idx + 1}`)}
-                              </span>
+                            <div class="flex-row" style="gap: 5px; flex-wrap: wrap;">
+                              ${reflectionInfo.isReflected ? reflectionInfo.locations.map((loc, lIdx) => `
+                                <button
+                                  type="button"
+                                  data-locate-memo-id="${escapeHtml(item.id)}"
+                                  data-locate-memo-loc="${lIdx}"
+                                  style="display: inline-flex; align-items: center; gap: 3px; padding: 2px 8px; border-radius: 99px; border: 1px solid var(--memo-fact-border); background-color: var(--memo-fact-bg); color: var(--memo-fact); font-size: 11px; font-weight: 800; cursor: pointer; font-family: inherit;"
+                                  title="클릭하면 오른쪽 본문의 해당 단락으로 이동하여 이 메모가 반영된 문장을 노란색으로 표시합니다"
+                                >
+                                  📌 ${escapeHtml(loc.label)} 반영됨 · 보기 ↘
+                                </button>
+                              `).join('') : `
+                                <span style="font-size: 11px; font-weight: 600; color: var(--text-muted); background-color: var(--bg-subtle); padding: 1px 7px; border-radius: 99px;">
+                                  미반영
+                                </span>
+                              `}
                               ${directMemoUrl ? `
-                                <a href="${escapeHtml(directMemoUrl)}" target="_blank" rel="noopener noreferrer" style="font-size: 11px; font-weight: 700; color: var(--mk-orange); text-decoration: underline;" title="${escapeHtml(directMemoUrl)}">
-                                  원문 기사 ↗
+                                <a href="${escapeHtml(directMemoUrl)}" target="_blank" rel="noopener noreferrer" style="font-size: 11px; font-weight: 600; color: var(--text-secondary); text-decoration: underline;" title="${escapeHtml(directMemoUrl)}">
+                                  출처 ↗
                                 </a>
                               ` : ''}
                             </div>
-                            <div class="flex-row" style="gap: 6px;">
-                              <select id="targetSecForMemo-${item.id}" style="border: var(--border-thin); border-radius: 4px; padding: 2px 6px; background: var(--white); font-size: 11.5px; color: var(--text-secondary); cursor: pointer;">
+                            <div class="flex-row" style="gap: 5px;">
+                              <select id="targetSecForMemo-${item.id}" style="border: var(--border-thin); border-radius: 6px; padding: 2px 6px; background: var(--white); font-size: 11.5px; color: var(--text-secondary); cursor: pointer;">
                                 ${(w.draftSections || []).map((sec, sIdx) => `
-                                  <option value="${sec.id}" ${sIdx === (w.draftSections.length > 1 ? 1 : 0) ? 'selected' : ''}>단락 0${sIdx + 1}에 넣기</option>
+                                  <option value="${sec.id}" ${sIdx === (w.draftSections.length > 1 ? 1 : 0) ? 'selected' : ''}>단락 0${sIdx + 1}</option>
                                 `).join('')}
-                                <option value="ai-summary">AI 3줄 요약에 넣기</option>
+                                <option value="ai-summary">3줄 요약</option>
                               </select>
                               <button type="button" class="text-action-orange" data-insert-memo="${item.id}" style="font-size: 11.5px;">본문 반영 →</button>
                               <button type="button" class="text-action" data-del-memo="${item.id}" style="font-size: 11px; color: var(--text-muted);">삭제</button>
@@ -5166,7 +5275,7 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
                     </span>
                   </div>
                   <p class="text-muted mb-8">
-                    항목을 클릭하면 오른쪽 기사의 해당 위치로 바로 이동해 보완할 수 있습니다.
+                    항목을 클릭하면 오른쪽 기사의 해당 위치로 바로 이동합니다.
                   </p>
                   <div id="geoChecklistContainer">
                     ${renderGeoChecklistItemsHtml(geoEval.details)}
@@ -5179,11 +5288,11 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
                       🖍️ 수치·날짜 팩트체크 (${unverifiedCount > 0 ? `미확인 ${unverifiedCount}건` : '모두 확인됨'})
                     </strong>
                     ${unverifiedCount > 0 ? `
-                      <button type="button" class="text-action-orange" id="verifyAllFactsBtn">일괄 확인 완료 ✓</button>
+                      <button type="button" class="text-action-orange" id="verifyAllFactsBtn">일괄 확인 ✓</button>
                     ` : ''}
                   </div>
                   <p class="text-muted mb-8">
-                    본문 속 숫자·일정·혜택이 포함된 문장입니다. 팩트 확인 후 문장을 클릭해 체크하세요.
+                    본문 속 숫자·일정이 포함된 문장입니다. 클릭하여 확인 상태를 전환하세요.
                   </p>
                   ${(w.factChecks || []).length === 0 ? `
                     <div class="text-muted" style="padding: 12px 0;">추출된 수치·날짜 팩트체크 문장이 없습니다.</div>
@@ -5194,16 +5303,16 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
                         return `
                           <div
                             data-toggle-fc="${fc.id}"
-                            style="display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; padding: 8px 10px; border-radius: var(--radius-general); border: var(--border-thin); background-color: ${isVerified ? 'var(--status-green-bg)' : '#FFF9DB'}; cursor: pointer; font-size: 12px; line-height: 1.5;"
+                            style="display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; padding: 8px 10px; border-radius: var(--radius-general); border: var(--border-thin); background-color: ${isVerified ? 'var(--status-green-bg)' : 'var(--bg-subtle)'}; cursor: pointer; font-size: 12px; line-height: 1.5;"
                           >
                             <span style="color: var(--text-primary);">
                               <strong style="color: ${isVerified ? 'var(--status-green)' : 'var(--status-amber)'}; margin-right: 4px;">
-                                ${isVerified ? '✓ 확인됨' : '• 확인 필요'}
+                                ${isVerified ? '✓' : '•'}
                               </strong>
                               ${escapeHtml(fc.sentence)}
                             </span>
                             <span style="font-size: 11px; font-weight: 700; color: ${isVerified ? 'var(--text-muted)' : 'var(--mk-orange)'}; white-space: nowrap; flex-shrink: 0;">
-                              ${isVerified ? '취소' : '확인 ✓'}
+                              ${isVerified ? '완료' : '확인'}
                             </span>
                           </div>
                         `;
@@ -5212,62 +5321,106 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
                   `}
                 </div>
               ` : `
-                <!-- [탭 3: 목차·흐름] 현재 기사 8단계 목차 리모컨 & 유형별 작성 가이드 -->
-                <div style="margin-bottom: 16px; padding: 12px; background-color: var(--mk-orange-light); border: 0.5px solid var(--mk-orange-border); border-radius: var(--radius-general);">
-                  <div style="font-size: 11.5px; font-weight: 800; color: var(--mk-orange); margin-bottom: 3px;">
-                    현재 적용 템플릿 · ${escapeHtml(tInfo.shortName)}
+                <!-- [탭 3: 목차·흐름] 상단: 다른 키워드로 기사 새로 쓰기 + 하단: 기사 구성 블록 빠른 이동 -->
+                <div style="margin-bottom: 18px; padding-bottom: 16px; border-bottom: var(--border-thin);">
+                  <div class="flex-between mb-8">
+                    <strong style="font-size: 13.5px; font-weight: 800; color: var(--text-primary);">🔄 다른 키워드로 기사 새로 쓰기</strong>
+                    <span class="text-muted">실시간 검색 연동</span>
                   </div>
-                  <div style="font-size: 12.5px; font-weight: 700; color: var(--text-primary); margin-bottom: 4px;">
-                    ${escapeHtml(tInfo.description)}
+
+                  <div class="mb-8">
+                    <select class="select" id="leftQuickTrendSelect" style="width: 100%; padding: 7px 10px; font-size: 12.5px; font-weight: 600; background-color: var(--bg-subtle); color: var(--text-primary); cursor: pointer;">
+                      <option value="">🔥 실시간 인기 키워드에서 바로 골라 바꾸기 (${quickTrendTags.length}선) ▼</option>
+                      ${quickTrendTags.map(tag => {
+                        const autoT = detectBestContentType(tag, '', '', 4);
+                        const autoTName = CONTENT_TYPES[autoT]?.shortName || '유형 04';
+                        return `<option value="${escapeHtml(tag)}" ${w.keyword === tag ? 'selected' : ''}>[${escapeHtml(autoTName)}] ${escapeHtml(tag)}</option>`;
+                      }).join('')}
+                    </select>
                   </div>
-                  <div style="font-size: 11.5px; color: var(--text-secondary); line-height: 1.5;">
-                    흐름: ${escapeHtml(tInfo.flowSummary || '')}
+
+                  <div style="display: grid; grid-template-columns: 1fr 96px; gap: 6px; margin-bottom: 8px;">
+                    <div>
+                      <label for="leftSearchKwInput" style="display: block; font-size: 11.5px; font-weight: 700; color: var(--text-primary); margin-bottom: 3px;">메인 키워드</label>
+                      <input type="text" class="input" id="leftSearchKwInput" value="${escapeHtml(w.keyword)}" placeholder="메인 키워드 입력" style="width: 100%; padding: 6px 9px; font-size: 12.5px; font-weight: 700;" />
+                    </div>
+                    <div>
+                      <label for="leftSearchCompInput" style="display: block; font-size: 11.5px; font-weight: 700; color: var(--text-secondary); margin-bottom: 3px;">기업명(선택)</label>
+                      <input type="text" class="input" id="leftSearchCompInput" value="${escapeHtml(w.inputCompany || '')}" placeholder="예: 하나투어" style="width: 100%; padding: 6px 8px; font-size: 12px;" />
+                    </div>
+                  </div>
+                  <div class="mb-8">
+                    <label for="leftSearchSubKwInput" style="display: block; font-size: 11.5px; font-weight: 700; color: var(--text-secondary); margin-bottom: 3px;">서브 키워드 <span style="font-weight: 400; color: var(--text-muted);">(쉼표 구분)</span></label>
+                    <input type="text" class="input" id="leftSearchSubKwInput" value="${escapeHtml(w.inputSubKeywords || '')}" placeholder="예: 가래떡데이, 떡 디저트, 농업인의 날" style="width: 100%; padding: 6px 9px; font-size: 12px;" />
+                  </div>
+                  <div class="mb-8">
+                    <label for="leftSearchDirectionInput" style="display: block; font-size: 11.5px; font-weight: 700; color: var(--text-secondary); margin-bottom: 3px;">원하는 글의 방향·맥락 <span style="font-weight: 400; color: var(--text-muted);">(기획 의도)</span></label>
+                    <textarea class="textarea" id="leftSearchDirectionInput" rows="2" placeholder="예: 빼빼로데이만 알고 있던 독자에게 가래떡데이를 알려주고, 요즘 유행하는 떡 디저트와 엮어서 소개" style="width: 100%; min-height: 48px; padding: 6px 9px; font-size: 12px; line-height: 1.45; resize: vertical;">${escapeHtml(w.inputDirection || '')}</textarea>
+                  </div>
+
+                  <div class="mb-8">
+                    ${renderWriterModelSelectHtml('width: 100%;')}
+                  </div>
+
+                  <button
+                    type="button"
+                    class="btn btn-sm btn-outline-orange"
+                    id="leftRebuildDraftBtn"
+                    style="width: 100%; justify-content: center; padding: 8px 12px; font-weight: 800;"
+                    ${state.isRefreshingInEditor ? 'disabled' : ''}
+                  >
+                    ${state.isRefreshingInEditor ? `⏳ Perplexity + ${escapeHtml(getWriterModelShortLabel())} 집필 중...` : '🔄 위 키워드·방향으로 기사 새로 쓰기 →'}
+                  </button>
+                </div>
+
+                <div style="margin-bottom: 12px; padding: 10px 12px; background-color: var(--bg-subtle); border: var(--border-thin); border-radius: var(--radius-general);">
+                  <div style="font-size: 11.5px; font-weight: 800; color: var(--text-primary); margin-bottom: 2px;">
+                    현재 템플릿 · ${escapeHtml(tInfo.shortName)}
+                  </div>
+                  <div style="font-size: 11.5px; color: var(--text-secondary); line-height: 1.45;">
+                    ${escapeHtml(tInfo.flowSummary || tInfo.description)}
                   </div>
                 </div>
 
-                <div class="mb-8">
-                  <strong style="font-size: 13px; font-weight: 800;">🧭 기사 구성 블록 빠른 이동 (클릭)</strong>
+                <div class="mb-6">
+                  <strong style="font-size: 13px; font-weight: 800; color: var(--text-primary);">🧭 기사 구성 목차 (클릭 시 이동)</strong>
                 </div>
-                <div style="display: flex; flex-direction: column; gap: 4px;">
-                  <button type="button" class="headline-pick-row" data-jump-block="block-step-1" style="text-align: left; border: var(--border-thin);">
-                    <span style="font-size: 12.5px; font-weight: 700;">STEP 01 · 카테고리 분류 (${escapeHtml(sb.mkCategory || '산업 Q&A')})</span>
-                    <span class="text-muted">이동 →</span>
+                <div style="display: flex; flex-direction: column; gap: 2px;">
+                  <button type="button" class="headline-pick-row" data-jump-block="block-step-1" style="text-align: left;">
+                    <span style="font-size: 12.5px; font-weight: 700;">STEP 01 · 카테고리 (${escapeHtml(sb.mkCategory || '산업 Q&A')})</span>
+                    <span class="text-muted">→</span>
                   </button>
-                  <button type="button" class="headline-pick-row" data-jump-block="block-step-2" style="text-align: left; border: var(--border-thin);">
-                    <span style="font-size: 12.5px; font-weight: 700;">STEP 02 · 기사 헤드라인 & 추천 제목 5선</span>
-                    <span class="text-muted">이동 →</span>
+                  <button type="button" class="headline-pick-row" data-jump-block="block-step-2" style="text-align: left;">
+                    <span style="font-size: 12.5px; font-weight: 700;">STEP 02 · 기사 헤드라인 & 추천 제목</span>
+                    <span class="text-muted">→</span>
                   </button>
-                  <button type="button" class="headline-pick-row" data-jump-block="block-step-3" style="text-align: left; border: var(--border-thin);">
-                    <span style="font-size: 12.5px; font-weight: 700;">STEP 03 · AI 팩트 체크 3줄 요약</span>
-                    <span class="text-muted">이동 →</span>
-                  </button>
-                  <button type="button" class="headline-pick-row" data-jump-block="block-step-4" style="text-align: left; border: var(--border-thin);">
-                    <span style="font-size: 12.5px; font-weight: 700;">STEP 04 · 기사 리드 부제 (Subtitle)</span>
-                    <span class="text-muted">이동 →</span>
+                  <button type="button" class="headline-pick-row" data-jump-block="block-step-3" style="text-align: left;">
+                    <span style="font-size: 12.5px; font-weight: 700;">STEP 03~04 · 3줄 요약 & 리드 부제</span>
+                    <span class="text-muted">→</span>
                   </button>
                   ${(w.draftSections || []).map((sec, sIdx) => `
-                    <button type="button" class="headline-pick-row" data-jump-block="secWrap-${sec.id}" style="text-align: left; border: var(--border-thin); padding-left: 14px;">
+                    <button type="button" class="headline-pick-row" data-jump-block="secWrap-${sec.id}" style="text-align: left; padding-left: 14px;">
                       <span style="font-size: 12px; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
                         └ 단락 0${sIdx + 1}: ${escapeHtml(sec.title)}
                       </span>
-                      <span class="text-muted">이동 →</span>
+                      <span class="text-muted">→</span>
                     </button>
                   `).join('')}
-                  <button type="button" class="headline-pick-row" data-jump-block="block-step-6" style="text-align: left; border: var(--border-thin);">
-                    <span style="font-size: 12.5px; font-weight: 700;">STEP 06 · 핵심 비교 요약표 (${(sb.summaryTable?.rows || []).length}행)</span>
-                    <span class="text-muted">이동 →</span>
+                  <button type="button" class="headline-pick-row" data-jump-block="block-step-6" style="text-align: left;">
+                    <span style="font-size: 12.5px; font-weight: 700;">STEP 06 · 비교 요약표 (${(sb.summaryTable?.rows || []).length}행)</span>
+                    <span class="text-muted">→</span>
                   </button>
-                  <button type="button" class="headline-pick-row" data-jump-block="block-step-glossary" style="text-align: left; border: var(--border-thin);">
-                    <span style="font-size: 12.5px; font-weight: 700;">📚 핵심 용어 사전 (${(sb.glossary || []).length}개 용어)</span>
-                    <span class="text-muted">이동 →</span>
+                  <button type="button" class="headline-pick-row" data-jump-block="block-step-glossary" style="text-align: left;">
+                    <span style="font-size: 12.5px; font-weight: 700;">핵심 용어 사전 (${(sb.glossary || []).length}개)</span>
+                    <span class="text-muted">→</span>
                   </button>
-                  <button type="button" class="headline-pick-row" data-jump-block="block-step-7" style="text-align: left; border: var(--border-thin);">
-                    <span style="font-size: 12.5px; font-weight: 700;">STEP 07 · 자연어 FAQ (${(sb.faqs || []).length}문항) & 팬아웃</span>
-                    <span class="text-muted">이동 →</span>
+                  <button type="button" class="headline-pick-row" data-jump-block="block-step-7" style="text-align: left;">
+                    <span style="font-size: 12.5px; font-weight: 700;">STEP 07 · 독자 FAQ (${(sb.faqs || []).length}문항)</span>
+                    <span class="text-muted">→</span>
                   </button>
-                  <button type="button" class="headline-pick-row" data-jump-block="block-step-8" style="text-align: left; border: var(--border-thin);">
+                  <button type="button" class="headline-pick-row" data-jump-block="block-step-8" style="text-align: left;">
                     <span style="font-size: 12.5px; font-weight: 700;">STEP 08 · 마무리 총평 · 한 줄 요약 & 출처</span>
-                    <span class="text-muted">이동 →</span>
+                    <span class="text-muted">→</span>
                   </button>
                 </div>
               `}
@@ -5277,15 +5430,6 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
 
         <!-- [가운데 영역] 원문 기사 본문 (구조별 편집 모드 vs 실제 기사 미리보기 모드) -->
         <div style="min-width: 0;">
-          ${!isPreview && state.activeHighlight ? `
-            <div style="margin-bottom: 12px; padding: 10px 14px; background-color: #FFF9DB; border: 1.5px solid #FAB005; border-radius: 8px; display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap;">
-              <span style="font-size: 12.5px; font-weight: 800; color: #D9480F;">
-                🖍️ ${state.activeHighlight.mode === 'memo' ? '취재 팩트 메모 본문 반영 위치 하이라이트 표시 중:' : 'AI 프롬프트 편집 반영 하이라이트 표시 중:'}
-                <span style="color: #111; font-weight: 700;">${escapeHtml(state.activeHighlight.summary || '')}</span>
-              </span>
-              <button type="button" class="text-action" data-clear-highlight="1" style="font-size: 11.5px; font-weight: 800; color: #D9480F;">하이라이트 접기 ▲</button>
-            </div>
-          ` : ''}
 
           ${isPreview ? `
             <!-- ============================================================== -->
@@ -5425,100 +5569,38 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
             </div>
           ` : `
             <!-- ============================================================== -->
-            <!-- ✏️ 구조별 편집 모드 (8단계 블록 배지로 기사 구조가 한눈에 들어오는 편집기) -->
+            <!-- ✏️ 구조별 편집 모드 (깔끔하고 직관적인 8단계 문서 편집기) -->
             <!-- ============================================================== -->
             <div>
               ${(() => {
-                // [AI 생성 상태 · 원인 진단 배너] 에디터가 현재 원고가 AI 정상 집필본인지, 아니면 타임아웃/오류로 인한 임시 골격인지 1초 만에 파악하고 즉시 복구할 수 있는 배너
+                // AI 호출 실패 시에만 복구 배너 노출 (정상 집필 시 불필요한 상단 상태 박스와 초록색 팩트체크 배너를 숨겨 화면을 심플하게 유지)
                 const isOfflineFallback = w.usedPerplexity === false;
-                const activeWriterLabel = getWriterModelShortLabel(w.activeWriterModel || getSelectedWriterModel());
-                if (isOfflineFallback) {
-                  const diag = diagnoseAiErrorReason(w.pplxError || '', Boolean(getClientPerplexityKey()));
-                  return `
-                    <div style="margin-bottom: 14px; padding: 14px 16px; border-radius: var(--radius-general); border: 2px solid #E03131; background-color: #FFF5F5;">
-                      <div class="flex-between" style="flex-wrap: wrap; gap: 10px; margin-bottom: 8px;">
-                        <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-                          <span style="padding: 3px 9px; border-radius: 99px; background-color: #E03131; color: #FFFFFF; font-size: 11.5px; font-weight: 800;">
-                            🚨 AI 호출 실패 · 임시 기본 골격 표시 중
-                          </span>
-                          <strong style="font-size: 13.5px; font-weight: 800; color: #C92A2A;">
-                            ${escapeHtml(diag.title)}
-                          </strong>
-                        </div>
-                        <div class="flex-row" style="gap: 6px; flex-wrap: wrap;">
-                          <button
-                            type="button"
-                            data-retry-ai-model="google/gemini-4-argon"
-                            style="padding: 5px 11px; border-radius: 6px; border: 1.5px solid #D9480F; background-color: var(--mk-orange); color: #FFFFFF; font-size: 12px; font-weight: 800; cursor: pointer; font-family: inherit;"
-                            ${state.isRefreshingInEditor ? 'disabled' : ''}
-                          >
-                            ${state.isRefreshingInEditor ? '⏳ AI 재집필 중...' : '⚡ Gemini 4 Argon으로 즉시 다시 생성 →'}
-                          </button>
-                          <button
-                            type="button"
-                            data-retry-ai-model="sonar-pro"
-                            style="padding: 5px 11px; border-radius: 6px; border: 1px solid #C92A2A; background-color: #FFFFFF; color: #C92A2A; font-size: 12px; font-weight: 800; cursor: pointer; font-family: inherit;"
-                            ${state.isRefreshingInEditor ? 'disabled' : ''}
-                          >
-                            🌐 초고속 Sonar-Pro(5초)로 다시 생성
-                          </button>
-                        </div>
-                      </div>
-                      <div style="font-size: 12.5px; line-height: 1.55; color: #A61E4D; font-weight: 600; margin-bottom: 4px;">
-                        • <strong>원인 진단:</strong> ${escapeHtml(diag.cause)}
-                      </div>
-                      <div style="font-size: 12px; line-height: 1.5; color: #495057; font-weight: 600;">
-                        • <strong>해결 방법:</strong> ${escapeHtml(diag.solution)}
-                      </div>
-                    </div>
-                  `;
-                }
-                const hasAutoFallback = Boolean(w.fallbackFromModel && w.fallbackFromModel !== w.activeWriterModel);
+                if (!isOfflineFallback) return '';
+                const diag = diagnoseAiErrorReason(w.pplxError || '', Boolean(getClientPerplexityKey()));
                 return `
-                  <div style="margin-bottom: 10px; padding: 8px 14px; border-radius: var(--radius-general); border: 1px solid ${hasAutoFallback ? '#FAB005' : '#D0EBFF'}; background-color: ${hasAutoFallback ? '#FFF9DB' : '#F8FAFC'}; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
-                    <div style="font-size: 12px; font-weight: 700; color: var(--text-primary); display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
-                      <span style="padding: 2px 8px; border-radius: 99px; background-color: ${hasAutoFallback ? '#FFF3BF' : '#E7F5FF'}; color: ${hasAutoFallback ? '#D9480F' : '#1971C2'}; font-weight: 800; font-size: 11px;">
-                        ${hasAutoFallback ? '⚡ AI 자동 백업 전환 완료' : '🤖 2단계 하이브리드 AI 정상 집필본'}
-                      </span>
-                      <span>
-                        1단계 실시간 검색(<strong>Perplexity Sonar-Pro</strong>) → 2단계 매거진 집필(<strong>${escapeHtml(activeWriterLabel)}</strong>)
-                      </span>
-                      ${hasAutoFallback ? `
-                        <span style="color: #D9480F; font-size: 11.5px;">
-                          (선택 모델 ${escapeHtml(getWriterModelShortLabel(w.fallbackFromModel))} 지연으로 백업 AI가 자동 완주함)
+                  <div style="margin-bottom: 14px; padding: 14px 16px; border-radius: 10px; border: 1.5px solid #FCA5A5; background-color: #FEF2F2;">
+                    <div class="flex-between" style="flex-wrap: wrap; gap: 10px; margin-bottom: 8px;">
+                      <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                        <span style="padding: 3px 9px; border-radius: 99px; background-color: #DC2626; color: #FFFFFF; font-size: 11.5px; font-weight: 800;">
+                          🚨 AI 호출 지연 · 임시 골격 표시 중
                         </span>
-                      ` : ''}
-                    </div>
-                    <span style="font-size: 11px; color: var(--text-muted); font-weight: 600;">
-                      실시간 출처 ${(w.sources || []).length}건 반영됨
-                    </span>
-                  </div>
-                `;
-              })()}
-
-              ${(() => {
-                const fv = w.factVerification || (inspectTopicFactVerification ? inspectTopicFactVerification(w.keyword, w.inputCompany, (w.sources || []).length) : null);
-                if (!fv) return '';
-                const isWarn = Boolean(fv.isWarning || fv.verdict === 'AI_MEME_OR_VIRTUAL' || fv.verdict === 'UNVERIFIED_VIRAL');
-                const naverNewsUrl = `https://search.naver.com/search.naver?where=news&query=${encodeURIComponent(w.keyword || '')}`;
-                const mkSearchUrl = `https://www.mk.co.kr/search?word=${encodeURIComponent(w.keyword || '')}`;
-                return `
-                  <div style="margin-bottom: 14px; padding: 12px 16px; border-radius: var(--radius-general); border: 1.5px solid ${isWarn ? '#F03E3E' : '#2B8A3E'}; background-color: ${isWarn ? '#FFF5F5' : '#EBFBEE'};">
-                    <div class="flex-between" style="flex-wrap: wrap; gap: 8px; margin-bottom: 4px;">
-                      <strong style="font-size: 13.5px; font-weight: 800; color: ${isWarn ? '#C92A2A' : '#1B7F3B'};">
-                        ${escapeHtml(fv.badgeLabel || (isWarn ? '🚨 [팩트체크 경보] 가상(AI 생성) 밈 · 공식 미출시 또는 보도 미확인 주의' : '✓ [팩트체크 확인] 공식 언론 보도 및 실제 출시·트렌드 팩트 확인됨'))}
-                      </strong>
+                        <strong style="font-size: 13px; font-weight: 800; color: #991B1B;">
+                          ${escapeHtml(diag.title)}
+                        </strong>
+                      </div>
                       <div class="flex-row" style="gap: 6px; flex-wrap: wrap;">
-                        <a href="${escapeHtml(naverNewsUrl)}" target="_blank" rel="noopener noreferrer" style="font-size: 11.5px; font-weight: 800; color: ${isWarn ? '#C92A2A' : '#1B7F3B'}; background-color: #FFFFFF; border: 1px solid ${isWarn ? '#FFA8A8' : '#8CE99A'}; padding: 3px 9px; border-radius: 4px; text-decoration: none;">
-                          🔎 네이버 뉴스 팩트 교차확인 ↗
-                        </a>
-                        <a href="${escapeHtml(mkSearchUrl)}" target="_blank" rel="noopener noreferrer" style="font-size: 11.5px; font-weight: 800; color: var(--text-primary); background-color: #FFFFFF; border: var(--border-thin); padding: 3px 9px; border-radius: 4px; text-decoration: none;">
-                          🔎 매일경제 보도 검색 ↗
-                        </a>
+                        <button
+                          type="button"
+                          data-retry-ai-model="google/gemini-4-argon"
+                          style="padding: 5px 11px; border-radius: 6px; border: none; background-color: #DC2626; color: #FFFFFF; font-size: 12px; font-weight: 800; cursor: pointer; font-family: inherit;"
+                          ${state.isRefreshingInEditor ? 'disabled' : ''}
+                        >
+                          ${state.isRefreshingInEditor ? '⏳ 재집필 중...' : '⚡ 다시 생성 →'}
+                        </button>
                       </div>
                     </div>
-                    <div style="font-size: 12.5px; line-height: 1.55; color: ${isWarn ? '#A61E4D' : '#2B8A3E'}; font-weight: 600;">
-                      ${escapeHtml(fv.summary || '')}
+                    <div style="font-size: 12px; line-height: 1.5; color: #7F1D1D;">
+                      ${escapeHtml(diag.cause)} · ${escapeHtml(diag.solution)}
                     </div>
                   </div>
                 `;
@@ -5559,12 +5641,12 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
                   </div>
                   <div>
                     <label class="text-muted" style="display: block; margin-bottom: 4px; font-weight: 700;">업체명 · 핵심 키워드 태그 (쉼표로 구분)</label>
-                    <input type="text" class="doc-editable-input" id="docTags" value="${escapeHtml((sb.companyTags || []).join(', '))}" style="font-size: 13px; color: var(--mk-orange); font-weight: 700;" placeholder="예: 카카오프렌즈, 라이엇 게임즈, 롤드컵" />
+                    <input type="text" class="doc-editable-input" id="docTags" value="${escapeHtml((sb.companyTags || []).join(', '))}" style="font-size: 13px; color: var(--text-primary); font-weight: 700;" placeholder="예: 카카오프렌즈, 라이엇 게임즈, 롤드컵" />
                   </div>
                 </div>
               </section>
 
-              <!-- STEP 02: 메인 헤드라인 & 추천 제목 5선 (MK Pick 메인 2줄 최대 40자 제한 & 한줄 소제목 분리) -->
+              <!-- STEP 02: 메인 헤드라인 & 추천 제목 5선 -->
               <section class="editor-block-section" id="block-step-2">
                 ${(() => {
                   const maxHeadlineLen = MAX_HEADLINE_CHARS || 40;
@@ -5580,81 +5662,70 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
                         <span class="editor-step-badge">STEP 02 · 기사 헤드라인</span>
                         <span
                           id="headlineCharBadge"
-                          style="font-size: 12px; font-weight: 800; padding: 2px 9px; border-radius: 99px; border: 1px solid ${isOverLimit ? '#F03E3E' : '#2B8A3E'}; background-color: ${isOverLimit ? '#FFF5F5' : '#EBFBEE'}; color: ${isOverLimit ? '#C92A2A' : '#1B7F3B'};"
+                          style="font-size: 11.5px; font-weight: 700; padding: 2px 8px; border-radius: 99px; border: 1px solid ${isOverLimit ? '#FCA5A5' : '#D1FAE5'}; background-color: ${isOverLimit ? '#FEF2F2' : '#ECFDF5'}; color: ${isOverLimit ? '#DC2626' : '#047857'};"
                         >
-                          ${isOverLimit ? `⚠️ ${curLen} / ${maxHeadlineLen}자 (${curLen - maxHeadlineLen}자 초과 · 메인 2줄 잘림 주의)` : `✓ 공백 포함 ${curLen} / ${maxHeadlineLen}자 (MK Pick 메인 2줄 노출 안전)`}
+                          ${isOverLimit ? `⚠️ ${curLen}/${maxHeadlineLen}자 (${curLen - maxHeadlineLen}자 초과)` : `✓ ${curLen}/${maxHeadlineLen}자`}
                         </span>
                       </div>
                       <div class="flex-row" style="gap: 8px;">
-                        <button
-                          type="button"
-                          class="btn btn-sm btn-outline-orange"
-                          id="splitHeadlineToSubtitleBtn"
-                          style="padding: 3px 10px; font-size: 11.5px; font-weight: 800;"
-                          title="${maxHeadlineLen}자를 넘는 뒷부분이나 부연 설명을 아래 한줄 소제목 칸으로 깔끔하게 내려보냅니다"
-                        >
-                          ✂️ ${maxHeadlineLen}자 초과분 아래 한줄 소제목으로 자동 분리 ↓
-                        </button>
-                        <button type="button" class="text-action" data-copy-part="headline">📋 제목만 복사</button>
+                        ${isOverLimit ? `
+                          <button
+                            type="button"
+                            class="btn btn-sm"
+                            id="splitHeadlineToSubtitleBtn"
+                            style="padding: 3px 10px; font-size: 11.5px; font-weight: 700;"
+                          >
+                            ✂️ 40자 초과분 소제목으로 분리 ↓
+                          </button>
+                        ` : `
+                          <button
+                            type="button"
+                            class="text-action"
+                            id="splitHeadlineToSubtitleBtn"
+                            style="font-size: 11.5px; color: var(--text-muted);"
+                          >
+                            ✂️ 소제목 분리
+                          </button>
+                        `}
+                        <button type="button" class="text-action" data-copy-part="headline">📋 제목 복사</button>
                       </div>
                     </div>
 
-                    <textarea class="doc-editable-textarea doc-headline-input mb-8" id="docMainHeadline" rows="2" placeholder="기사 메인 헤드라인을 입력하세요 (MK Pick 메인 화면 2줄 노출 기준 최대 40자 권장)">${escapeHtml(w.title)}</textarea>
+                    <textarea class="doc-editable-textarea doc-headline-input mb-8" id="docMainHeadline" rows="2" placeholder="기사 메인 헤드라인을 입력하세요 (최대 40자 권장)">${escapeHtml(w.title)}</textarea>
 
-                    <!-- 헤드라인 바로 아래 1줄 소제목 (40자 초과 시 자동 분리되거나 편집자가 직접 한 줄 요약 부제를 입력하는 칸) -->
-                    <div style="margin-bottom: 10px; padding: 9px 12px; background-color: #FFFDF9; border: 1px dashed var(--mk-orange-border); border-radius: var(--radius-general);">
-                      <div class="flex-between mb-4" style="flex-wrap: wrap; gap: 6px;">
-                        <label for="docOneLineSubtitle" style="font-size: 12px; font-weight: 800; color: var(--mk-orange);">
-                          📌 헤드라인 아래 한줄 소제목 <span style="font-weight: 600; color: var(--text-secondary);">(헤드라인이 40자를 넘을 때 초과 내용을 이곳 한줄 소제목으로 내려 작성하세요)</span>
+                    <div style="margin-bottom: 12px;">
+                      <div class="flex-between mb-4" style="gap: 6px;">
+                        <label for="docOneLineSubtitle" class="text-muted" style="font-size: 12px; font-weight: 700;">
+                          한줄 소제목 (선택)
                         </label>
-                        <span id="oneLineSubCharCount" style="font-size: 11px; font-weight: 700; color: var(--text-muted);">${String(oneLineSubVal || '').length}자</span>
+                        <span id="oneLineSubCharCount" style="font-size: 11px; color: var(--text-muted);">${String(oneLineSubVal || '').length}자</span>
                       </div>
                       <input
                         type="text"
                         class="doc-editable-input"
                         id="docOneLineSubtitle"
                         value="${escapeHtml(oneLineSubVal)}"
-                        placeholder="예: 이디야·맘스터치·메가MGC커피 신메뉴 라인업과 가격·핵심 특징 한눈에 비교"
-                        style="font-size: 13.5px; font-weight: 700; color: var(--text-primary); background-color: #FFFFFF;"
+                        placeholder="헤드라인 보조 설명 또는 한 줄 요약 소제목을 입력하세요"
+                        style="font-size: 13.5px; font-weight: 600; color: var(--text-secondary);"
                       />
                     </div>
 
-                    <!-- MK Pick 메인 화면 피드 카드 2줄 노출 실시간 시뮬레이션 -->
-                    <div style="margin-bottom: 12px; padding: 8px 12px; background-color: var(--bg-subtle); border: var(--border-thin); border-radius: 6px; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;">
-                      <div style="flex: 1; min-width: 240px;">
-                        <div style="font-size: 11px; font-weight: 800; color: var(--text-muted); margin-bottom: 2px;">
-                          📱 MK Pick 메인 화면 피드 노출 미리보기 (최대 2줄 · ${maxHeadlineLen}자 이내면 '...' 잘림 없음)
-                        </div>
-                        <div
-                          id="headlineMainFeedPreview"
-                          style="max-width: 440px; font-size: 15px; font-weight: 800; line-height: 1.4; color: #111827; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; text-overflow: ellipsis;"
-                        >
-                          ${escapeHtml(curTitle.slice(0, maxHeadlineLen))}${isOverLimit ? `<span style="color: #F03E3E; text-decoration: line-through;" title="메인 화면에서 잘릴 수 있는 초과 글자">${escapeHtml(curTitle.slice(maxHeadlineLen))}</span>` : ''}
-                        </div>
-                      </div>
-                      ${isOverLimit ? `
-                        <span style="font-size: 11.5px; font-weight: 800; color: #C92A2A; background: #FFF5F5; border: 1px solid #FFA8A8; padding: 4px 10px; border-radius: 6px;">
-                          ⚠️ 우측 상단 [✂️ 40자 초과분 아래 한줄 소제목으로 자동 분리 ↓] 버튼을 누르면 즉시 해결됩니다!
-                        </span>
-                      ` : ''}
-                    </div>
-
-                    <div style="background-color: var(--bg-subtle); border: var(--border-thin); border-radius: var(--radius-general); padding: 10px 12px;">
-                      <div style="font-size: 12px; font-weight: 800; color: var(--text-secondary); margin-bottom: 6px;">
-                        💡 AI 추천 헤드라인 5선 (전부 ${maxHeadlineLen}자 이내 맞춤 · 클릭하면 위 제목칸에 즉시 적용됩니다)
+                    <div style="border-top: 1px solid #F3F4F6; padding-top: 10px;">
+                      <div style="font-size: 11.5px; font-weight: 700; color: var(--text-muted); margin-bottom: 6px;">
+                        💡 추천 헤드라인 5선 (클릭 시 교체)
                       </div>
                       ${(w.titleCandidates || []).map((tc, i) => {
                         const isSelected = (w.title || '').trim() === (tc.title || '').trim();
                         const tcLen = (tc.title || '').length;
                         return `
                           <div class="headline-pick-row ${isSelected ? 'active' : ''}" data-pick-headline-idx="${i}">
-                            <span style="font-size: 13px; font-weight: ${isSelected ? '800' : '500'}; color: var(--text-primary);">
-                              <span style="color: var(--mk-orange); font-weight: 800; margin-right: 6px;">0${i + 1}</span>
+                            <span style="font-size: 13px; font-weight: ${isSelected ? '700' : '500'}; color: var(--text-primary);">
+                              <span style="color: ${isSelected ? 'var(--mk-orange)' : 'var(--text-muted)'}; font-weight: 700; margin-right: 6px;">0${i + 1}</span>
                               ${escapeHtml(tc.title)}
-                              <span style="font-size: 11px; font-weight: 700; color: ${tcLen <= maxHeadlineLen ? '#2B8A3E' : '#C92A2A'}; margin-left: 6px;">(${tcLen}자)</span>
+                              <span style="font-size: 11px; color: var(--text-muted); margin-left: 4px;">(${tcLen}자)</span>
                             </span>
-                            <span style="font-size: 11.5px; font-weight: 700; color: ${isSelected ? 'var(--mk-orange)' : 'var(--text-muted)'}; white-space: nowrap; flex-shrink: 0;">
-                              ${isSelected ? '✓ 현재 적용됨' : '이 제목으로 교체 →'}
+                            <span style="font-size: 11.5px; font-weight: 600; color: ${isSelected ? 'var(--mk-orange)' : 'var(--text-muted)'}; white-space: nowrap; flex-shrink: 0;">
+                              ${isSelected ? '적용됨' : '선택'}
                             </span>
                           </div>
                         `;
@@ -5669,36 +5740,37 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
                 <div class="editor-step-header">
                   <div class="flex-row" style="gap: 8px;">
                     <span class="editor-step-badge">STEP 03 · AI 팩트 체크 3줄 요약</span>
-                    <span class="text-muted">생성형 AI(퍼플렉시티·챗GPT)가 기사 상단에서 가장 먼저 인용하는 1~3번 핵심 팩트 요약입니다.</span>
+                    <span class="text-muted">기사 상단 핵심 팩트 3줄 요약</span>
                   </div>
-                  <button type="button" class="text-action" data-copy-part="aisummary">📋 AI 요약만 복사</button>
+                  <button type="button" class="text-action" data-copy-part="aisummary">📋 요약 복사</button>
                 </div>
 
-                <div class="article-ai-box" id="docAiBoxWrap" style="margin: 0 0 16px 0;">
-                  <textarea class="doc-editable-textarea" id="docAiSummary" rows="3" style="font-size: 13.5px; line-height: 1.65; font-weight: 600; background-color: var(--white);">${escapeHtml((sb.aiFactSummary || []).join('\n'))}</textarea>
+                <div style="margin: 0 0 14px 0;">
+                  <textarea class="doc-editable-textarea" id="docAiSummary" rows="3" style="font-size: 13.5px; line-height: 1.65; font-weight: 500; background-color: #FAFAFA;">${escapeHtml((sb.aiFactSummary || []).join('\n'))}</textarea>
                 </div>
 
-                <div id="block-step-4" style="padding-top: 12px; border-top: var(--border-thin);">
+                <div id="block-step-4" style="padding-top: 12px; border-top: 1px solid #F3F4F6;">
                   <div class="flex-between mb-6">
                     <div class="flex-row" style="gap: 8px;">
-                      <span class="editor-step-badge">STEP 04 · 기사 리드 부제 (Subtitle)</span>
-                      <span class="text-muted">본문 시작 전 기사 전체 맥락을 2줄로 압축해 보여주는 부제입니다.</span>
+                      <span class="editor-step-badge">STEP 04 · 리드 부제</span>
+                      <span class="text-muted">본문 도입 전 맥락을 요약하는 부제</span>
                     </div>
                   </div>
-                  <div class="article-subtitle-box" style="margin: 0;">
-                    <textarea class="doc-editable-textarea" id="docSubtitle" rows="2" style="font-size: 14px; font-weight: 700; color: var(--text-secondary); line-height: 1.55;" placeholder="기사 핵심 맥락을 요약하는 부제(1~2줄)를 입력하세요">${escapeHtml(sb.subtitle || '')}</textarea>
-                  </div>
+                  <textarea class="doc-editable-textarea" id="docSubtitle" rows="2" style="font-size: 13.5px; font-weight: 600; color: var(--text-secondary); line-height: 1.55;" placeholder="기사 핵심 맥락을 요약하는 부제(1~2줄)를 입력하세요">${escapeHtml(sb.subtitle || '')}</textarea>
                 </div>
               </section>
 
-              <!-- STEP 05: 본문 단락 (주제·키워드 맞춤형 소제목 / 매경 경어체 본문 / 단락별 이미지 캡션) -->
+              <!-- STEP 05: 본문 단락 (취재 메모 = 앰버 옐로우 / AI 채팅 수정 = 로열 블루로 명확히 구분) -->
               <section class="editor-block-section" id="block-step-5">
                 <div class="editor-step-header">
-                  <div class="flex-row" style="gap: 8px;">
-                    <span class="editor-step-badge">STEP 05 · 본문 단락 (${(w.draftSections || []).length}개 단락)</span>
-                    <span class="text-muted">키워드와 주제에 맞춘 소제목과 매경 Pick 경어체("~합니다") 본문으로 구성됩니다.</span>
+                  <div class="flex-row" style="gap: 8px; flex-wrap: wrap;">
+                    <span class="editor-step-badge">STEP 05 · 본문 단락 (${(w.draftSections || []).length}개)</span>
+                    <span style="display: inline-flex; align-items: center; gap: 10px; font-size: 11.5px; color: var(--text-muted); font-weight: 600;">
+                      <span style="display: inline-flex; align-items: center; gap: 4px;"><span style="width: 8px; height: 8px; border-radius: 50%; background: #F59E0B; display: inline-block;"></span>취재 메모 반영</span>
+                      <span style="display: inline-flex; align-items: center; gap: 4px;"><span style="width: 8px; height: 8px; border-radius: 50%; background: #2563EB; display: inline-block;"></span>AI 채팅 수정</span>
+                    </span>
                   </div>
-                  <button type="button" class="btn btn-sm btn-outline-orange" id="addDocSectionBtn">+ 새 본문 단락 추가</button>
+                  <button type="button" class="btn btn-sm" id="addDocSectionBtn">+ 단락 추가</button>
                 </div>
 
                 <div id="docSectionsContainer">
@@ -5706,68 +5778,94 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
                     const roleLabel = getSectionRoleLabel(sec, sIdx, (w.draftSections || []).length);
                     const secCharLen = (sec.content || '').length;
                     const activeAiEdit = w.lastAiEdit || (state.activeHighlight?.mode === 'ai-edit' ? state.activeHighlight : null);
-                    const isMemoHighlighted = state.activeHighlight?.mode === 'memo' && state.activeHighlight?.secIds?.includes(sec.id);
-                    const isAiSecEdited = Boolean(activeAiEdit && activeAiEdit.secIds?.includes(sec.id));
-                    const isSecHighlighted = isMemoHighlighted || (isAiSecEdited && activeAiEdit.isApplied !== false);
-                    const hlSentences = isMemoHighlighted
-                      ? (state.activeHighlight?.sentencesBySecId?.[sec.id] || [])
-                      : (activeAiEdit?.sentencesBySecId?.[sec.id] || []);
-                    const hlTokens = isMemoHighlighted ? (state.activeHighlight?.tokensBySecId?.[sec.id] || []) : [];
+                    const activeMemoHl = state.activeMemoHighlight || (state.activeHighlight?.mode === 'memo' ? state.activeHighlight : null);
+
+                    // 1) 취재 메모 반영 여부 확인 (메모장에서 [+ 반영]을 눌렀거나 [보기 ↘]로 선택한 단락)
+                    const insertedMemosForSec = (w.researchItems || []).filter(m =>
+                      Array.isArray(m.insertedIntoSecIds) && m.insertedIntoSecIds.includes(sec.id) && (sec.content || '').includes((m.fact || '').trim().slice(0, 20))
+                    );
+                    const isMemoActiveOnSec = Boolean(
+                      (activeMemoHl && activeMemoHl.secIds?.includes(sec.id)) ||
+                      insertedMemosForSec.length > 0
+                    );
+                    const memoSentences = [
+                      ...(activeMemoHl?.sentencesBySecId?.[sec.id] || []),
+                      ...insertedMemosForSec.map(m => m.fact)
+                    ].filter((v, i, a) => v && a.indexOf(v) === i);
+                    const memoTokens = activeMemoHl?.tokensBySecId?.[sec.id] || [];
+
+                    // 2) AI 채팅 수정 여부 확인 (추가된 문장 또는 제외된 문장이 있는 단락)
+                    const aiAddedSents = activeAiEdit?.sentencesBySecId?.[sec.id] || [];
+                    const aiRemovedSents = activeAiEdit?.removedBySecId?.[sec.id] || [];
+                    const isAiSecEdited = Boolean(
+                      activeAiEdit &&
+                      (activeAiEdit.secIds?.includes(sec.id) || aiAddedSents.length > 0 || aiRemovedSents.length > 0)
+                    );
+
+                    // 카드 테두리 스타일: AI 채팅 수정(블루) / 취재 메모 반영(앰버) / 기본(심플 화이트)
+                    const borderStyle = isAiSecEdited && activeAiEdit.isApplied !== false
+                      ? '1.5px solid #93C5FD'
+                      : isMemoActiveOnSec
+                        ? '1.5px solid #FCD34D'
+                        : '1px solid #E5E7EB';
+
                     return `
-                      <div style="padding: 14px 16px; border: ${isSecHighlighted ? '2px solid #F08C00' : 'var(--border-thin)'}; border-radius: var(--radius-general); background-color: ${isSecHighlighted ? '#FFF9DB' : 'var(--bg-subtle)'}; margin-bottom: 14px; transition: all 0.2s;" id="secWrap-${sec.id}">
+                      <div style="padding: 16px; border: ${borderStyle}; border-radius: 10px; background-color: #FFFFFF; margin-bottom: 14px; transition: border-color 0.2s;" id="secWrap-${sec.id}">
                         <div class="flex-between mb-8" style="flex-wrap: wrap; gap: 6px;">
                           <div class="flex-row" style="gap: 6px; flex-wrap: wrap;">
-                            <span style="font-size: 11.5px; font-weight: 800; color: var(--mk-orange); background-color: var(--white); border: 0.5px solid var(--mk-orange-border); padding: 2px 8px; border-radius: 4px;">
+                            <span style="font-size: 12px; font-weight: 800; color: #374151; background-color: #F3F4F6; padding: 2px 9px; border-radius: 6px;">
                               단락 0${sIdx + 1} · ${escapeHtml(roleLabel)}
                             </span>
                             <span class="text-muted" id="secCharCount-${sec.id}">${secCharLen.toLocaleString()}자</span>
-                            ${isMemoHighlighted ? `
-                              <span style="font-size: 11px; font-weight: 800; color: #D9480F; background-color: #FFFFFF; border: 1px solid #FAB005; padding: 1px 7px; border-radius: 99px;">
-                                🖍️ 취재 팩트 메모 반영 단락
+                            ${isMemoActiveOnSec ? `
+                              <span style="font-size: 11px; font-weight: 800; color: #B45309; background-color: #FFFBEB; border: 1px solid #FDE68A; padding: 2px 8px; border-radius: 99px;">
+                                📌 취재 메모 반영됨
                               </span>
-                            ` : isAiSecEdited ? `
-                              <span style="font-size: 11px; font-weight: 800; color: ${activeAiEdit.isApplied !== false ? '#D9480F' : '#495057'}; background-color: #FFFFFF; border: 1px solid ${activeAiEdit.isApplied !== false ? '#FAB005' : '#CED4DA'}; padding: 1px 7px; border-radius: 99px;">
-                                🖍️ ${activeAiEdit.isApplied !== false ? 'AI 편집 내용 적용 중 (넣기/빼기 가능)' : 'AI 편집 내용 제외됨 (다시 넣기 가능)'}
+                            ` : ''}
+                            ${isAiSecEdited ? `
+                              <span style="font-size: 11px; font-weight: 800; color: ${activeAiEdit.isApplied !== false ? '#1D4ED8' : '#6B7280'}; background-color: ${activeAiEdit.isApplied !== false ? '#EFF6FF' : '#F3F4F6'}; border: 1px solid ${activeAiEdit.isApplied !== false ? '#BFDBFE' : '#D1D5DB'}; padding: 2px 8px; border-radius: 99px;">
+                                💬 ${activeAiEdit.isApplied !== false
+                                  ? (aiRemovedSents.length > 0 && aiAddedSents.length === 0 ? `AI 채팅 수정 (내용 ${aiRemovedSents.length}건 제외됨)` : 'AI 채팅 수정 반영됨')
+                                  : 'AI 채팅 수정 되돌림'}
                               </span>
                             ` : ''}
                           </div>
                           <div class="flex-row" style="gap: 8px;">
-                            <button type="button" class="text-action-orange" data-polish-sec="${sec.id}" title="평어체(~한다/이다) 문장을 매경 Pick 표준 경어체(~합니다)로 자동 교정합니다">
-                              ✨ 매경 문체(~합니다) 다듬기
+                            <button type="button" class="text-action" data-polish-sec="${sec.id}" style="font-size: 11.5px; color: var(--text-secondary);" title="평어체(~한다/이다) 문장을 매경 Pick 경어체(~합니다)로 교정">
+                              ✨ 문체 다듬기
                             </button>
-                            ${sIdx > 0 ? `<button type="button" class="text-action" data-move-sec-up="${sIdx}" title="이 단락을 위로 이동">↑ 위로</button>` : ''}
-                            ${sIdx < (w.draftSections || []).length - 1 ? `<button type="button" class="text-action" data-move-sec-down="${sIdx}" title="이 단락을 아래로 이동">↓ 아래로</button>` : ''}
+                            ${sIdx > 0 ? `<button type="button" class="text-action" data-move-sec-up="${sIdx}" title="위로 이동">↑</button>` : ''}
+                            ${sIdx < (w.draftSections || []).length - 1 ? `<button type="button" class="text-action" data-move-sec-down="${sIdx}" title="아래로 이동">↓</button>` : ''}
                             ${(w.draftSections || []).length > 1 ? `
-                              <button type="button" class="text-action" data-del-doc-sec="${sec.id}" style="color: var(--text-muted);" title="이 단락을 삭제하면 관련 하단 FAQ도 자동으로 함께 정리됩니다">삭제</button>
+                              <button type="button" class="text-action" data-del-doc-sec="${sec.id}" style="color: var(--text-muted);">삭제</button>
                             ` : ''}
                           </div>
                         </div>
 
                         <div class="mb-8">
-                          <label class="text-muted" style="display: block; margin-bottom: 3px; font-weight: 700;">■ 단락 소제목 (질문형 또는 핵심 포인트·아이템 중심)</label>
-                          <input type="text" class="doc-editable-input doc-sec-title-input" data-doc-sec-title="${sec.id}" value="${escapeHtml(sec.title)}" placeholder="주제와 단락 핵심 내용을 담은 소제목을 입력하세요" />
+                          <input type="text" class="doc-editable-input doc-sec-title-input" data-doc-sec-title="${sec.id}" value="${escapeHtml(sec.title)}" placeholder="단락 소제목을 입력하세요" />
                         </div>
 
                         <div class="mb-8">
-                          <label class="text-muted" style="display: block; margin-bottom: 3px; font-weight: 700;">본문 내용 ('~합니다' 체 · 내용 수정/삭제 시 하단 FAQ 자동 반영)</label>
                           <textarea class="doc-editable-textarea doc-body-textarea" id="secBody-${sec.id}" data-doc-sec-body="${sec.id}" rows="5" placeholder="본문 내용을 '~합니다' 체로 입력하세요">${escapeHtml(sec.content)}</textarea>
-                          ${isMemoHighlighted ? renderHighlightedBodyHtml(
+                          ${isMemoActiveOnSec ? renderHighlightedBodyHtml(
                             sec.content,
-                            hlSentences,
-                            hlTokens,
-                            `취재 팩트 메모가 이 단락(단락 0${sIdx + 1})에 반영된 문장 하이라이트`
-                          ) : isAiSecEdited ? renderHighlightedBodyHtml(
+                            memoSentences,
+                            memoTokens,
+                            `단락 0${sIdx + 1}에 반영된 취재 메모 문장`,
+                            { sourceType: 'memo', secId: sec.id }
+                          ) : ''}
+                          ${isAiSecEdited ? renderHighlightedBodyHtml(
                             sec.content,
-                            hlSentences,
+                            aiAddedSents,
                             [],
-                            `AI 프롬프트 편집으로 생성·추가된 내용`,
-                            { aiEditState: activeAiEdit, secId: sec.id }
+                            `AI 채팅으로 기사 수정 반영 내역`,
+                            { sourceType: 'ai-chat', aiEditState: activeAiEdit, secId: sec.id }
                           ) : ''}
                         </div>
 
                         <div>
-                          <label class="text-muted" style="display: block; margin-bottom: 3px; font-size: 11.5px; font-weight: 700;">단락 하단 이미지 출처 캡션 (선택 · 입력 시 해당 단락 아래에 표기)</label>
-                          <input type="text" class="doc-editable-input" data-doc-sec-caption="${sec.id}" value="${escapeHtml(sec.imageCaption || '')}" placeholder="예: < 출처 : 패러블 > 또는 비워두기" style="font-size: 12px; color: var(--text-secondary); background-color: var(--white);" />
+                          <input type="text" class="doc-editable-input" data-doc-sec-caption="${sec.id}" value="${escapeHtml(sec.imageCaption || '')}" placeholder="이미지 캡션 (선택 · 예: < 출처 : 각 사 제공 >)" style="font-size: 12px; color: var(--text-muted);" />
                         </div>
                       </div>
                     `;
@@ -5780,17 +5878,17 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
                 <div class="editor-step-header">
                   <div class="flex-row" style="gap: 8px;">
                     <span class="editor-step-badge">STEP 06 · 핵심 비교 요약표</span>
-                    <span class="text-muted">AI 검색엔진이 구조화된 데이터로 즉시 채택할 수 있도록 표 형태로 핵심 정보를 정리합니다.</span>
+                    <span class="text-muted">구조화된 비교 요약표</span>
                   </div>
                   <div class="flex-row" style="gap: 10px;">
-                    <button type="button" class="text-action-orange" id="docAddTableRowBtn">+ 행 추가</button>
+                    <button type="button" class="text-action" id="docAddTableRowBtn">+ 행 추가</button>
                     <button type="button" class="text-action" id="docAddTableColBtn">+ 열 추가</button>
-                    <button type="button" class="text-action" data-copy-part="table">📋 요약표만 복사</button>
+                    <button type="button" class="text-action" data-copy-part="table">📋 표 복사</button>
                   </div>
                 </div>
 
                 <div class="mb-8">
-                  <input type="text" class="doc-editable-input" id="docTableTitle" value="${escapeHtml(sb.summaryTable?.title || '[요약표] 핵심 비교')}" style="font-size: 15.5px; font-weight: 800;" />
+                  <input type="text" class="doc-editable-input" id="docTableTitle" value="${escapeHtml(sb.summaryTable?.title || '[요약표] 핵심 비교')}" style="font-size: 15px; font-weight: 800;" />
                 </div>
 
                 <div class="table-wrap">
@@ -5823,102 +5921,93 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
                 </div>
               </section>
 
-              <!-- STEP 06-B: 핵심 용어 사전 (MK Pick 에디터 스타일) -->
+              <!-- STEP 06-B: 핵심 용어 사전 -->
               <section class="editor-block-section" id="block-step-glossary">
                 <div class="editor-step-header">
                   <div class="flex-row" style="gap: 8px;">
-                    <span class="editor-step-badge">📚 핵심 용어 사전 (${(sb.glossary || []).length}개 용어)</span>
-                    <span class="text-muted">기사에 등장하는 주요 개념·키워드를 독자와 AI 검색엔진이 한눈에 이해할 수 있도록 명쾌하게 정의합니다.</span>
+                    <span class="editor-step-badge">📚 핵심 용어 사전 (${(sb.glossary || []).length}개)</span>
+                    <span class="text-muted">주요 개념·키워드 해설</span>
                   </div>
                   <div class="flex-row" style="gap: 10px;">
-                    <button type="button" class="text-action-orange" id="docAddGlossaryBtn">+ 용어 추가</button>
-                    <button type="button" class="text-action" data-copy-part="glossary">📋 용어 사전만 복사</button>
+                    <button type="button" class="text-action" id="docAddGlossaryBtn">+ 용어 추가</button>
+                    <button type="button" class="text-action" data-copy-part="glossary">📋 사전 복사</button>
                   </div>
                 </div>
 
                 <div class="mb-8">
-                  <input type="text" class="doc-editable-input" id="docGlossaryTitle" value="${escapeHtml(sb.glossaryTitle || '[핵심 용어 사전]')}" style="font-size: 15px; font-weight: 800;" />
+                  <input type="text" class="doc-editable-input" id="docGlossaryTitle" value="${escapeHtml(sb.glossaryTitle || '[핵심 용어 사전]')}" style="font-size: 14.5px; font-weight: 800;" />
                 </div>
 
                 <div>
                   ${(sb.glossary || []).map((gItem, gIdx) => `
-                    <div style="display: flex; align-items: flex-start; flex-wrap: wrap; gap: 8px; padding: 8px 10px; margin-bottom: 8px; background-color: var(--bg-subtle); border: var(--border-thin); border-radius: var(--radius-general);">
-                      <input type="text" class="doc-editable-input" data-doc-glossary-term="${gIdx}" value="${escapeHtml(gItem.term || '')}" placeholder="핵심 용어명 (예: 버츄얼 아이돌)" style="width: 210px; max-width: 100%; flex-shrink: 0; font-weight: 800; font-size: 13px; background-color: var(--white);" />
-                      <textarea class="doc-editable-textarea" data-doc-glossary-desc="${gIdx}" rows="1" placeholder="용어에 대한 1~2문장 명쾌한 해설 ('~입니다' 체)" style="flex: 1; min-width: 180px; font-size: 13px; color: var(--text-secondary); background-color: var(--white);">${escapeHtml(gItem.desc || '')}</textarea>
+                    <div style="display: flex; align-items: flex-start; flex-wrap: wrap; gap: 8px; padding: 8px 10px; margin-bottom: 8px; background-color: #FAFAFA; border: 1px solid #E5E7EB; border-radius: 8px;">
+                      <input type="text" class="doc-editable-input" data-doc-glossary-term="${gIdx}" value="${escapeHtml(gItem.term || '')}" placeholder="핵심 용어명" style="width: 200px; max-width: 100%; flex-shrink: 0; font-weight: 700; font-size: 13px; background-color: var(--white);" />
+                      <textarea class="doc-editable-textarea" data-doc-glossary-desc="${gIdx}" rows="1" placeholder="용어에 대한 1~2문장 해설 ('~입니다' 체)" style="flex: 1; min-width: 180px; font-size: 13px; color: var(--text-secondary); background-color: var(--white);">${escapeHtml(gItem.desc || '')}</textarea>
                       <button type="button" class="text-action" data-doc-del-glossary="${gIdx}" style="font-size: 12px; color: var(--text-muted); padding-top: 6px;">✕</button>
                     </div>
                   `).join('')}
                 </div>
               </section>
 
-              <!-- STEP 07: 자주 묻는 질문 (FAQ) & 팬아웃(Query Fan-out) 추천 질문 -->
+              <!-- STEP 07: 자주 묻는 질문 (FAQ) -->
               <section class="editor-block-section" id="block-step-7">
                 <div class="editor-step-header">
                   <div class="flex-row" style="gap: 8px; flex-wrap: wrap;">
-                    <span class="editor-step-badge">STEP 07 · 독자 자연어 FAQ (${(sb.faqs || []).length}문항)</span>
-                    <span style="font-size: 11.5px; font-weight: 800; color: #1B7F3B; background-color: #EBFBEE; border: 1px solid #B2F2BB; padding: 2px 8px; border-radius: 99px;">
-                      🔄 본문 문맥 순서 연동 & 자유 이동 지원
-                    </span>
+                    <span class="editor-step-badge">STEP 07 · 독자 FAQ (${(sb.faqs || []).length}문항)</span>
+                    <span class="text-muted">본문 수정·삭제 시 자동 연동</span>
                   </div>
                   <div class="flex-row" style="gap: 8px; flex-wrap: wrap;">
                     <button
                       type="button"
                       class="btn btn-sm"
                       id="sortFaqsByContextBtn"
-                      style="padding: 3px 10px; font-size: 11.5px; font-weight: 800; border: 1px solid var(--mk-orange-border); background-color: var(--mk-orange-light); color: var(--mk-orange);"
-                      title="위 본문(단락 01 → 02 → 03 → 04)의 흐름과 문맥 순서에 맞춰 FAQ 순서를 자동으로 정렬합니다"
+                      style="padding: 3px 9px; font-size: 11.5px; font-weight: 700;"
+                      title="본문 단락 순서에 맞춰 FAQ 순서를 자동 정렬합니다"
                     >
-                      ⇅ 본문 문맥 순서(단락 01→0${(w.draftSections || []).length || 4})로 자동 정렬
+                      ⇅ 본문 순서 정렬
                     </button>
                     <button
                       type="button"
-                      class="btn btn-sm btn-outline-orange"
+                      class="btn btn-sm"
                       id="syncFaqsWithBodyAiBtn"
-                      style="padding: 3px 10px; font-size: 11.5px; font-weight: 800;"
+                      style="padding: 3px 9px; font-size: 11.5px; font-weight: 700;"
                       ${state.isSyncingFaqsAi ? 'disabled' : ''}
-                      title="현재 위 본문(STEP 05)에서 수정·삭제된 내용을 기준으로 하단 FAQ와 요약표를 100% 일치하도록 즉시 재작성합니다"
                     >
-                      ${state.isSyncingFaqsAi ? '⏳ 본문 기준 FAQ 동기화 중...' : '🔄 현재 본문 기준으로 FAQ·요약표 AI 재동기화'}
+                      ${state.isSyncingFaqsAi ? '⏳ 동기화 중...' : '🔄 본문 기준 재동기화'}
                     </button>
                     ${(sb.fanoutQuestions && sb.fanoutQuestions.length > 0) ? `
-                      <button type="button" class="text-action-orange" id="docToggleFanoutBtn">
-                        ${state.fanoutOpen ? `💡 팬아웃 추천 질문(${sb.fanoutQuestions.length}개) 접기 ▲` : `💡 팬아웃 추천 질문(${sb.fanoutQuestions.length}개) 열기 ▼`}
+                      <button type="button" class="text-action" id="docToggleFanoutBtn" style="font-size: 11.5px;">
+                        ${state.fanoutOpen ? `💡 추천 질문(${sb.fanoutQuestions.length}) 접기 ▲` : `💡 추천 질문(${sb.fanoutQuestions.length}) ▼`}
                       </button>
                     ` : ''}
-                    <button type="button" class="text-action" id="docAddFaqBtn">+ 직접 질문 추가</button>
-                    <button type="button" class="text-action" data-copy-part="faq">📋 FAQ만 복사</button>
+                    <button type="button" class="text-action" id="docAddFaqBtn">+ 질문 추가</button>
+                    <button type="button" class="text-action" data-copy-part="faq">📋 FAQ 복사</button>
                   </div>
                 </div>
 
                 ${state.lastFaqAutoSyncInfo ? `
-                  <div style="margin-bottom: 12px; padding: 8px 12px; background-color: #EBFBEE; border: 1px solid #8CE99A; border-radius: 6px; font-size: 12px; color: #1B7F3B; font-weight: 700; display: flex; align-items: center; justify-content: space-between; gap: 8px;">
-                    <span>
-                      ✓ [${escapeHtml(state.lastFaqAutoSyncInfo.time)}]
-                      ${state.lastFaqAutoSyncInfo.aiPromptSynced
-                        ? 'AI 자연어 편집으로 본문에 새로 추가·수정된 내용이 하단 FAQ에도 자동 업데이트되어 반영되었습니다!'
-                        : `본문 편집·삭제 내용이 하단 FAQ에 자동 반영되었습니다! ${state.lastFaqAutoSyncInfo.removedFaqCount > 0 ? `(본문에서 삭제된 내용 관련 FAQ ${state.lastFaqAutoSyncInfo.removedFaqCount}문항 자동 제거 완료)` : '(현재 본문 문맥 순서 기준으로 FAQ 동기화 완료)'}`}
-                    </span>
+                  <div style="margin-bottom: 10px; padding: 7px 11px; background-color: #F0F7FF; border: 1px solid #BFDBFE; border-radius: 6px; font-size: 12px; color: #1D4ED8; font-weight: 600;">
+                    ✓ [${escapeHtml(state.lastFaqAutoSyncInfo.time)}]
+                    ${state.lastFaqAutoSyncInfo.aiPromptSynced
+                      ? 'AI 채팅으로 수정된 본문 내용이 FAQ에도 자동 반영되었습니다.'
+                      : `본문 변경 사항이 FAQ에 자동 반영되었습니다. ${state.lastFaqAutoSyncInfo.removedFaqCount > 0 ? `(관련 FAQ ${state.lastFaqAutoSyncInfo.removedFaqCount}문항 정리됨)` : ''}`}
                   </div>
                 ` : ''}
 
                 ${state.fanoutOpen && sb.fanoutQuestions && sb.fanoutQuestions.length > 0 ? `
-                  <div style="background-color: var(--mk-orange-light); border: 0.5px solid var(--mk-orange-border); border-radius: var(--radius-general); padding: 12px 14px; margin-bottom: 16px;">
-                    <div class="flex-between mb-6" style="padding-bottom: 6px; border-bottom: 0.5px solid var(--mk-orange-border);">
-                      <div>
-                        <span style="font-size: 12.5px; font-weight: 800; color: var(--mk-orange);">💡 팬아웃 쿼리(Query Fan-out) 연관 추천 질문 ${sb.fanoutQuestions.length}선</span>
-                        <span style="font-size: 12px; color: var(--text-secondary); margin-left: 6px;">· 클릭하면 아래 기사 FAQ 목록에 즉시 추가되고 본문 문맥 순서에 맞춰 번호가 정렬됩니다.</span>
-                      </div>
+                  <div style="background-color: #FAFAFA; border: 1px solid #E5E7EB; border-radius: 8px; padding: 12px; margin-bottom: 14px;">
+                    <div style="font-size: 12px; font-weight: 700; color: var(--text-secondary); margin-bottom: 8px;">
+                      💡 연관 추천 질문 (클릭 시 FAQ에 추가)
                     </div>
                     ${sb.fanoutQuestions.map((fq, fIdx) => `
-                      <div class="clean-list-row" style="display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; padding: 8px 4px;">
+                      <div class="clean-list-row" style="display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 7px 4px;">
                         <div style="font-size: 12.5px; line-height: 1.5; flex: 1;">
                           <div style="font-weight: 700; color: var(--text-primary); margin-bottom: 2px;">
-                            ${fq.category ? `<span style="display: inline-block; font-size: 10.5px; font-weight: 800; color: var(--mk-orange); background-color: var(--white); border: 0.5px solid var(--mk-orange-border); padding: 1px 6px; border-radius: 99px; margin-right: 6px;">${escapeHtml(fq.category)}</span>` : ''}
                             Q. ${escapeHtml(fq.q.replace(/^Q\d+\.\s*/i, ''))}
                           </div>
                           <div style="font-size: 12px; color: var(--text-secondary);">A. ${escapeHtml(fq.a)}</div>
                         </div>
-                        <button type="button" class="btn btn-sm btn-primary" data-pick-fanout="${fIdx}" style="padding: 4px 10px; font-size: 11.5px;">+ FAQ에 추가</button>
+                        <button type="button" class="btn btn-sm" data-pick-fanout="${fIdx}" style="padding: 4px 10px; font-size: 11.5px;">+ 추가</button>
                       </div>
                     `).join('')}
                   </div>
@@ -5933,42 +6022,41 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
                         class="faq-draggable-card"
                         draggable="true"
                         data-faq-card-idx="${idx}"
-                        style="padding: 10px 12px; margin-bottom: 10px; background-color: ${isFaqAiEdited ? '#FFF9DB' : 'var(--bg-subtle)'}; border: ${isFaqAiEdited ? '2px solid #F08C00' : 'var(--border-thin)'}; border-radius: var(--radius-general); transition: all 0.15s;"
+                        style="padding: 12px; margin-bottom: 10px; background-color: ${isFaqAiEdited ? '#F0F7FF' : '#FFFFFF'}; border: ${isFaqAiEdited ? '1.5px solid #93C5FD' : '1px solid #E5E7EB'}; border-radius: 8px; transition: all 0.15s;"
                       >
                         <div class="flex-between mb-6" style="gap: 8px; flex-wrap: wrap;">
                           <div class="flex-row" style="gap: 6px; flex-wrap: wrap;">
                             <span
-                              style="font-size: 11.5px; font-weight: 800; color: var(--text-secondary); background-color: #FFFFFF; border: var(--border-thin); padding: 2px 8px; border-radius: 4px; cursor: grab; user-select: none;"
-                              title="마우스로 이 카드를 잡고 위·아래로 끌어서 FAQ 순서를 자유롭게 바꿀 수 있습니다"
+                              style="font-size: 11.5px; font-weight: 700; color: var(--text-secondary); background-color: #F3F4F6; padding: 2px 8px; border-radius: 4px; cursor: grab; user-select: none;"
+                              title="드래그하여 순서 변경"
                             >
-                              ⠿ 드래그 이동 · Q${idx + 1}
+                              ⠿ Q${idx + 1}
                             </span>
                             ${relInfo.secId ? `
                               <button
                                 type="button"
                                 data-jump-block="secWrap-${escapeHtml(relInfo.secId)}"
-                                style="font-size: 11px; font-weight: 800; color: var(--mk-orange); background-color: var(--mk-orange-light); border: 1px solid var(--mk-orange-border); padding: 2px 8px; border-radius: 99px; cursor: pointer; font-family: inherit;"
-                                title="클릭하면 이 FAQ와 연결된 본문 [${escapeHtml(relInfo.secLabel)}: ${escapeHtml(relInfo.secTitle)}] 위치로 이동합니다"
+                                style="font-size: 11px; font-weight: 600; color: var(--text-secondary); background-color: #F9FAFB; border: 1px solid #E5E7EB; padding: 2px 8px; border-radius: 99px; cursor: pointer; font-family: inherit;"
                               >
-                                📍 본문 ${escapeHtml(relInfo.secLabel)} 문맥 ↗
+                                ${escapeHtml(relInfo.secLabel)} 연결 ↗
                               </button>
                             ` : ''}
                             ${isFaqAiEdited ? `
-                              <span style="font-size: 11px; font-weight: 800; color: #D9480F; background-color: #FFFFFF; border: 1px solid #FAB005; padding: 2px 8px; border-radius: 99px;">
-                                ✨ AI 편집 추가 내용 자동 반영됨
+                              <span style="font-size: 11px; font-weight: 800; color: #1D4ED8; background-color: #DBEAFE; padding: 2px 8px; border-radius: 99px;">
+                                💬 AI 채팅 수정 반영됨
                               </span>
                             ` : ''}
                           </div>
                           <div class="flex-row" style="gap: 8px;">
-                            ${idx > 0 ? `<button type="button" class="text-action" data-move-faq-up="${idx}" title="이 FAQ를 위로 이동">↑ 위로</button>` : ''}
-                            ${idx < (sb.faqs || []).length - 1 ? `<button type="button" class="text-action" data-move-faq-down="${idx}" title="이 FAQ를 아래로 이동">↓ 아래로</button>` : ''}
+                            ${idx > 0 ? `<button type="button" class="text-action" data-move-faq-up="${idx}">↑</button>` : ''}
+                            ${idx < (sb.faqs || []).length - 1 ? `<button type="button" class="text-action" data-move-faq-down="${idx}">↓</button>` : ''}
                             <button type="button" class="text-action" data-doc-del-faq="${idx}" style="font-size: 12px; color: var(--text-muted);">삭제</button>
                           </div>
                         </div>
                         <div class="mb-6">
-                          <input type="text" class="doc-editable-input" data-doc-faq-q="${idx}" value="${escapeHtml(faq.q)}" style="font-weight: 800; font-size: 14px; background-color: var(--white);" />
+                          <input type="text" class="doc-editable-input" data-doc-faq-q="${idx}" value="${escapeHtml(faq.q)}" style="font-weight: 700; font-size: 13.5px; background-color: var(--white);" />
                         </div>
-                        <textarea class="doc-editable-textarea" data-doc-faq-a="${idx}" rows="2" style="font-size: 13.5px; color: var(--text-secondary); line-height: 1.6; background-color: var(--white);">${escapeHtml(faq.a)}</textarea>
+                        <textarea class="doc-editable-textarea" data-doc-faq-a="${idx}" rows="2" style="font-size: 13px; color: var(--text-secondary); line-height: 1.6; background-color: var(--white);">${escapeHtml(faq.a)}</textarea>
                       </div>
                     `;
                   }).join('')}
@@ -5979,24 +6067,24 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
               <section class="editor-block-section" id="block-step-8">
                 <div class="editor-step-header">
                   <div class="flex-row" style="gap: 8px;">
-                    <span class="editor-step-badge">STEP 08 · 수미상관 마무리 총평 & 한 줄 요약</span>
-                    <span class="text-muted">도입부의 여운을 회수하는 에필로그 문단과 "한 줄 요약! ~입니다."로 기사의 핵심 결론을 매듭짓습니다.</span>
+                    <span class="editor-step-badge">STEP 08 · 마무리 총평 & 한 줄 요약</span>
+                    <span class="text-muted">기사 결론 및 출처 관리</span>
                   </div>
                 </div>
 
                 <div class="mb-12">
-                  <label class="text-muted" style="display: block; margin-bottom: 4px; font-weight: 700;">■ 수미상관 마무리 총평 문단 (에필로그)</label>
-                  <textarea class="doc-editable-textarea" id="docClosingParagraph" rows="3" style="font-size: 14px; color: var(--text-primary); line-height: 1.7;" placeholder="도입부의 화두와 연결해 기사 전체의 의미를 갈무리하는 마무리 총평 문단을 입력하세요">${escapeHtml(sb.closingParagraph || '')}</textarea>
+                  <label class="text-muted" style="display: block; margin-bottom: 4px; font-weight: 700;">마무리 총평 문단</label>
+                  <textarea class="doc-editable-textarea" id="docClosingParagraph" rows="3" style="font-size: 13.5px; color: var(--text-primary); line-height: 1.7;" placeholder="기사 전체의 의미를 갈무리하는 마무리 총평 문단을 입력하세요">${escapeHtml(sb.closingParagraph || '')}</textarea>
                 </div>
 
-                <div style="border-left: 3px solid var(--mk-orange); padding-left: 12px; margin-bottom: 14px;">
-                  <label class="text-muted" style="display: block; margin-bottom: 4px; font-weight: 700;">■ 한 줄 요약!</label>
-                  <textarea class="doc-editable-textarea" id="docOneLine" rows="2" style="font-size: 14.5px; font-weight: 800;">${escapeHtml(sb.oneLineSummary || '')}</textarea>
+                <div style="margin-bottom: 14px;">
+                  <label class="text-muted" style="display: block; margin-bottom: 4px; font-weight: 700;">한 줄 요약</label>
+                  <textarea class="doc-editable-textarea" id="docOneLine" rows="2" style="font-size: 14px; font-weight: 700;">${escapeHtml(sb.oneLineSummary || '')}</textarea>
                 </div>
 
-                <div class="grid-2" style="padding-top: 10px; border-top: var(--border-thin); margin-bottom: 16px;">
+                <div class="grid-2" style="padding-top: 10px; border-top: 1px solid #F3F4F6; margin-bottom: 14px;">
                   <div>
-                    <label class="text-muted" style="display: block; margin-bottom: 4px; font-weight: 700;">대표 이미지 캡션 문구</label>
+                    <label class="text-muted" style="display: block; margin-bottom: 4px; font-weight: 700;">대표 이미지 캡션</label>
                     <input type="text" class="doc-editable-input" id="docImgCaption" value="${escapeHtml(sb.imageRecommendations?.[0]?.caption || '< 출처 : 각 사 제공 >')}" style="font-size: 12.5px; color: var(--text-secondary);" />
                   </div>
                   <div>
@@ -6005,40 +6093,32 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
                   </div>
                 </div>
 
-                <!-- 참고 자료 및 출처 목록 (원문 대조 팩트체크 및 CMS 복사 포함/제외 관리) -->
-                <div style="padding-top: 14px; border-top: var(--border-thin);">
+                <!-- 참고 자료 및 출처 목록 -->
+                <div style="padding-top: 12px; border-top: 1px solid #F3F4F6;">
                   <div class="flex-between mb-6" style="flex-wrap: wrap; gap: 6px;">
-                    <div>
-                      <strong style="font-size: 13.5px; font-weight: 800; color: var(--text-primary);">
-                        🔗 참고 자료 및 실시간 검증 출처 목록 (${(w.sources || []).filter(s => !s.excluded).length}/${(w.sources || []).length}건 포함)
-                      </strong>
-                      <span class="text-muted" style="margin-left: 6px;">
-                        · 우측 [원문 열기 ↗]를 눌러 실제 보도·출처 팩트를 대조하고, 체크박스로 기사 하단 표기 여부를 선택하세요.
-                      </span>
-                    </div>
+                    <strong style="font-size: 13px; font-weight: 700; color: var(--text-primary);">
+                      🔗 참고 출처 (${(w.sources || []).filter(s => !s.excluded).length}/${(w.sources || []).length}건 포함)
+                    </strong>
                   </div>
 
                   ${(w.sources || []).length === 0 ? `
-                    <div class="text-muted" style="padding: 10px 0;">등록된 참고 출처가 없습니다. 아래에서 참고 URL을 추가할 수 있습니다.</div>
+                    <div class="text-muted" style="padding: 8px 0;">등록된 참고 출처가 없습니다.</div>
                   ` : `
                     <div style="display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px;">
                       ${(w.sources || []).map((src, sIdx) => {
                         const isIncluded = !src.excluded;
                         return `
-                          <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 12px; border: var(--border-thin); border-radius: var(--radius-general); background-color: ${isIncluded ? 'var(--bg-subtle)' : 'var(--white)'}; opacity: ${isIncluded ? '1' : '0.6'};">
+                          <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 7px 10px; border: 1px solid #E5E7EB; border-radius: 6px; background-color: ${isIncluded ? '#FAFAFA' : '#FFFFFF'}; opacity: ${isIncluded ? '1' : '0.55'};">
                             <label style="display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; cursor: pointer;">
-                              <input type="checkbox" data-toggle-src-exclude="${escapeHtml(src.id)}" ${isIncluded ? 'checked' : ''} style="accent-color: var(--mk-orange); width: 15px; height: 15px; cursor: pointer; flex-shrink: 0;" />
-                              <span style="font-size: 11px; font-weight: 700; color: var(--mk-orange); background-color: var(--mk-orange-light); padding: 1px 6px; border-radius: 4px; white-space: nowrap; flex-shrink: 0;">
-                                ${escapeHtml(src.method || `출처 #${sIdx + 1}`)}
-                              </span>
-                              <span style="font-size: 12.5px; color: var(--text-primary); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(src.title || src.url)}">
+                              <input type="checkbox" data-toggle-src-exclude="${escapeHtml(src.id)}" ${isIncluded ? 'checked' : ''} style="accent-color: var(--mk-orange); width: 14px; height: 14px; cursor: pointer; flex-shrink: 0;" />
+                              <span style="font-size: 12px; color: var(--text-primary); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(src.title || src.url)}">
                                 ${escapeHtml(src.title || src.url)}
                               </span>
                             </label>
                             <div class="flex-row" style="gap: 8px; flex-shrink: 0;">
                               ${src.url ? `
-                                <a href="${escapeHtml(src.url)}" target="_blank" rel="noopener noreferrer" class="text-action-orange" style="font-size: 12px; font-weight: 800; white-space: nowrap;">
-                                  원문 열기 ↗
+                                <a href="${escapeHtml(src.url)}" target="_blank" rel="noopener noreferrer" class="text-action" style="font-size: 11.5px; font-weight: 600; white-space: nowrap;">
+                                  원문 ↗
                                 </a>
                               ` : ''}
                               <button type="button" class="text-action" data-del-src="${escapeHtml(src.id)}" style="font-size: 11.5px; color: var(--text-muted);">삭제</button>
@@ -6050,9 +6130,9 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
                   `}
 
                   <div class="flex-row" style="gap: 6px;">
-                    <input type="text" class="input" id="newSourceTitleInput" placeholder="추가할 출처 제목/설명 (예: 통계청 2026 소비동향)" style="flex: 1; padding: 6px 10px; font-size: 12px;" />
+                    <input type="text" class="input" id="newSourceTitleInput" placeholder="출처 제목/설명" style="flex: 1; padding: 6px 10px; font-size: 12px;" />
                     <input type="url" class="input" id="newSourceUrlInput" placeholder="출처 URL (https://...)" style="flex: 1; padding: 6px 10px; font-size: 12px;" />
-                    <button type="button" class="btn btn-sm" id="addSourceDirectBtn" style="font-weight: 700; white-space: nowrap;">+ 출처 추가</button>
+                    <button type="button" class="btn btn-sm" id="addSourceDirectBtn" style="font-weight: 700; white-space: nowrap;">+ 추가</button>
                   </div>
                 </div>
               </section>
@@ -6061,38 +6141,38 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
           `}
         </div>
 
-        <!-- [오른쪽 사이드 고정 패널] 원문 글을 위·아래로 스크롤하며 읽으면서 언제든 바로 입력해 수정하는 AI 자연어 편집 사이드바 -->
+        <!-- [오른쪽 사이드 고정 패널] 💬 AI 채팅으로 기사 수정 (로열 블루 테마로 취재 메모와 시각적으로 100% 분리) -->
         <aside class="right-panel-sticky" id="aiNaturalEditBox">
-          <div class="card" style="padding: 18px 18px; margin-bottom: 0; border: 1.5px solid var(--mk-orange-border); background: linear-gradient(180deg, #FFFDFB 0%, #FFF9F4 100%);">
+          <div class="card" style="padding: 16px; margin-bottom: 0; border: 1px solid #DBEAFE; background: #FFFFFF; box-shadow: 0 2px 8px rgba(29, 78, 216, 0.05);">
             <div class="flex-between mb-8" style="gap: 6px;">
-              <span style="display: inline-flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 800; color: #FFFFFF; background-color: var(--mk-orange); padding: 3px 10px; border-radius: 99px;">
-                ✨ AI 자연어 편집 프롬프트
+              <span style="display: inline-flex; align-items: center; gap: 5px; font-size: 13px; font-weight: 800; color: #1E40AF;">
+                💬 AI 채팅으로 기사 수정
               </span>
-              <span style="font-size: 11px; font-weight: 700; color: var(--mk-orange);">스크롤 따라오기 고정</span>
+              <span style="font-size: 10.5px; font-weight: 700; color: #1D4ED8; background: #EFF6FF; padding: 2px 7px; border-radius: 99px;">파란색 하이라이트</span>
             </div>
 
-            <p style="font-size: 12.5px; color: var(--text-primary); font-weight: 700; line-height: 1.5; margin-bottom: 10px;">
-              왼쪽 원문 글을 스크롤하며 보면서 수정 방향을 자유롭게 입력하면 <strong>본문·요약표·하단 FAQ를 동시에 편집</strong>하고 반영된 문장을 하이라이팅합니다.
+            <p style="font-size: 12px; color: var(--text-secondary); line-height: 1.5; margin-bottom: 10px;">
+              원하는 수정 방향(내용 추가·강조·특정 내용 제외 등)을 입력하면 <strong>본문·요약표·FAQ를 동시에 수정</strong>합니다.
             </p>
 
-            <!-- 원문 위치 빠른 이동 & 단락 지목 칩 -->
-            <div style="margin-bottom: 10px; padding: 8px 10px; background-color: #FFFFFF; border: 1px solid #F1E4DA; border-radius: 8px;">
-              <div style="font-size: 11px; font-weight: 800; color: var(--text-secondary); margin-bottom: 5px;">
-                📍 보고 싶은 위치로 이동 & 수정 대상 지목 (클릭):
+            <!-- 수정 대상 단락 빠른 선택 칩 -->
+            <div style="margin-bottom: 10px;">
+              <div style="font-size: 11px; font-weight: 700; color: var(--text-muted); margin-bottom: 5px;">
+                수정할 위치 선택 (클릭 시 이동):
               </div>
               <div style="display: flex; flex-wrap: wrap; gap: 4px;">
-                <button type="button" class="text-action" data-ai-target-jump="block-step-2" data-ai-target-prefix="[제목·소제목 수정] " style="font-size: 11px; background: var(--bg-subtle); border: var(--border-thin); padding: 2px 7px; border-radius: 6px; font-weight: 700;">
-                  제목·부제
+                <button type="button" class="text-action" data-ai-target-jump="block-step-2" data-ai-target-prefix="[제목·소제목 수정] " style="font-size: 11px; background: #F9FAFB; border: 1px solid #E5E7EB; padding: 3px 8px; border-radius: 6px; font-weight: 600; color: #374151;">
+                  제목
                 </button>
                 ${(w.draftSections || []).map((sec, sIdx) => `
-                  <button type="button" class="text-action" data-ai-target-jump="secWrap-${sec.id}" data-ai-target-prefix="[단락 0${sIdx + 1} 수정] " style="font-size: 11px; background: var(--bg-subtle); border: var(--border-thin); padding: 2px 7px; border-radius: 6px; font-weight: 700;">
+                  <button type="button" class="text-action" data-ai-target-jump="secWrap-${sec.id}" data-ai-target-prefix="[단락 0${sIdx + 1} 수정] " style="font-size: 11px; background: #F9FAFB; border: 1px solid #E5E7EB; padding: 3px 8px; border-radius: 6px; font-weight: 600; color: #374151;">
                     단락 0${sIdx + 1}
                   </button>
                 `).join('')}
-                <button type="button" class="text-action" data-ai-target-jump="block-step-6" data-ai-target-prefix="[비교 요약표 수정] " style="font-size: 11px; background: var(--bg-subtle); border: var(--border-thin); padding: 2px 7px; border-radius: 6px; font-weight: 700;">
+                <button type="button" class="text-action" data-ai-target-jump="block-step-6" data-ai-target-prefix="[비교 요약표 수정] " style="font-size: 11px; background: #F9FAFB; border: 1px solid #E5E7EB; padding: 3px 8px; border-radius: 6px; font-weight: 600; color: #374151;">
                   요약표
                 </button>
-                <button type="button" class="text-action" data-ai-target-jump="block-step-7" data-ai-target-prefix="[FAQ 수정] " style="font-size: 11px; background: var(--bg-subtle); border: var(--border-thin); padding: 2px 7px; border-radius: 6px; font-weight: 700;">
+                <button type="button" class="text-action" data-ai-target-jump="block-step-7" data-ai-target-prefix="[FAQ 수정] " style="font-size: 11px; background: #F9FAFB; border: 1px solid #E5E7EB; padding: 3px 8px; border-radius: 6px; font-weight: 600; color: #374151;">
                   FAQ
                 </button>
               </div>
@@ -6103,126 +6183,95 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
                 class="textarea"
                 id="aiNaturalPromptInput"
                 rows="4"
-                placeholder="예: 2단락에 최신 수치와 실제 신메뉴 가격을 더 보강해줘 / 특정 브랜드 내용을 빼고 소비자 체크포인트 위주로 간결하게 고쳐줘 (Enter: 바로 적용, Shift+Enter: 줄바꿈)"
-                style="width: 100%; min-height: 92px; padding: 10px 12px; font-size: 13px; font-weight: 600; line-height: 1.55; background-color: #FFFFFF; border: 1.5px solid var(--mk-orange-border); border-radius: 8px;"
+                placeholder="예: 2단락에 최신 수치와 가격을 더 보강해줘 / 특정 브랜드 내용은 제외해줘 (Enter: 바로 적용)"
+                style="width: 100%; min-height: 88px; padding: 10px 12px; font-size: 12.5px; font-weight: 500; line-height: 1.55; background-color: #F9FAFB; border: 1px solid #D1D5DB; border-radius: 8px;"
                 ${state.isApplyingAiEdit ? 'disabled' : ''}
               >${escapeHtml(state.aiPromptDraft || '')}</textarea>
             </div>
 
             <button
               type="button"
-              class="btn btn-primary"
+              class="btn"
               id="applyAiNaturalPromptBtn"
-              style="width: 100%; justify-content: center; padding: 11px 16px; font-size: 13.5px; font-weight: 800; margin-bottom: 10px; box-shadow: 0 2px 6px rgba(243, 112, 33, 0.22);"
+              style="width: 100%; justify-content: center; padding: 10px 14px; font-size: 13px; font-weight: 800; margin-bottom: 10px; background-color: #1D4ED8; color: #FFFFFF; border: 1px solid #1E40AF; border-radius: 8px;"
               ${state.isApplyingAiEdit ? 'disabled' : ''}
             >
-              ${state.isApplyingAiEdit ? '⏳ AI가 본문·표·FAQ 편집 중...' : '✨ AI 편집 적용 →'}
+              ${state.isApplyingAiEdit ? '⏳ AI 채팅 요청 반영 중...' : '💬 AI 채팅으로 기사 수정 →'}
             </button>
 
-            ${(Array.isArray(w.aiEditHistory) && w.aiEditHistory.length > 0) || w.lastAiEdit || state.activeHighlight ? `
+            ${(Array.isArray(w.aiEditHistory) && w.aiEditHistory.length > 0) || w.lastAiEdit ? `
               <div style="display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px;">
                 ${Array.isArray(w.aiEditHistory) && w.aiEditHistory.length > 0 ? `
-                  <button type="button" class="btn btn-sm" id="undoAiPromptEditBtn" style="width: 100%; justify-content: center; padding: 6px 10px; font-size: 12px; font-weight: 800; background-color: #FFFFFF;">
-                    ↩ 이전 상태로 되돌리기 (${w.aiEditHistory.length})
+                  <button type="button" class="btn btn-sm" id="undoAiPromptEditBtn" style="width: 100%; justify-content: center; padding: 6px 10px; font-size: 11.5px; font-weight: 700; background-color: #FFFFFF;">
+                    ↩ 직전 수정 전으로 되돌리기 (${w.aiEditHistory.length})
                   </button>
                 ` : ''}
                 ${(() => {
                   const aiEdit = w.lastAiEdit || (state.activeHighlight?.mode === 'ai-edit' ? state.activeHighlight : null);
-                  if (aiEdit) {
-                    const isApp = aiEdit.isApplied !== false;
-                    const isHlVis = aiEdit.isHighlightVisible !== false;
-                    return `
-                      <div style="padding: 10px 12px; background-color: ${isApp ? '#FFF9DB' : '#F8F9FA'}; border: 1.5px solid ${isApp ? '#FAB005' : '#CED4DA'}; border-radius: 8px;">
-                        <div class="flex-between" style="margin-bottom: 5px; gap: 4px; flex-wrap: wrap;">
-                          <span style="font-size: 11.5px; font-weight: 800; color: ${isApp ? '#D9480F' : '#495057'};">
-                            🖍️ ${isApp ? 'AI 새로 생성된 내용 적용 중' : 'AI 새로 생성된 내용 뺌 (원문)'}
-                          </span>
-                          <span style="font-size: 10.5px; font-weight: 800; padding: 1px 6px; border-radius: 99px; background: ${isApp ? '#EBFBEE' : '#E9ECEF'}; color: ${isApp ? '#1B7F3B' : '#495057'};">
-                            ${isApp ? '✓ 본문·FAQ 반영됨' : '⏸ 본문·FAQ 제외됨'}
-                          </span>
-                        </div>
-                        <div style="font-size: 11.5px; color: #111; line-height: 1.45; margin-bottom: 8px;">
-                          ${escapeHtml(aiEdit.summary || '')}
-                        </div>
-                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 6px;">
-                          <button
-                            type="button"
-                            class="btn btn-sm"
-                            data-ai-edit-master-toggle="apply"
-                            style="justify-content: center; padding: 6px 6px; font-size: 11.5px; font-weight: 800; ${isApp
-                              ? 'background-color: #2B8A3E; color: #FFFFFF; border-color: #2B8A3E;'
-                              : 'background-color: #FFFFFF; color: #2B8A3E; border-color: #8CE99A;'}"
-                          >
-                            ➕ 생성 내용 넣기
-                          </button>
-                          <button
-                            type="button"
-                            class="btn btn-sm"
-                            data-ai-edit-master-toggle="exclude"
-                            style="justify-content: center; padding: 6px 6px; font-size: 11.5px; font-weight: 800; ${!isApp
-                              ? 'background-color: #C92A2A; color: #FFFFFF; border-color: #C92A2A;'
-                              : 'background-color: #FFFFFF; color: #C92A2A; border-color: #FFA8A8;'}"
-                          >
-                            ➖ 생성 내용 빼기
-                          </button>
-                        </div>
-                        <div style="display: flex; gap: 6px;">
-                          <button
-                            type="button"
-                            class="btn btn-sm"
-                            data-toggle-highlight-visibility="1"
-                            style="flex: 1; justify-content: center; padding: 4px 6px; font-size: 11px; font-weight: 700; color: #D9480F; background: #FFFFFF; border-color: #FAB005;"
-                            title="하이라이트 박스만 접거나 펼칩니다 (본문에 추가된 내용은 그대로 유지됩니다)"
-                          >
-                            🖍️ 하이라이트 ${isHlVis ? '접기 ▲' : '펼치기 ▼'}
-                          </button>
-                          <button
-                            type="button"
-                            class="btn btn-sm"
-                            data-jump-block="block-step-7"
-                            style="flex: 1; justify-content: center; padding: 4px 6px; font-size: 11px; font-weight: 800; color: var(--mk-orange); background: #FFFFFF; border-color: var(--mk-orange-border);"
-                          >
-                            📍 반영된 FAQ ↘
-                          </button>
-                        </div>
-                      </div>
-                    `;
-                  }
-                  if (state.activeHighlight?.mode === 'memo') {
-                    return `
-                      <div style="padding: 8px 10px; background-color: #FFF9DB; border: 1px solid #FAB005; border-radius: 6px;">
-                        <div style="font-size: 11.5px; font-weight: 800; color: #D9480F; margin-bottom: 4px;">
-                          🖍️ 메모 반영 하이라이트 켜짐
-                        </div>
-                        <div style="font-size: 11.5px; color: #111; line-height: 1.45; margin-bottom: 6px;">
-                          ${escapeHtml(state.activeHighlight.summary || '')}
-                        </div>
-                        <button type="button" class="btn btn-sm" data-clear-highlight="1" style="width: 100%; justify-content: center; padding: 4px 8px; font-size: 11.5px; font-weight: 700; color: #D9480F; background: #FFFFFF; border-color: #FAB005;">
-                          🖍️ 하이라이트 닫기 ✕
+                  if (!aiEdit) return '';
+                  const isApp = aiEdit.isApplied !== false;
+                  const isHlVis = aiEdit.isHighlightVisible !== false;
+                  return `
+                    <div style="padding: 10px 12px; background-color: ${isApp ? '#F0F7FF' : '#F9FAFB'}; border: 1px solid ${isApp ? '#BFDBFE' : '#E5E7EB'}; border-radius: 8px;">
+                      <div class="flex-between" style="margin-bottom: 4px; gap: 4px; flex-wrap: wrap;">
+                        <span style="font-size: 11.5px; font-weight: 800; color: ${isApp ? '#1E40AF' : '#4B5563'};">
+                          💬 ${isApp ? 'AI 채팅 수정 반영됨' : 'AI 채팅 수정 되돌림'}
+                        </span>
+                        <button
+                          type="button"
+                          class="text-action"
+                          data-toggle-highlight-visibility="1"
+                          style="font-size: 11px; font-weight: 700; color: #1D4ED8;"
+                        >
+                          하이라이트 ${isHlVis ? '접기 ▲' : '펼치기 ▼'}
                         </button>
                       </div>
-                    `;
-                  }
-                  return '';
+                      <div style="font-size: 11.5px; color: #374151; line-height: 1.45; margin-bottom: 8px;">
+                        ${escapeHtml(aiEdit.summary || '')}
+                      </div>
+                      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px;">
+                        <button
+                          type="button"
+                          class="btn btn-sm"
+                          data-ai-edit-master-toggle="apply"
+                          style="justify-content: center; padding: 5px 6px; font-size: 11px; font-weight: 700; ${isApp
+                            ? 'background-color: #1D4ED8; color: #FFFFFF; border-color: #1D4ED8;'
+                            : 'background-color: #FFFFFF; color: #1D4ED8; border-color: #BFDBFE;'}"
+                        >
+                          ✓ 수정본 적용
+                        </button>
+                        <button
+                          type="button"
+                          class="btn btn-sm"
+                          data-ai-edit-master-toggle="exclude"
+                          style="justify-content: center; padding: 5px 6px; font-size: 11px; font-weight: 700; ${!isApp
+                            ? 'background-color: #4B5563; color: #FFFFFF; border-color: #4B5563;'
+                            : 'background-color: #FFFFFF; color: #4B5563; border-color: #D1D5DB;'}"
+                        >
+                          ↩ 수정 전 원문
+                        </button>
+                      </div>
+                    </div>
+                  `;
                 })()}
               </div>
             ` : ''}
 
-            <div style="padding-top: 10px; border-top: 1px solid #F1E4DA;">
-              <div style="font-size: 11.5px; font-weight: 800; color: var(--text-secondary); margin-bottom: 7px;">
-                ⚡ 원클릭 빠른 편집 지시:
+            <div style="padding-top: 10px; border-top: 1px solid #F3F4F6;">
+              <div style="font-size: 11px; font-weight: 700; color: var(--text-muted); margin-bottom: 6px;">
+                자주 쓰는 편집 요청:
               </div>
-              <div style="display: flex; flex-direction: column; gap: 6px;">
-                <button type="button" class="text-action-orange" data-quick-ai-prompt="가장 최신 뉴스의 구체적인 수치(날짜, 가격, 할인율, 조회수 등)와 실제 브랜드 사례를 본문 각 단락에 더 풍부하게 보강해줘" style="text-align: left; font-size: 12px; background: #FFFFFF; border: 1px solid #FFD8A8; padding: 7px 10px; border-radius: 8px; width: 100%;">
+              <div style="display: flex; flex-direction: column; gap: 5px;">
+                <button type="button" class="text-action" data-quick-ai-prompt="가장 최신 뉴스의 구체적인 수치(날짜, 가격, 할인율 등)와 실제 브랜드 사례를 본문 각 단락에 더 보강해줘" style="text-align: left; font-size: 11.5px; color: #374151; background: #F9FAFB; border: 1px solid #E5E7EB; padding: 6px 10px; border-radius: 6px; width: 100%; font-weight: 600;">
                   + 최신 팩트·구체적 수치 보강
                 </button>
-                <button type="button" class="text-action-orange" data-quick-ai-prompt="불필요한 수식어와 반복 표현을 줄이고 핵심 팩트 중심으로 문장을 더 간결하고 읽기 쉽게 다듬어줘" style="text-align: left; font-size: 12px; background: #FFFFFF; border: 1px solid #FFD8A8; padding: 7px 10px; border-radius: 8px; width: 100%;">
+                <button type="button" class="text-action" data-quick-ai-prompt="불필요한 수식어와 반복 표현을 줄이고 핵심 팩트 중심으로 문장을 더 간결하고 읽기 쉽게 다듬어줘" style="text-align: left; font-size: 11.5px; color: #374151; background: #F9FAFB; border: 1px solid #E5E7EB; padding: 6px 10px; border-radius: 6px; width: 100%; font-weight: 600;">
                   ✂️ 문장 간결하게 다듬기
                 </button>
-                <button type="button" class="text-action-orange" data-quick-ai-prompt="독자와 소비자가 실제로 챙길 수 있는 실질적인 혜택, 신청/이용 방법, 주의사항 체크포인트를 더 구체적으로 강조해줘" style="text-align: left; font-size: 12px; background: #FFFFFF; border: 1px solid #FFD8A8; padding: 7px 10px; border-radius: 8px; width: 100%;">
+                <button type="button" class="text-action" data-quick-ai-prompt="독자와 소비자가 실제로 챙길 수 있는 실질적인 혜택, 신청/이용 방법, 주의사항 체크포인트를 더 구체적으로 강조해줘" style="text-align: left; font-size: 11.5px; color: #374151; background: #F9FAFB; border: 1px solid #E5E7EB; padding: 6px 10px; border-radius: 6px; width: 100%; font-weight: 600;">
                   🎯 소비자 실전 혜택·체크포인트 강조
                 </button>
-                <button type="button" class="text-action-orange" data-quick-ai-prompt="기사 제목과 첫 단락 도입부 질문을 독자의 클릭을 부르는 더 흥미롭고 임팩트 있는 표현으로 수정해줘" style="text-align: left; font-size: 12px; background: #FFFFFF; border: 1px solid #FFD8A8; padding: 7px 10px; border-radius: 8px; width: 100%;">
+                <button type="button" class="text-action" data-quick-ai-prompt="기사 제목과 첫 단락 도입부 질문을 독자의 클릭을 부르는 더 흥미롭고 임팩트 있는 표현으로 수정해줘" style="text-align: left; font-size: 11.5px; color: #374151; background: #F9FAFB; border: 1px solid #E5E7EB; padding: 6px 10px; border-radius: 6px; width: 100%; font-weight: 600;">
                   🔥 도입부·제목 더 매력적으로 수정
                 </button>
               </div>
@@ -6588,7 +6637,13 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
     document.getElementById('leftFetchMemoOnlyBtn')?.addEventListener('click', () => triggerLiveNewsRefresh(false));
     document.getElementById('leftRebuildDraftBtn')?.addEventListener('click', () => triggerLiveNewsRefresh(true));
 
-    // 상단 AI 실패 진단 배너의 원클릭 [⚡ Gemini 4 Argon / 🌐 Sonar-Pro로 즉시 다시 생성] 버튼 연결
+    // 왼쪽 [목차·흐름] 탭 상단의 '다른 키워드로 기사 새로 쓰기' 입력값 실시간 보존 (탭 전환 시에도 유지)
+    document.getElementById('leftSearchKwInput')?.addEventListener('input', e => { w.keyword = e.target.value; });
+    document.getElementById('leftSearchCompInput')?.addEventListener('input', e => { w.inputCompany = e.target.value; });
+    document.getElementById('leftSearchSubKwInput')?.addEventListener('input', e => { w.inputSubKeywords = e.target.value; });
+    document.getElementById('leftSearchDirectionInput')?.addEventListener('input', e => { w.inputDirection = e.target.value; });
+
+    // 상단 AI 실패 진단 배너의 원클릭 [⚡ 다시 생성] 버튼 연결
     root.querySelectorAll('[data-retry-ai-model]').forEach(btn => {
       btn.addEventListener('click', () => {
         const retryModel = btn.getAttribute('data-retry-ai-model');
@@ -6642,7 +6697,7 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
       render(true);
     });
 
-    // 취재 팩트 메모장의 [✓ 단락 0X 반영됨 (하이라이트 보기 ↘)] 클릭 시 해당 본문 단락으로 이동 & 반영 문장 형광펜 하이라이트!
+    // 취재 팩트 메모장의 [📌 단락 0X 반영됨 · 보기 ↘] 클릭 시 해당 본문 단락으로 이동 & 노란색(앰버) 하이라이트!
     root.querySelectorAll('[data-locate-memo-id]').forEach(btn => {
       btn.addEventListener('click', () => {
         const memoId = btn.getAttribute('data-locate-memo-id');
@@ -6656,7 +6711,7 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
         if (state.editorViewMode === 'preview') {
           state.editorViewMode = 'edit';
         }
-        state.activeHighlight = {
+        const memoHlObj = {
           mode: 'memo',
           memoId: memo.id,
           summary: `[${loc.label}]에 반영된 취재 팩트 문장입니다: "${memo.fact.slice(0, 48)}..."`,
@@ -6664,15 +6719,17 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
           sentencesBySecId: { [loc.secId]: loc.matchedSentences || [memo.fact] },
           tokensBySecId: { [loc.secId]: loc.matchTokens || [] }
         };
+        state.activeMemoHighlight = memoHlObj;
+        state.activeHighlight = memoHlObj;
         render(true);
         setTimeout(() => {
           flashElement(loc.targetId);
         }, 60);
-        showToast(`📍 오른쪽 본문 [${loc.label}]에서 해당 취재 팩트가 반영된 문장을 하이라이트했습니다!`);
+        showToast(`📌 오른쪽 본문 [${loc.label}]에서 취재 팩트 메모가 반영된 문장(노란색)을 표시했습니다!`);
       });
     });
 
-    // 우측 상단 AI 자연어 편집 프롬프트 실행 및 되돌리기·하이라이트 제어
+    // 우측 상단 'AI 채팅으로 기사 수정' 실행 및 되돌리기·하이라이트 제어
     const aiPromptInputEl = document.getElementById('aiNaturalPromptInput');
     aiPromptInputEl?.addEventListener('input', e => {
       state.aiPromptDraft = e.target.value;
@@ -6681,7 +6738,7 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
     async function triggerAiNaturalPromptEdit(customPrompt = '') {
       const promptVal = (customPrompt || document.getElementById('aiNaturalPromptInput')?.value || state.aiPromptDraft || '').trim();
       if (!promptVal) {
-        showToast('AI에게 요청할 기사 편집 내용을 자연어로 입력해 주세요!');
+        showToast('AI 채팅으로 수정할 내용을 입력해 주세요!');
         document.getElementById('aiNaturalPromptInput')?.focus();
         return;
       }
@@ -6699,10 +6756,10 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
         if (firstSecId) {
           setTimeout(() => flashElement(`secWrap-${firstSecId}`), 60);
         }
-        showToast(`✨ AI 편집 완료! 수정·추가된 본문 문장을 하이라이팅하고 하단 FAQ도 자동 동기화했습니다.`);
+        showToast(`💬 AI 채팅으로 기사 수정 완료! 변경 내역(파란색)과 하단 FAQ가 자동 반영되었습니다.`);
       } catch (err) {
         state.isApplyingAiEdit = false;
-        showToast(`AI 편집 중 오류가 발생했습니다: ${err.message}`);
+        showToast(`AI 채팅 수정 중 오류가 발생했습니다: ${err.message}`);
         render(true);
       }
     }
@@ -6724,7 +6781,7 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
       });
     });
 
-    // 오른쪽 사이드 AI 편집 패널에서 [제목·부제 / 단락 01~04 / 요약표 / FAQ] 클릭 시 해당 원문 위치로 스크롤 & 프롬프트 앞머리 자동 입력
+    // 오른쪽 사이드 AI 채팅 수정 패널에서 [제목 / 단락 01~04 / 요약표 / FAQ] 클릭 시 해당 원문 위치로 스크롤 & 앞머리 자동 입력
     root.querySelectorAll('[data-ai-target-jump]').forEach(btn => {
       btn.addEventListener('click', () => {
         const targetId = btn.getAttribute('data-ai-target-jump') || '';
@@ -6771,10 +6828,10 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
       }
       saveCurrentWork(true);
       render(true);
-      showToast('↩ 이전 편집 상태로 기사를 되돌렸습니다. ([➕ 생성 내용 넣기] 버튼으로 언제든 다시 넣을 수 있습니다)');
+      showToast('↩ 직전 수정 전 상태로 기사를 되돌렸습니다.');
     });
 
-    // AI 편집 생성 내용 전체 [넣기 / 빼기] 마스터 토글 (오른쪽 사이드바)
+    // AI 채팅 수정 전체 [적용 / 원문 복원] 마스터 토글 (오른쪽 사이드바)
     root.querySelectorAll('[data-ai-edit-master-toggle]').forEach(btn => {
       btn.addEventListener('click', () => {
         const mode = btn.getAttribute('data-ai-edit-master-toggle');
@@ -6791,13 +6848,13 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
         render(true);
         showToast(
           shouldApply
-            ? '➕ AI가 새로 생성한 문장과 업데이트된 하단 FAQ·한 줄 요약을 다시 넣었습니다!'
-            : '➖ AI가 새로 생성한 내용을 본문과 하단 FAQ에서 뺐습니다. ([➕ 생성 내용 넣기]로 언제든 다시 넣을 수 있습니다)'
+            ? '💬 AI 채팅으로 수정된 내용을 본문과 FAQ에 다시 적용했습니다!'
+            : '↩ AI 채팅 수정 전 원문으로 되돌렸습니다. ([✓ 수정본 적용]으로 언제든 다시 반영할 수 있습니다)'
         );
       });
     });
 
-    // 단락별 AI 생성 내용 전체 [넣기 / 빼기] 토글 (단락 하단 컨트롤 바)
+    // 단락별 AI 채팅 수정 내용 전체 [적용 / 되돌리기] 토글 (단락 하단 컨트롤 바)
     root.querySelectorAll('[data-toggle-ai-sec-all]').forEach(btn => {
       btn.addEventListener('click', () => {
         const secId = btn.getAttribute('data-toggle-ai-sec-all');
@@ -6819,8 +6876,8 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
         render(true);
         showToast(
           nextInclude
-            ? '➕ 새로 생성된 내용을 본문과 하단 FAQ에 다시 넣었습니다!'
-            : '➖ 새로 생성된 내용을 본문과 하단 FAQ에서 뺐습니다. ([➕ 새로 생성된 내용 다시 넣기]를 누르면 복원됩니다)'
+            ? '💬 AI 채팅 수정 내용을 이 단락과 FAQ에 다시 적용했습니다!'
+            : '↩ 이 단락의 AI 채팅 수정 내용을 수정 전 원문으로 되돌렸습니다.'
         );
       });
     });
@@ -6841,13 +6898,54 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
         render(true);
         showToast(
           item.included
-            ? '➕ 선택한 AI 생성 문장을 본문과 FAQ에 다시 넣었습니다!'
-            : '➖ 선택한 AI 생성 문장을 본문에서 뺐습니다. ([+ 본문에 넣기]로 언제든 다시 넣을 수 있습니다)'
+            ? '➕ 선택한 AI 채팅 추가 문장을 본문과 FAQ에 다시 넣었습니다!'
+            : '➖ 선택한 AI 채팅 추가 문장을 본문에서 뺐습니다.'
         );
       });
     });
 
-    // [하이라이트 접기 ▲ / 펼치기 ▼] 토글 (박스를 완전히 없애지 않고 접거나 펼쳐서 내용이 사라지지 않도록 유지!)
+    // 단락 하단 하이라이트 박스 내 [단락 전체 문맥에서 위치 보기 ▼] 아코디언 토글
+    root.querySelectorAll('[data-toggle-sec-context-preview]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const key = btn.getAttribute('data-toggle-sec-context-preview');
+        const box = key ? root.querySelector(`[data-sec-context-box="${key}"]`) : null;
+        if (!box) return;
+        const isHidden = box.style.display === 'none';
+        box.style.display = isHidden ? 'block' : 'none';
+        btn.textContent = isHidden ? '단락 전체 문맥 접기 ▲' : '단락 전체 문맥에서 위치 보기 ▼';
+      });
+    });
+
+    // 단락 하단 취재 메모 반영 박스 내 [본문에서 빼기] 원클릭 제거
+    root.querySelectorAll('[data-remove-memo-sent-sec]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const secId = btn.getAttribute('data-remove-memo-sent-sec');
+        const sentText = (btn.getAttribute('data-remove-memo-sent-text') || '').trim();
+        const targetSec = (w.draftSections || []).find(s => s.id === secId);
+        if (!targetSec || !sentText) return;
+        targetSec.content = (targetSec.content || '')
+          .replace(sentText, '')
+          .replace(/\n{3,}/g, '\n\n')
+          .trim();
+        (w.researchItems || []).forEach(m => {
+          if (Array.isArray(m.insertedIntoSecIds) && (m.fact || '').trim() === sentText) {
+            m.insertedIntoSecIds = m.insertedIntoSecIds.filter(id => id !== secId);
+          }
+        });
+        if (state.activeMemoHighlight?.secIds?.includes(secId)) {
+          state.activeMemoHighlight = null;
+        }
+        if (state.activeHighlight?.mode === 'memo' && state.activeHighlight?.secIds?.includes(secId)) {
+          state.activeHighlight = w.lastAiEdit || null;
+        }
+        w.factChecks = extractFactSentencesFromSections(w.draftSections, w.sources);
+        saveCurrentWork(true);
+        render(true);
+        showToast('➖ 반영했던 취재 메모 문장을 본문에서 제거했습니다.');
+      });
+    });
+
+    // [하이라이트 접기 ▲ / 펼치기 ▼] 토글
     root.querySelectorAll('[data-toggle-highlight-visibility]').forEach(btn => {
       btn.addEventListener('click', () => {
         const aiEdit = w.lastAiEdit || (state.activeHighlight?.mode === 'ai-edit' ? state.activeHighlight : null);
@@ -6856,17 +6954,13 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
           aiEdit.isHighlightVisible = !(aiEdit.isHighlightVisible !== false);
           saveCurrentWork(true);
           render(true);
-          showToast(
-            aiEdit.isHighlightVisible
-              ? '🖍️ AI 생성 문장 하이라이트 및 개별 넣기/빼기 박스를 펼쳤습니다.'
-              : '🖍️ 하이라이트 미리보기를 접었습니다. (새로 생성된 본문·FAQ 내용은 그대로 유지됩니다!)'
-          );
         }
       });
     });
 
     root.querySelectorAll('[data-clear-highlight]').forEach(btn => {
       btn.addEventListener('click', () => {
+        state.activeMemoHighlight = null;
         if (state.activeHighlight?.mode === 'memo') {
           state.activeHighlight = w.lastAiEdit || null;
         } else if (w.lastAiEdit) {
@@ -6878,7 +6972,7 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
       });
     });
 
-    // 취재 메모 [본문 반영 ->] 클릭 시 선택한 단락(또는 AI 요약)에 매경 문체 팩트 삽입 + 해당 단락 하이라이트!
+    // 취재 메모 [+ 반영] 클릭 시 선택한 단락(또는 AI 요약)에 매경 문체 팩트 삽입 + 해당 단락 노란색(앰버) 하이라이트!
     root.querySelectorAll('[data-insert-memo]').forEach(btn => {
       btn.addEventListener('click', () => {
         const id = btn.getAttribute('data-insert-memo');
@@ -6900,7 +6994,7 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
           const nextNum = (sb.aiFactSummary || []).length + 1;
           sb.aiFactSummary = sb.aiFactSummary || [];
           sb.aiFactSummary.push(`${nextNum}. ${memo.fact}`);
-          state.activeHighlight = {
+          const memoHlObj = {
             mode: 'memo',
             memoId: memo.id,
             summary: `[AI 3줄 요약]에 방금 반영된 취재 팩트 문장입니다.`,
@@ -6908,16 +7002,17 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
             sentencesBySecId: { 'ai-summary': [memo.fact] },
             tokensBySecId: {}
           };
+          state.activeMemoHighlight = memoHlObj;
           saveCurrentWork(false);
           render(true);
           flashElement('docAiSummary');
-          showToast('✓ 재가공된 팩트 문장이 오른쪽 [STEP 03 · AI 팩트 체크 요약]에 반영되었습니다!');
+          showToast('📌 취재 팩트 메모가 오른쪽 [STEP 03 · AI 팩트 체크 요약]에 반영되었습니다!');
         } else {
           const targetSec = (w.draftSections || []).find(s => s.id === targetVal) || w.draftSections?.[0];
           if (targetSec) {
             targetSec.content = (targetSec.content ? targetSec.content.trim() + '\n\n' : '') + memo.fact;
             w.factChecks = extractFactSentencesFromSections(w.draftSections, w.sources);
-            state.activeHighlight = {
+            const memoHlObj = {
               mode: 'memo',
               memoId: memo.id,
               summary: `[${targetSec.title.slice(0, 24)}...] 단락에 반영된 취재 팩트 문장입니다.`,
@@ -6925,10 +7020,11 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
               sentencesBySecId: { [targetSec.id]: [memo.fact] },
               tokensBySecId: {}
             };
+            state.activeMemoHighlight = memoHlObj;
             saveCurrentWork(false);
             render(true);
             flashElement(`secWrap-${targetSec.id}`);
-            showToast(`✓ 재가공된 팩트 문장이 오른쪽 [${targetSec.title.slice(0, 16)}...] 단락에 반영 및 하이라이트되었습니다!`);
+            showToast(`📌 취재 팩트 메모가 오른쪽 [${targetSec.title.slice(0, 16)}...] 단락에 반영(노란색 표시)되었습니다!`);
           }
         }
       });

@@ -8,22 +8,32 @@
 
 :root {
   --mk-orange: #F37021;
-  --mk-orange-light: #FFF5EE;
-  --mk-orange-border: #F6B286;
+  --mk-orange-light: #FFF7F2;
+  --mk-orange-border: #F5C29F;
   --white: #FFFFFF;
-  --bg-page: #F7F7F7;
-  --bg-subtle: #FAFAFA;
-  --text-primary: #181818;
-  --text-secondary: #525252;
-  --text-muted: #828282;
-  --border-light: #DCDCDC;
-  --status-green: #16794B;
-  --status-green-bg: #EBF7F1;
+  --bg-page: #F4F5F7;
+  --bg-subtle: #F8F9FA;
+  --text-primary: #111827;
+  --text-secondary: #4B5563;
+  --text-muted: #6B7280;
+  --border-light: #E5E7EB;
+  --status-green: #15803D;
+  --status-green-bg: #F0FDF4;
   --status-amber: #B45309;
-  --status-amber-bg: #FEF5E6;
+  --status-amber-bg: #FFFBEB;
+  /* 출처 구분 시맨틱 컬러: [AI 채팅 수정 = 블루] vs [취재 메모 반영 = 앰버/옐로우] */
+  --ai-chat: #1D4ED8;
+  --ai-chat-strong: #2563EB;
+  --ai-chat-bg: #F0F7FF;
+  --ai-chat-border: #BFDBFE;
+  --ai-chat-mark: #DBEAFE;
+  --memo-fact: #B45309;
+  --memo-fact-bg: #FFFBEB;
+  --memo-fact-border: #FDE68A;
+  --memo-fact-mark: #FEF08A;
   --radius-general: 8px;
   --radius-card: 12px;
-  --border-thin: 0.5px solid var(--border-light);
+  --border-thin: 1px solid var(--border-light);
 }
 
 * {
@@ -661,16 +671,16 @@ body {
 
 /* 기사 각 구성 블록의 단계 안내 헤더 (직관적인 편집 위계 제공) */
 .editor-block-section {
-  padding: 18px 20px;
+  padding: 20px 22px;
   border: var(--border-thin);
   border-radius: var(--radius-card);
   background-color: var(--white);
-  margin-bottom: 16px;
+  margin-bottom: 14px;
   transition: border-color 0.15s ease;
 }
 
 .editor-block-section:focus-within {
-  border-color: var(--mk-orange);
+  border-color: #CBD5E1;
 }
 
 .editor-step-header {
@@ -679,34 +689,35 @@ body {
   justify-content: space-between;
   flex-wrap: wrap;
   gap: 8px;
-  margin-bottom: 10px;
-  padding-bottom: 8px;
-  border-bottom: var(--border-thin);
+  margin-bottom: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #F1F5F9;
 }
 
 .editor-step-badge {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 800;
-  color: var(--mk-orange);
-  background-color: var(--mk-orange-light);
-  border: 0.5px solid var(--mk-orange-border);
-  padding: 2px 8px;
+  color: var(--text-primary);
+  background-color: #F3F4F6;
+  border: 1px solid #E5E7EB;
+  padding: 3px 9px;
   border-radius: 6px;
+  letter-spacing: -0.2px;
 }
 
 /* 문서 내부 클릭 편집 필드 (우측 하단 기본 리사이즈 빗금 제거 + 자동 높이 조절) */
 .doc-editable-input,
 .doc-editable-textarea {
   width: 100%;
-  border: 0.5px solid var(--border-light);
+  border: 1px solid var(--border-light);
   border-radius: var(--radius-general);
-  background-color: #FCFCFC;
+  background-color: var(--white);
   font-family: inherit;
   color: var(--text-primary);
-  padding: 8px 12px;
+  padding: 9px 12px;
   outline: none;
   resize: none;
   overflow: hidden;
@@ -715,8 +726,7 @@ body {
 
 .doc-editable-input:hover,
 .doc-editable-textarea:hover {
-  border-color: #B8B8B8;
-  background-color: var(--white);
+  border-color: #CBD5E1;
 }
 
 .doc-editable-input:focus,
