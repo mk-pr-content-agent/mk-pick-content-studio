@@ -1,5 +1,5 @@
 {
-  "updatedAt": "2026-11-06T00:49:25.621Z",
+  "updatedAt": "2026-11-06T01:24:13.090Z",
   "apiUsageStats": {
     "model": "google/gemini-4-argon",
     "totalCalls": 4,
@@ -15,6 +15,33 @@
   },
   "googleTrends": [
     {
+      "keyword": "삼성전자 주가",
+      "badge": "검색량 2000+",
+      "source": "뉴시스",
+      "pubDateShort": "검색량 2000+",
+      "verifiedPress": true,
+      "desc": "[구글 실시간 검색량 2000+ · 뉴시스] 10% 가까이 급락한 삼성전자",
+      "url": "https://www.newsis.com/view/NISI20261106_0021521479"
+    },
+    {
+      "keyword": "토스",
+      "badge": "검색량 200+",
+      "source": "구글 트렌드",
+      "pubDateShort": "검색량 200+",
+      "verifiedPress": true,
+      "desc": "[구글 실시간 검색량 200+] '토스' 관련 오늘 급상승 검색 트렌드입니다.",
+      "url": "https://news.google.com/search?q=%ED%86%A0%EC%8A%A4&hl=ko&gl=KR&ceid=KR:ko"
+    },
+    {
+      "keyword": "달러 환율",
+      "badge": "검색량 200+",
+      "source": "머니투데이",
+      "pubDateShort": "검색량 200+",
+      "verifiedPress": true,
+      "desc": "[구글 실시간 검색량 200+ · 머니투데이] '블루쓰나미'에 외환시장도 요동…원/달러 환율, 15원가량 급등 - 머니투데이",
+      "url": "https://www.mt.co.kr/economy/2026/11/06/2026110608332315358"
+    },
+    {
       "keyword": "삼전주가",
       "badge": "검색량 2000+",
       "source": "연합인포맥스",
@@ -25,29 +52,29 @@
     },
     {
       "keyword": "금값",
-      "badge": "검색량 100+",
+      "badge": "검색량 200+",
       "source": "마켓인",
-      "pubDateShort": "검색량 100+",
+      "pubDateShort": "검색량 200+",
       "verifiedPress": true,
-      "desc": "[구글 실시간 검색량 100+ · 마켓인] '블루웨이브'에 금·은 가격 회복세…구리는 ‘AI 우려'에 주춤",
+      "desc": "[구글 실시간 검색량 200+ · 마켓인] '블루웨이브'에 금·은 가격 회복세…구리는 ‘AI 우려'에 주춤",
       "url": "https://marketin.edaily.co.kr/News/ReadE?newsId=03575206645643096"
     },
     {
       "keyword": "장윤정",
-      "badge": "검색량 2000+",
+      "badge": "검색량 5000+",
       "source": "스포츠경향",
-      "pubDateShort": "검색량 2000+",
+      "pubDateShort": "검색량 5000+",
       "verifiedPress": true,
-      "desc": "[구글 실시간 검색량 2000+ · 스포츠경향] “벌써 이렇게 컸어” 장윤정, 연우·하영 남매 자랑에 ‘광대 승천’",
+      "desc": "[구글 실시간 검색량 5000+ · 스포츠경향] “벌써 이렇게 컸어” 장윤정, 연우·하영 남매 자랑에 ‘광대 승천’",
       "url": "https://sports.khan.co.kr/article/202611052015013"
     },
     {
       "keyword": "최원태",
-      "badge": "검색량 1000+",
+      "badge": "검색량 2000+",
       "source": "KBS 뉴스",
-      "pubDateShort": "검색량 1000+",
+      "pubDateShort": "검색량 2000+",
       "verifiedPress": true,
-      "desc": "[구글 실시간 검색량 1000+ · KBS 뉴스] “한국시리즈만 기다렸다” kt, 뜨거운 방망이로 기선제압",
+      "desc": "[구글 실시간 검색량 2000+ · KBS 뉴스] “한국시리즈만 기다렸다” kt, 뜨거운 방망이로 기선제압",
       "url": "https://news.kbs.co.kr/news/view.do?ncd=8703094"
     },
     {
@@ -70,39 +97,12 @@
     },
     {
       "keyword": "하이닉스 주가",
-      "badge": "검색량 1000+",
+      "badge": "검색량 2000+",
       "source": "Investing.com 한국어",
-      "pubDateShort": "검색량 1000+",
+      "pubDateShort": "검색량 2000+",
       "verifiedPress": true,
-      "desc": "[구글 실시간 검색량 1000+ · Investing.com 한국어] SK하이닉스 주가가 오늘 급락한 이유는?",
+      "desc": "[구글 실시간 검색량 2000+ · Investing.com 한국어] SK하이닉스 주가가 오늘 급락한 이유는?",
       "url": "https://kr.investing.com/news/stock-market-news/article-93CH-2160717"
-    },
-    {
-      "keyword": "바이퍼",
-      "badge": "검색량 200+",
-      "source": "OSEN",
-      "pubDateShort": "검색량 200+",
-      "verifiedPress": true,
-      "desc": "[구글 실시간 검색량 200+ · OSEN] [롤드컵] DK, '바이퍼' 앞세운 中 BLG 공세에 2세트도 패배...0-2 벼랑 끝 내몰려",
-      "url": "https://www.osen.co.kr/article/G1112905081"
-    },
-    {
-      "keyword": "나스닥 선물",
-      "badge": "검색량 100+",
-      "source": "뉴스1",
-      "pubDateShort": "검색량 100+",
-      "verifiedPress": true,
-      "desc": "[구글 실시간 검색량 100+ · 뉴스1] [속보] 美 나스닥 선물 0.15% 반등…다우·S&P500 선물은 하락",
-      "url": "https://www.news1.kr/world/international-economy/6345153"
-    },
-    {
-      "keyword": "서킷브레이커",
-      "badge": "검색량 20000+",
-      "source": "경향신문",
-      "pubDateShort": "검색량 20000+",
-      "verifiedPress": true,
-      "desc": "[구글 실시간 검색량 20000+ · 경향신문] [속보]코스피, 8% 폭락에 서킷브레이커…5000선 붕괴",
-      "url": "https://www.khan.co.kr/article/202611060908001"
     }
   ],
   "portalRetailTrends": [
@@ -115,20 +115,20 @@
       "url": "https://news.google.com/rss/articles/CBMib0FVX3lxTE1NYTFxbURLZjFHbElKVU1ST1E1dmg2UEI2NFlleWpzTVdwaXg5V0xWRkxkdl9KdzhEa0h4YTFtNWJCc1hZOFRhMGVUNUJTdFBRRlZ2MzlmMmtVTTAyZDVONWRPRnBLWVNWUHJnQlJLTdIBb0FVX3lxTE1NYTFxbURLZjFHbElKVU1ST1E1dmg2UEI2NFlleWpzTVdwaXg5V0xWRkxkdl9KdzhEa0h4YTFtNWJCc1hZOFRhMGVUNUJTdFBRRlZ2MzlmMmtVTTAyZDVONWRPRnBLWVNWUHJnQlJLTQ?oc=5"
     },
     {
-      "keyword": "이마트 쓱데이 마지막 주말 할인 먹거리 최대 반값",
-      "source": "지디넷코리아",
-      "pubDateShort": "2026-11-05",
-      "badge": "지디넷코리아 · 2026-11-05",
-      "desc": "지디넷코리아 보도에 따르면, \"이마트, 쓱데이 마지막 주말 할인…먹거리 최대 반값\" 소식이 전해지며 소비자와 업계의 관심을 모으고 있습니다.",
-      "url": "https://news.google.com/rss/articles/CBMiVkFVX3lxTE9UQXVSTXl3cGxrOExUX0JsQmpkbnQ2OUZyTlJVT09TQ2ZxSXgtUmZKekRWbW1EbUpzUi1SYjRXbm9QbXBGYVRoNWV6cmRocUhjVVN4VFln?oc=5"
-    },
-    {
       "keyword": "명품백 메고 다이소 간다 일상이 된 초저가 소비",
       "source": "이투데이",
       "pubDateShort": "2026-11-05",
       "badge": "이투데이 · 2026-11-05",
       "desc": "이투데이 보도에 따르면, \"명품백 메고 다이소 간다…일상이 된 초저가 소비\" 소식이 전해지며 소비자와 업계의 관심을 모으고 있습니다.",
       "url": "https://news.google.com/rss/articles/CBMiVEFVX3lxTFBUN0Z6eUVMempJSUQ2RERIajhLY2NxQlhOUy1BVndRblFlNk82TlJ3NnBPVGtPNHhRWXIwQW94UXRkMkN3ck55R1NEeWF2QkliSmc3cA?oc=5"
+    },
+    {
+      "keyword": "이마트 쓱데이 마지막 주말 할인 먹거리 최대 반값",
+      "source": "지디넷코리아",
+      "pubDateShort": "2026-11-05",
+      "badge": "지디넷코리아 · 2026-11-05",
+      "desc": "지디넷코리아 보도에 따르면, \"이마트, 쓱데이 마지막 주말 할인…먹거리 최대 반값\" 소식이 전해지며 소비자와 업계의 관심을 모으고 있습니다.",
+      "url": "https://news.google.com/rss/articles/CBMiVkFVX3lxTE9UQXVSTXl3cGxrOExUX0JsQmpkbnQ2OUZyTlJVT09TQ2ZxSXgtUmZKekRWbW1EbUpzUi1SYjRXbm9QbXBGYVRoNWV6cmRocUhjVVN4VFln?oc=5"
     },
     {
       "keyword": "달리프 글램 스타일링 라인 헬로키티 에디션 올리브영",
@@ -291,6 +291,14 @@
   ],
   "newsletterTrends": [
     {
+      "keyword": "유행 디저트가 부른 혈당 쓰나미",
+      "source": "하이닥",
+      "pubDateShort": "2026-11-06",
+      "category": "하이닥 · 2026-11-06",
+      "desc": "하이닥 보도에 따르면, \"유행 디저트가 부른 '혈당 쓰나미'… 2030 당뇨병 키운다\" 소식이 전해지며 소비자와 업계의 관심을 모으고 있습니다.",
+      "url": "https://news.google.com/rss/articles/CBMiakFVX3lxTE5wWTZOMnNSck51WjkxM1RYUGU0YVV5ZUFrcDJHbWM3cXNsTUU1WTI3RWJqV2FtUTBVOGVzV1ZkYkdFUkZhQkl5bjZ5dFZvZkkzRmt2dFRZVHFkTVRUYjRiZGNydEw0Y1Zkcmc?oc=5"
+    },
+    {
       "keyword": "코아팜바이오 2030 뷰티 수요 공략",
       "source": "히트뉴스",
       "pubDateShort": "2026-11-01",
@@ -361,26 +369,18 @@
       "category": "녹색경제신문 · 2026-11-03",
       "desc": "녹색경제신문 보도에 따르면, \"뷰티업계로 넘어온 ‘치이카와’ 열풍... 증정 메론빵 파우치는 품귀 현상에 웃돈까지\" 소식이 전해지며 소비자와 업계의 관심을 모으고 있습니다.",
       "url": "https://news.google.com/rss/articles/CBMiaEFVX3lxTE1lano1UHk2c0IyNGRTZXZ5Q0JkeHZISHJUVHVzcUFCdldJQjhRQVEzMjNUZ0NGXy1LYllybFZsRGRhb2UtTTFsUlUzT2RiMVRnMVM1cVA1cF9iOWxCUDZJZGhRbmhqSDZP?oc=5"
-    },
-    {
-      "keyword": "수출 1년 새 49% 급증 K-뷰티 열풍 타고",
-      "source": "문화일보",
-      "pubDateShort": "2026-11-05",
-      "category": "문화일보 · 2026-11-05",
-      "desc": "문화일보 보도에 따르면, \"“부산 화장품, 세계인의 화장대로”…수출 1년 새 49% 급증, K-뷰티 열풍 타고 해외시장 공략\" 소식이 전해지며 49% 등 구체적 지표를 기록하며 소비자와 업계의 관심을 모으고 있습니다.",
-      "url": "https://news.google.com/rss/articles/CBMiUEFVX3lxTE4xZDVOTHBUaC1rTHpXVFhORHRZWFZKWW1naW82NzBXYXh4OTFBYVdfUmtwaHJHU3lqLU00VGR2ZVY0Ym9IaHR4U0xlS2RkenNy?oc=5"
     }
   ],
   "brandPromoTrends": [
     {
-      "keyword": "투썸플레이스 겨울 시그니처 뱅쇼 재출시",
-      "company": "투썸플레이스",
+      "keyword": "G마켓 오뚜기 신제품 얼큰 북엇국라면 단독 출시",
+      "company": "G마켓",
       "sector": "식음료·외식",
-      "source": "Chosunbiz",
-      "pubDateShort": "2026-10-30",
-      "badge": "식음료·외식 · Chosunbiz",
-      "desc": "Chosunbiz 보도에 따르면, \"투썸플레이스, 겨울 시그니처 ‘뱅쇼’ 재출시… 겨울 음료 4종 선봬\" 소식이 전해지며 4종 등 구체적 지표를 기록하며 소비자와 업계의 관심을 모으고 있습니다.",
-      "url": "https://news.google.com/rss/articles/CBMihgFBVV95cUxOSWxtSUJPVDcyVFlZOVJmeGRnTDlKczZrbnhMbnBJRGJnX250STU3X0xwMUhCR0FfZXVhZlFsV1dZYWtlaXZyOHFHSmxZN2w3ekJ0NnVaTVZzYm9PVjZRNkF3a0lxamZCOWtGc211UDFrcjhzRmpqcy1LMjVCcDY3ZHJxWV9pZ9IBmgFBVV95cUxPekUwUUdlS3psc2FaM1ZTQUZEV0NnSmlITERyQ3pUM0oyYi1MUHRrdHB5T0NOSDhCeDJjVGthSzh1RzhMQklRZlFpbkpjX25mWHlJWUtrdVctMFBnV2JGMF9zd2hGamFFSldDalUwcE02Vm9XaEZWNXhEMGVublFybTdOQW9BX2NWRVF3b182aHg0MUJXSk1MT0VB?oc=5"
+      "source": "메트로신문",
+      "pubDateShort": "2026-11-03",
+      "badge": "식음료·외식 · 메트로신문",
+      "desc": "메트로신문 보도에 따르면, \"G마켓, 오뚜기 신제품 ‘얼큰 북엇국라면’ 단독 출시\" 소식이 전해지며 소비자와 업계의 관심을 모으고 있습니다.",
+      "url": "https://news.google.com/rss/articles/CBMiYEFVX3lxTE1kY1lObkhhbDdFTThOQVdsMlZmTHdILVlrbXhhZkp6UWZESVpkeVJSd01SRGJhU3p2UVAyT2VqczNqX192b0NPYjdqRzViTGNUNzhOak1hZUNWUWVNMzJZMw?oc=5"
     },
     {
       "keyword": "삼성전자 첫 출시 클립형 이어폰 갤럭시 버즈 온",
@@ -393,14 +393,14 @@
       "url": "https://news.google.com/rss/articles/CBMiZ0FVX3lxTE9rbm9ZRk1aNUVIdFpiTnBrNXUxV2dzQ2thMUpsa1NFNlhvcm1zT1p3dEJLR2twLXZGTkpVa3NMOGlhT1JiTmJ3WUtfcW4wc3NwbkgwZTFxWFMxSzhUNUJpSnF1aG9YSjDSAWxBVV95cUxPX09PM1VGNmUwR0l2d0JJQURfMGVUck1VaVR3RUt2U0RFaHZXMGF5dzdwX01vSVVRel9wMDdVaGtaR0lqWnBodWhXVG1iSWFFejFzY3J6Rzg3VDFiTXg5MHFvcWJLWlFsaFNoMks?oc=5"
     },
     {
-      "keyword": "G마켓 오뚜기 신제품 얼큰 북엇국라면 단독 출시",
-      "company": "G마켓",
-      "sector": "식음료·외식",
-      "source": "메트로신문",
-      "pubDateShort": "2026-11-03",
-      "badge": "식음료·외식 · 메트로신문",
-      "desc": "메트로신문 보도에 따르면, \"G마켓, 오뚜기 신제품 ‘얼큰 북엇국라면’ 단독 출시\" 소식이 전해지며 소비자와 업계의 관심을 모으고 있습니다.",
-      "url": "https://news.google.com/rss/articles/CBMiYEFVX3lxTE1kY1lObkhhbDdFTThOQVdsMlZmTHdILVlrbXhhZkp6UWZESVpkeVJSd01SRGJhU3p2UVAyT2VqczNqX192b0NPYjdqRzViTGNUNzhOak1hZUNWUWVNMzJZMw?oc=5"
+      "keyword": "오뚜기 신제품 판매 실적 AI가 매달 보고",
+      "company": "오뚜기",
+      "sector": "가전·IT",
+      "source": "한국경제",
+      "pubDateShort": "2026-11-04",
+      "badge": "가전·IT · 한국경제",
+      "desc": "한국경제 보도에 따르면, \"오뚜기, 신제품 판매 실적, AI가 매달 보고…임직원은 원인 분석·의사결정에 역량 집중\" 소식이 전해지며 소비자와 업계의 관심을 모으고 있습니다.",
+      "url": "https://news.google.com/rss/articles/CBMiWkFVX3lxTFBGeGFKYzNiMnFudXNVbkF3RkJYTjNFa2xLT1p5c2c0bjJ0ZlZMQWhOZzZyZUhQN3JEV1pEUFlQTWNFbkFQZXlsLWlTenF2ZTgtbTNvVFJMQmQ0UQ?oc=5"
     },
     {
       "keyword": "BC카드 가전 구독 맞춤 LG전자 프리빌리지 출시",
@@ -413,16 +413,6 @@
       "url": "https://news.google.com/rss/articles/CBMiW0FVX3lxTE9KQ2VpMzBURDR4amZYN240Wnl3LXE5UzR0UXd3VHZ0WTVWeUhRaHhJYk1PYWVvOVFYZEg4ZDVEZERFUndSN3htN3lkbUY4a0h2T0NNOUxKeGZYQkXSAWBBVV95cUxQdkVQWnBXckVDTERLdmJrT1BHTlhaS1Axb19DME1KZnp6eXA5b2RrNVZOeUNwUUU0VnpSM2w2ODBUSm03ZkxVeWVYVjc3ZVoyT3hVUWd1ZzR2Q3NrTnhZOG4?oc=5"
     },
     {
-      "keyword": "오뚜기 신제품 판매 실적 AI가 매달 보고",
-      "company": "오뚜기",
-      "sector": "가전·IT",
-      "source": "한국경제",
-      "pubDateShort": "2026-11-04",
-      "badge": "가전·IT · 한국경제",
-      "desc": "한국경제 보도에 따르면, \"오뚜기, 신제품 판매 실적, AI가 매달 보고…임직원은 원인 분석·의사결정에 역량 집중\" 소식이 전해지며 소비자와 업계의 관심을 모으고 있습니다.",
-      "url": "https://news.google.com/rss/articles/CBMiWkFVX3lxTFBGeGFKYzNiMnFudXNVbkF3RkJYTjNFa2xLT1p5c2c0bjJ0ZlZMQWhOZzZyZUhQN3JEV1pEUFlQTWNFbkFQZXlsLWlTenF2ZTgtbTNvVFJMQmQ0UQ?oc=5"
-    },
-    {
       "keyword": "농심 100% 구미 밀 쓴 구미라면축제면 한정판",
       "company": "농심",
       "sector": "식음료·외식",
@@ -431,16 +421,6 @@
       "badge": "식음료·외식 · 머니투데이",
       "desc": "머니투데이 보도에 따르면, \"농심, 100% 구미 밀 쓴 '구미라면축제면' 한정판 출시\" 소식이 전해지며 100% 등 구체적 지표를 기록하며 소비자와 업계의 관심을 모으고 있습니다.",
       "url": "https://news.google.com/rss/articles/CBMiakFVX3lxTFBWYVo2VV9xSDU4NFFTSW9GU1htX2l6a1I1cjJ1eFh5a0JIVmlVM0l5SFhiMXNjRG1JUzFNbXNYXzJkNTdmNmpqQncxcW9YM3FGSElWbzFBT0pCWlJCNXdmWkt0WDQ5Xy12YkHSAW9BVV95cUxPMEVUUGFjaWRqRGFfX0ZveFNGVkx3TUVCSS1YZXJ4TjdQbFBUak0yOTF4WFF0MktOTTQ0Q0hYZ3YxYTczdVZ4OFA5cFdmcTduSmtsdDZFX3A2UnNhdTJBQjNudVVFa3M4X0w3N0lmUW8?oc=5"
-    },
-    {
-      "keyword": "아모레퍼시픽 228K PDRN 담은 에이피 뷰티",
-      "company": "아모레퍼시픽",
-      "sector": "뷰티·패션",
-      "source": "코스인코리아닷컴",
-      "pubDateShort": "2026-11-05",
-      "badge": "뷰티·패션 · 코스인코리아닷컴",
-      "desc": "코스인코리아닷컴 보도에 따르면, \"아모레퍼시픽, 228K PDRN 담은 에이피 뷰티 크림 미스트 출시\" 소식이 전해지며 소비자와 업계의 관심을 모으고 있습니다.",
-      "url": "https://news.google.com/rss/articles/CBMiY0FVX3lxTE5TYVJ5Y09fZ2NVbFRYeThtZXhHdHlxeFRPbWhaWndsajdpYl94ekdZQWdQdmdTSG53Z3AzTGNWT3dfVk5mQUw2NFJDMHp5aTZ2R0dRaUxmajhEcnJoeU8zSFg4RQ?oc=5"
     },
     {
       "keyword": "롯데웰푸드 가나 채널별 한정판 4종 출시",
@@ -453,6 +433,16 @@
       "url": "https://news.google.com/rss/articles/CBMiYEFVX3lxTE1JS2NIcFdGU0ZNY2pnczVoOG5jYzRjSGE0MHlRdmxMZTlhU2JLYXFlMnc3OXlqVEhOVnp3bDBuR1NzczBZZjNnbGFIMGNNcDd1MnJiTi0xSVg0ckEzLTZuNdIBYEFVX3lxTE1JS2NIcFdGU0ZNY2pnczVoOG5jYzRjSGE0MHlRdmxMZTlhU2JLYXFlMnc3OXlqVEhOVnp3bDBuR1NzczBZZjNnbGFIMGNNcDd1MnJiTi0xSVg0ckEzLTZuNQ?oc=5"
     },
     {
+      "keyword": "아모레퍼시픽 228K PDRN 담은 에이피 뷰티",
+      "company": "아모레퍼시픽",
+      "sector": "뷰티·패션",
+      "source": "코스인코리아닷컴",
+      "pubDateShort": "2026-11-05",
+      "badge": "뷰티·패션 · 코스인코리아닷컴",
+      "desc": "코스인코리아닷컴 보도에 따르면, \"아모레퍼시픽, 228K PDRN 담은 에이피 뷰티 크림 미스트 출시\" 소식이 전해지며 소비자와 업계의 관심을 모으고 있습니다.",
+      "url": "https://news.google.com/rss/articles/CBMiY0FVX3lxTE5TYVJ5Y09fZ2NVbFRYeThtZXhHdHlxeFRPbWhaWndsajdpYl94ekdZQWdQdmdTSG53Z3AzTGNWT3dfVk5mQUw2NFJDMHp5aTZ2R0dRaUxmajhEcnJoeU8zSFg4RQ?oc=5"
+    },
+    {
       "keyword": "비씨카드 LG전자와 가전 구독 특화 카드 출시",
       "company": "비씨카드",
       "sector": "가전·IT",
@@ -461,6 +451,16 @@
       "badge": "가전·IT · 전자신문",
       "desc": "전자신문 보도에 따르면, \"비씨카드, LG전자와 '가전 구독' 특화 카드 출시\" 소식이 전해지며 소비자와 업계의 관심을 모으고 있습니다.",
       "url": "https://news.google.com/rss/articles/CBMiTkFVX3lxTE1JVDJUWVBVT0pmZXhHdjdOdkdPMm85dFZSRkVNdVk4QWFYQlpoS1ZaVkUycTBTQnVMQ1FjbjAtSEhuV0x0V2JkaTFTcWc1QQ?oc=5"
+    },
+    {
+      "keyword": "CU 리센느 원이와 손잡고 도시락 2종 출시",
+      "company": "CU",
+      "sector": "식음료·외식",
+      "source": "Chosunbiz",
+      "pubDateShort": "2026-11-01",
+      "badge": "식음료·외식 · Chosunbiz",
+      "desc": "Chosunbiz 보도에 따르면, \"CU, 리센느 원이와 손잡고 도시락 2종 출시\" 소식이 전해지며 2종 등 구체적 지표를 기록하며 소비자와 업계의 관심을 모으고 있습니다.",
+      "url": "https://news.google.com/rss/articles/CBMiigFBVV95cUxPSFhWMVBLOTZBZ182XzhpTVV2R1hDSHJDUzl5d3lQV21tX092cjhhQnVsVEo0Uk9xVUZScFFoa3NOWGxWWEd3Umd1cmh3T090NlhHVFN1NkpUbGVGSlJNclBRSlBKQlhvenpaT2t3MGZJREJOWnBmYzVCMjUzcWR2WGtJRGpobGY4SVHSAZ4BQVVfeXFMTU9UTXdYbXUyNERNOWNGWC1jY21aSHljTXBCcGVlMWpEcVdTN250bXRyQmdjNUdBaFZKc0Y0ZUl4bUFLRENOcGNmMFlIU1BndDdEdUVzOE1ZNkVXaGFsT2U2WW00UXNuekxzQnpGeUlQT205THl5Z25YWkV3eFIyZWR5c0p6c1ZBOGhFRHdlaVRUQ256N0NBX19POHJHZGc?oc=5"
     },
     {
       "keyword": "한강라면 맛보러 코엑스 가볼까 오뚜기 푸드위크서",
