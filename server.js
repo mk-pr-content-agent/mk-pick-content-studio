@@ -1537,23 +1537,37 @@ const requestHandler = async (req, res) => {
       });
     }
 
-    // 1. 실시간 트렌드 레이더 API (30분 스마트 캐시 적용으로 단순 웹 접속·F5 새로고침 시 API 중복 버닝 원천 차단!)
+    // 1. 실시간 트렌드 레이더 API (수동 새로고침 시에만 Perplexity 실시간 수집 · 단순 접속/F5 시 과금 0원)
     if (pathname === '/api/trends' && req.method === 'GET') {
       const db = readDb();
       const apiKey = headerKey || db.config?.perplexityApiKey || '';
       const explicitRefresh = parsedUrl.searchParams.get('refresh') === '1';
       const now = Date.now();
 
-      if (!explicitRefresh && cachedTrendRadar && now - cachedTrendTimestamp < TREND_CACHE_TTL_MS) {
-        apiUsageStats.cacheHitsOnRefresh += 1;
-        return sendJson(res, 200, {
-          ...cachedTrendRadar,
-          fromCache: true,
-          apiUsageStats
-        });
+      if (!explicitRefresh) {
+        if (!cachedTrendRadar) {
+          try {
+            const snapPath = path.join(PUBLIC_DIR, 'live-trends.json');
+            if (fs.existsSync(snapPath)) {
+              const snapRaw = JSON.parse(fs.readFileSync(snapPath, 'utf8'));
+              if (snapRaw && Array.isArray(snapRaw.shortFormTrends)) {
+                cachedTrendRadar = snapRaw;
+                cachedTrendTimestamp = snapRaw.updatedAt ? Date.parse(snapRaw.updatedAt) : now;
+              }
+            }
+          } catch (e) {}
+        }
+        if (cachedTrendRadar) {
+          apiUsageStats.cacheHitsOnRefresh += 1;
+          return sendJson(res, 200, {
+            ...cachedTrendRadar,
+            fromCache: true,
+            apiUsageStats
+          });
+        }
       }
 
-      const forcePplx = Boolean(apiKey);
+      const forcePplx = Boolean(apiKey) && explicitRefresh;
       const radar = await fetchLiveTrendRadar(apiKey, forcePplx);
       cachedTrendRadar = radar;
       cachedTrendTimestamp = now;

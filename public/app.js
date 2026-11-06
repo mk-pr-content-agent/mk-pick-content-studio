@@ -50,7 +50,7 @@
     trendLoadElapsedSec: 0,
     lastTrendLoadDurationSec: null,
     trendUpdatedAt: '',
-    trendSourceLabel: '자동 갱신 (6시간 주기)',
+    trendSourceLabel: '수동 새로고침 (접속 과금 0원)',
     homeInput: {
       keyword: '',
       company: '',
@@ -3773,7 +3773,7 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
       };
       const nowTs = Date.now();
       state.trendUpdatedAt = formatTrendTimestamp(radar.updatedAt || nowTs);
-      state.trendSourceLabel = forceRefresh ? '수동 실시간 수집' : '자동 갱신 (6시간 주기)';
+      state.trendSourceLabel = forceRefresh ? '수동 실시간 수집' : '캐시/스냅샷 즉시 로드 (과금 0원)';
       try {
         localStorage.setItem(CLIENT_TREND_CACHE_KEY, JSON.stringify({
           timestamp: nowTs,
@@ -3786,7 +3786,7 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
       let snapshotDataObj = null;
       let snapshotTs = 0;
 
-      // 1) 정적 스냅샷(./live-trends.json) 메타 확인
+      // 1) 정적 스냅샷(./live-trends.json) 메타 확인 (접속 시 과금 0원 · 0.1초 즉시 로드용)
       try {
         const snapRes = await fetch(`./live-trends.json?t=${Date.now()}`);
         if (snapRes.ok) {
@@ -3812,7 +3812,8 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
         }
       } catch (snapErr) {}
 
-      // 2) 강제 새로고침(forceRefresh === true)이 아닐 때: localStorage 캐시와 정적 스냅샷 중 더 최신이면서 6시간 이내인 데이터 우선 적용
+      // 2) [전문가 추천 수동 갱신 방식] 강제 새로고침(forceRefresh === true)이 아닐 때:
+      //    단순 접속이나 F5 새로고침 시에는 API 과금이 전혀 발생하지 않도록 localStorage 캐시와 정적 스냅샷 중 더 최신 데이터를 0.1초 만에 즉시 표시!
       if (!forceRefresh) {
         let cachedObj = null;
         try {
@@ -3821,11 +3822,8 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
         } catch (err) {}
 
         const cacheTs = Number(cachedObj?.timestamp || 0);
-        const nowTs = Date.now();
-        const isCacheFresh = cacheTs > 0 && (nowTs - cacheTs < CLIENT_TREND_TTL_MS);
-        const isSnapFresh = snapshotTs > 0 && (nowTs - snapshotTs < CLIENT_TREND_TTL_MS);
 
-        if (isCacheFresh && cacheTs >= snapshotTs && cachedObj?.data) {
+        if (cacheTs > 0 && cacheTs >= snapshotTs && cachedObj?.data) {
           state.trendRadar = {
             googleTrends: cachedObj.data.googleTrends || [],
             portalRetailTrends: cachedObj.data.portalRetailTrends || [],
@@ -3834,30 +3832,26 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
             brandPromoTrends: cachedObj.data.brandPromoTrends || []
           };
           state.trendUpdatedAt = formatTrendTimestamp(cacheTs);
-          state.trendSourceLabel = '자동 캐시 (6시간 주기)';
+          state.trendSourceLabel = '최근 수집 캐시 (접속 과금 0원)';
           loadedFromCacheOrSnapshot = true;
-        } else if (isSnapFresh && snapshotDataObj) {
+        } else if (snapshotDataObj) {
           state.trendRadar = snapshotDataObj;
-          state.trendUpdatedAt = formatTrendTimestamp(snapshotTs);
-          state.trendSourceLabel = '자동 갱신 (6시간 주기)';
+          state.trendUpdatedAt = formatTrendTimestamp(snapshotTs || Date.now());
+          state.trendSourceLabel = '공유 스냅샷 로드 (접속 과금 0원)';
           try {
             localStorage.setItem(CLIENT_TREND_CACHE_KEY, JSON.stringify({
-              timestamp: snapshotTs,
+              timestamp: snapshotTs || Date.now(),
               data: snapshotDataObj
             }));
           } catch (err) {}
           loadedFromCacheOrSnapshot = true;
-        } else if (snapshotDataObj) {
-          // 스냅샷·캐시가 모두 6시간 이상 지났을 때는 우선 화면에 스냅샷을 띄워두고 아래에서 Perplexity 실시간 자동 갱신 진행
-          state.trendRadar = snapshotDataObj;
-          state.trendUpdatedAt = formatTrendTimestamp(snapshotTs);
         }
       }
 
-      // 3) [핵심 수정] 사용자가 '↻ 실시간 트렌드 새로고침'을 눌렀거나(forceRefresh === true), 기존 데이터가 6시간 이상 경과했을 때:
-      //    정적 스냅샷에 묶이지 않고 브라우저에서 직접 Perplexity 실시간 웹 검색을 호출해 오늘 기준 최신 이슈로 즉시 갱신!
+      // 3) 사용자가 '↻ 실시간 트렌드 새로고침' 버튼을 직접 눌렀을 때만(forceRefresh === true)
+      //    브라우저에서 Perplexity 실시간 웹 검색을 호출해 오늘 기준 최신 이슈 50선으로 즉시 갱신!
       let loadedFromClientPplx = loadedFromCacheOrSnapshot;
-      if (!loadedFromClientPplx && clientKey) {
+      if ((forceRefresh || !loadedFromCacheOrSnapshot) && clientKey) {
         try {
           const pplxTrends = await fetchClientPerplexityTrends(clientKey);
           const mergedRadar = {
@@ -3872,7 +3866,7 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
             state.trendRadar = mergedRadar;
             const nowTs = Date.now();
             state.trendUpdatedAt = formatTrendTimestamp(nowTs);
-            state.trendSourceLabel = forceRefresh ? '수동 실시간 수집' : '자동 실시간 수집 (6시간 주기)';
+            state.trendSourceLabel = '수동 실시간 수집 완료';
             try {
               localStorage.setItem(CLIENT_TREND_CACHE_KEY, JSON.stringify({
                 timestamp: nowTs,
@@ -4298,13 +4292,13 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
                 </div>
               </div>
               <div class="flex-row" style="gap: 6px; flex-wrap: wrap;">
-                <a href="./mk-pick-user-guide.pdf?v=79" download="MK_Pick_GEO_콘텐츠_스튜디오_사용가이드.pdf" class="btn btn-sm btn-primary" style="text-decoration: none; font-weight: 800; padding: 5px 11px;">
+                <a href="./mk-pick-user-guide.pdf?v=80" download="MK_Pick_GEO_콘텐츠_스튜디오_사용가이드.pdf" class="btn btn-sm btn-primary" style="text-decoration: none; font-weight: 800; padding: 5px 11px;">
                   📥 PDF 다운로드
                 </a>
-                <a href="./mk-pick-user-guide.pptx?v=79" download="MK_Pick_GEO_콘텐츠_스튜디오_사용가이드.pptx" class="btn btn-sm" style="text-decoration: none; font-weight: 800; padding: 5px 11px; border-color: #CBD5E1; color: var(--text-primary);">
+                <a href="./mk-pick-user-guide.pptx?v=80" download="MK_Pick_GEO_콘텐츠_스튜디오_사용가이드.pptx" class="btn btn-sm" style="text-decoration: none; font-weight: 800; padding: 5px 11px; border-color: #CBD5E1; color: var(--text-primary);">
                   📊 PPTX 다운로드
                 </a>
-                <a href="./guide.html?v=79" target="_blank" rel="noopener noreferrer" class="btn btn-sm" style="text-decoration: none; font-weight: 700; padding: 5px 11px; color: var(--text-secondary);">
+                <a href="./guide.html?v=80" target="_blank" rel="noopener noreferrer" class="btn btn-sm" style="text-decoration: none; font-weight: 700; padding: 5px 11px; color: var(--text-secondary);">
                   새 탭 열기 ↗
                 </a>
                 <button type="button" class="btn btn-sm" id="closeGuideModalBtn" style="font-weight: 800; padding: 5px 11px;">✕ 닫기</button>
@@ -4312,9 +4306,9 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
             </div>
             <div style="flex: 1; min-height: 0; margin-top: 10px; border: 1px solid #E2E8F0; border-radius: 10px; overflow: hidden; background: #F1F5F9;">
               ${activeTab === 'slides' ? `
-                <iframe src="./guide.html?embed=1&v=79" style="width: 100%; height: 100%; border: none; display: block; background: #F1F5F9;" title="MK Pick 사용 가이드 슬라이드"></iframe>
+                <iframe src="./guide.html?embed=1&v=80" style="width: 100%; height: 100%; border: none; display: block; background: #F1F5F9;" title="MK Pick 사용 가이드 슬라이드"></iframe>
               ` : `
-                <iframe src="./mk-pick-user-guide.pdf?v=79#view=FitH" style="width: 100%; height: 100%; border: none; display: block; background: #FFFFFF;" title="MK Pick 사용 가이드 PDF"></iframe>
+                <iframe src="./mk-pick-user-guide.pdf?v=80#view=FitH" style="width: 100%; height: 100%; border: none; display: block; background: #FFFFFF;" title="MK Pick 사용 가이드 PDF"></iframe>
               `}
             </div>
           </div>
@@ -5403,16 +5397,16 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
 
           <div class="flex-row" style="padding: 8px 0; gap: 10px; flex-wrap: wrap;">
             ${state.homeDiscoveryTab === 'trends' ? `
-              <span style="font-size: 11px; font-weight: 700; color: #475569; background-color: #F1F5F9; border: 1px solid #CBD5E1; padding: 2px 8px; border-radius: 99px; white-space: nowrap;" title="접속 시 최근 수집 시각으로부터 6시간이 지났으면 자동으로 최신 보도 이슈를 새로 수집하며, 우측 새로고침 버튼을 누르면 언제든 즉시 최신화됩니다.">
-                ⏱ 갱신 주기: 6시간마다 자동 (수동 클릭 시 즉시 갱신)
+              <span style="font-size: 11px; font-weight: 700; color: #475569; background-color: #F1F5F9; border: 1px solid #CBD5E1; padding: 2px 8px; border-radius: 99px; white-space: nowrap;" title="단순 접속이나 F5 새로고침 시에는 저장된 최신 이슈를 0.1초 만에 불러와 API 비용이 발생하지 않으며, 우측 '실시간 트렌드 새로고침' 버튼을 직접 누를 때만 오늘자 최신 이슈 50선을 새로 수집합니다.">
+                ⏱ 수동 새로고침 방식 (접속 시 과금 0원 · 버튼 클릭 시 즉시 최신화)
               </span>
               ${state.lastTrendLoadDurationSec && !state.isLoadingTrends ? `
                 <span style="font-size: 11.5px; color: var(--status-green); font-weight: 700; white-space: nowrap;">
                   ✓ ${state.trendUpdatedAt ? `${escapeHtml(state.trendUpdatedAt)} 기준 업데이트` : '최근 업데이트 완료'} (${state.lastTrendLoadDurationSec}초 소요)
                 </span>
               ` : ''}
-              <button type="button" class="text-action" id="refreshTrendRadarBtn" style="${state.isLoadingTrends ? 'color: var(--mk-orange); font-weight: 800;' : ''}" title="클릭 시 캐시를 건너뛰고 오늘자 최신 보도 이슈 50선을 즉시 새로 수집합니다">
-                ${state.isLoadingTrends ? `⏳ 실시간 AI 수집 중... (${(state.trendLoadElapsedSec || 0).toFixed(1)}초 경과)` : '↻ 실시간 트렌드 새로고침 (즉시 최신화)'}
+              <button type="button" class="text-action" id="refreshTrendRadarBtn" style="${state.isLoadingTrends ? 'color: var(--mk-orange); font-weight: 800;' : ''}" title="클릭 시에만 Perplexity 실시간 웹 검색을 호출해 오늘자 최신 보도 이슈 50선을 새로 수집합니다">
+                ${state.isLoadingTrends ? `⏳ 실시간 AI 수집 중... (${(state.trendLoadElapsedSec || 0).toFixed(1)}초 경과)` : '↻ 실시간 트렌드 새로고침 (클릭 시 최신 수집)'}
               </button>
             ` : state.homeDiscoveryTab === 'calendar' ? `
               <button type="button" class="btn btn-sm btn-outline-orange" id="openIbossPopupBtn">
