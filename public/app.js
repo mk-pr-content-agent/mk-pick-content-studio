@@ -4282,39 +4282,39 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
 
     function renderGuideModalContent() {
       modalRoot.innerHTML = `
-        <div style="position: fixed; inset: 0; background: rgba(17, 24, 39, 0.55); z-index: 320; display: flex; align-items: center; justify-content: center; padding: 18px;">
-          <div class="card" style="width: 100%; max-width: 1280px; height: 90vh; margin-bottom: 0; padding: 16px 22px; display: flex; flex-direction: column;">
-            <div class="flex-between" style="padding-bottom: 12px; border-bottom: var(--border-thin); flex-wrap: wrap; gap: 10px;">
-              <div class="flex-row" style="gap: 12px;">
-                <span style="background: var(--mk-orange); color: #FFFFFF; font-size: 12px; font-weight: 800; padding: 4px 10px; border-radius: 6px;">실무 매뉴얼</span>
-                <h3 style="font-size: 17px; font-weight: 800; color: var(--text-primary);">MK Pick GEO 콘텐츠 스튜디오 — 실무자 완벽 사용 가이드</h3>
-                <div style="display: inline-flex; border: var(--border-thin); border-radius: 6px; overflow: hidden; background: var(--bg-subtle); margin-left: 8px;">
-                  <button type="button" id="guideTabSlidesBtn" style="padding: 5px 12px; font-size: 12px; font-weight: 800; border: none; cursor: pointer; background: ${activeTab === 'slides' ? 'var(--mk-orange)' : 'transparent'}; color: ${activeTab === 'slides' ? '#FFFFFF' : 'var(--text-secondary)'};">
-                    🖥️ 슬라이드(PPT) 보기
+        <div style="position: fixed; inset: 0; background: rgba(15, 23, 42, 0.52); z-index: 320; display: flex; align-items: center; justify-content: center; padding: 16px;">
+          <div class="card" style="width: 100%; max-width: 1320px; height: 92vh; margin-bottom: 0; padding: 12px 18px 16px; display: flex; flex-direction: column; border-radius: 14px;">
+            <div class="flex-between" style="padding-bottom: 10px; border-bottom: 1px solid #E2E8F0; flex-wrap: wrap; gap: 10px;">
+              <div class="flex-row" style="gap: 10px; flex-wrap: wrap;">
+                <span style="background: var(--mk-orange); color: #FFFFFF; font-size: 11.5px; font-weight: 800; padding: 3px 9px; border-radius: 5px;">사용 가이드</span>
+                <h3 style="font-size: 16px; font-weight: 800; color: var(--text-primary); letter-spacing: -0.3px;">MK Pick 콘텐츠 스튜디오 실무 매뉴얼</h3>
+                <div style="display: inline-flex; border: 1px solid #E2E8F0; border-radius: 7px; padding: 2px; background: #F8FAFC; margin-left: 4px;">
+                  <button type="button" id="guideTabSlidesBtn" style="padding: 4px 11px; font-size: 12px; font-weight: 800; border: none; border-radius: 5px; cursor: pointer; font-family: inherit; background: ${activeTab === 'slides' ? 'var(--mk-orange)' : 'transparent'}; color: ${activeTab === 'slides' ? '#FFFFFF' : 'var(--text-secondary)'};">
+                    🖥️ 슬라이드 보기
                   </button>
-                  <button type="button" id="guideTabPdfBtn" style="padding: 5px 12px; font-size: 12px; font-weight: 800; border: none; cursor: pointer; background: ${activeTab === 'pdf' ? 'var(--mk-orange)' : 'transparent'}; color: ${activeTab === 'pdf' ? '#FFFFFF' : 'var(--text-secondary)'};">
-                    📄 PDF 원본 보기
+                  <button type="button" id="guideTabPdfBtn" style="padding: 4px 11px; font-size: 12px; font-weight: 800; border: none; border-radius: 5px; cursor: pointer; font-family: inherit; background: ${activeTab === 'pdf' ? 'var(--mk-orange)' : 'transparent'}; color: ${activeTab === 'pdf' ? '#FFFFFF' : 'var(--text-secondary)'};">
+                    📄 PDF 보기
                   </button>
                 </div>
               </div>
-              <div class="flex-row" style="gap: 8px;">
-                <a href="./mk-pick-user-guide.pdf" download="MK_Pick_GEO_콘텐츠_스튜디오_사용가이드.pdf" class="btn btn-sm btn-primary" style="text-decoration: none; font-weight: 800;">
+              <div class="flex-row" style="gap: 6px; flex-wrap: wrap;">
+                <a href="./mk-pick-user-guide.pdf?v=79" download="MK_Pick_GEO_콘텐츠_스튜디오_사용가이드.pdf" class="btn btn-sm btn-primary" style="text-decoration: none; font-weight: 800; padding: 5px 11px;">
                   📥 PDF 다운로드
                 </a>
-                <a href="./mk-pick-user-guide.pptx" download="MK_Pick_GEO_콘텐츠_스튜디오_사용가이드.pptx" class="btn btn-sm" style="text-decoration: none; font-weight: 800; border-color: var(--mk-orange); color: var(--mk-orange);">
+                <a href="./mk-pick-user-guide.pptx?v=79" download="MK_Pick_GEO_콘텐츠_스튜디오_사용가이드.pptx" class="btn btn-sm" style="text-decoration: none; font-weight: 800; padding: 5px 11px; border-color: #CBD5E1; color: var(--text-primary);">
                   📊 PPTX 다운로드
                 </a>
-                <a href="./guide.html" target="_blank" rel="noopener noreferrer" class="btn btn-sm" style="text-decoration: none; font-weight: 700;">
-                  새 탭에서 크게 열기 ↗
+                <a href="./guide.html?v=79" target="_blank" rel="noopener noreferrer" class="btn btn-sm" style="text-decoration: none; font-weight: 700; padding: 5px 11px; color: var(--text-secondary);">
+                  새 탭 열기 ↗
                 </a>
-                <button type="button" class="btn btn-sm" id="closeGuideModalBtn" style="font-weight: 800;">✕ 닫기</button>
+                <button type="button" class="btn btn-sm" id="closeGuideModalBtn" style="font-weight: 800; padding: 5px 11px;">✕ 닫기</button>
               </div>
             </div>
-            <div style="flex: 1; min-height: 0; margin-top: 12px; border: var(--border-thin); border-radius: var(--radius-general); overflow: hidden; background: #F4F5F7;">
+            <div style="flex: 1; min-height: 0; margin-top: 10px; border: 1px solid #E2E8F0; border-radius: 10px; overflow: hidden; background: #F1F5F9;">
               ${activeTab === 'slides' ? `
-                <iframe src="./guide.html" style="width: 100%; height: 100%; border: none; display: block; background: #FFFFFF;" title="MK Pick 사용 가이드 슬라이드"></iframe>
+                <iframe src="./guide.html?embed=1&v=79" style="width: 100%; height: 100%; border: none; display: block; background: #F1F5F9;" title="MK Pick 사용 가이드 슬라이드"></iframe>
               ` : `
-                <iframe src="./mk-pick-user-guide.pdf#view=FitH" style="width: 100%; height: 100%; border: none; display: block; background: #FFFFFF;" title="MK Pick 사용 가이드 PDF"></iframe>
+                <iframe src="./mk-pick-user-guide.pdf?v=79#view=FitH" style="width: 100%; height: 100%; border: none; display: block; background: #FFFFFF;" title="MK Pick 사용 가이드 PDF"></iframe>
               `}
             </div>
           </div>

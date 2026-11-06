@@ -3,27 +3,33 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>MK Pick GEO 콘텐츠 스튜디오 — 실무자 완벽 사용 가이드</title>
-  <link rel="icon" type="image/png" sizes="32x32" href="./favicon-32x32.png?v=42" />
-  <link rel="icon" type="image/png" sizes="256x256" href="./favicon.png?v=42" />
-  <link rel="shortcut icon" href="./favicon.ico?v=42" />
+  <title>MK Pick 콘텐츠 스튜디오 — 실무 사용 가이드</title>
+  <link rel="icon" type="image/png" sizes="32x32" href="./favicon-32x32.png?v=79" />
+  <link rel="icon" type="image/png" sizes="256x256" href="./favicon.png?v=79" />
+  <link rel="shortcut icon" href="./favicon.ico?v=79" />
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css" />
   <style>
     :root {
       --mk-orange: #F37021;
-      --mk-orange-light: #FFF3EB;
-      --mk-orange-mid: #FDE2CE;
+      --mk-orange-dark: #D95E16;
+      --mk-orange-light: #FFF4EC;
+      --mk-orange-border: #FBD5B5;
       --white: #FFFFFF;
-      --bg-page: #F4F5F7;
-      --bg-subtle: #F8F9FA;
-      --text-primary: #111827;
-      --text-secondary: #4B5563;
-      --text-muted: #6B7280;
-      --border-color: #DCDCDC;
-      --green: #146C43;
-      --green-bg: #EAF6F0;
-      --amber: #996500;
-      --amber-bg: #FFF8E6;
+      --bg-page: #F1F5F9;
+      --bg-subtle: #F8FAFC;
+      --text-primary: #0F172A;
+      --text-secondary: #334155;
+      --text-muted: #64748B;
+      --border-color: #E2E8F0;
+      --green: #15803D;
+      --green-bg: #F0FDF4;
+      --green-border: #BBF7D0;
+      --blue: #1D4ED8;
+      --blue-bg: #EFF6FF;
+      --blue-border: #BFDBFE;
+      --amber: #B45309;
+      --amber-bg: #FFFBEB;
+      --amber-border: #FDE68A;
     }
 
     * {
@@ -41,67 +47,140 @@
       print-color-adjust: exact;
     }
 
-    /* 화면 상단 슬라이드 컨트롤 바 (인쇄/PDF 변환 시 숨김) */
+    /* ===================================================================
+       상단 네비게이션 바 (모달 임베드 시 중복 제목·중복 다운로드 버튼 자동 숨김 + 깔끔한 1줄 고정)
+       =================================================================== */
     .guide-toolbar {
       position: sticky;
       top: 0;
       z-index: 100;
-      background-color: var(--white);
+      background-color: rgba(255, 255, 255, 0.98);
+      backdrop-filter: blur(8px);
       border-bottom: 1px solid var(--border-color);
-      padding: 10px 24px;
+      padding: 7px 18px;
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 12px;
-      flex-wrap: wrap;
+      gap: 8px;
+      flex-wrap: nowrap;
     }
 
     .toolbar-left {
       display: flex;
       align-items: center;
-      gap: 10px;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    .toolbar-brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding-right: 10px;
+      border-right: 1px solid var(--border-color);
     }
 
     .toolbar-badge {
       background-color: var(--mk-orange);
       color: var(--white);
-      font-size: 11.5px;
+      font-size: 11px;
       font-weight: 800;
-      padding: 4px 9px;
-      border-radius: 6px;
+      padding: 3px 8px;
+      border-radius: 5px;
+      letter-spacing: -0.2px;
     }
 
     .toolbar-title {
-      font-size: 15px;
+      font-size: 14px;
       font-weight: 800;
       color: var(--text-primary);
+      letter-spacing: -0.3px;
+    }
+
+    /* 챕터 빠른 이동 탭 알약 */
+    .chapter-pills {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      background-color: var(--bg-subtle);
+      padding: 3px;
+      border-radius: 8px;
+      border: 1px solid var(--border-color);
+    }
+
+    .chapter-pill {
+      border: none;
+      background: transparent;
+      color: var(--text-secondary);
+      font-family: inherit;
+      font-size: 11.5px;
+      font-weight: 700;
+      padding: 4px 9px;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.12s ease;
+      white-space: nowrap;
+    }
+
+    .chapter-pill:hover {
+      color: var(--mk-orange);
+      background-color: var(--white);
+    }
+
+    .chapter-pill.active {
+      background-color: var(--mk-orange);
+      color: var(--white);
+      font-weight: 800;
     }
 
     .toolbar-nav {
       display: flex;
       align-items: center;
       gap: 6px;
-      flex-wrap: wrap;
+      flex-wrap: nowrap;
+      flex-shrink: 0;
     }
 
-    .nav-btn {
-      padding: 6px 12px;
-      font-size: 12.5px;
+    .slide-jump-select {
+      padding: 5px 8px;
+      font-family: inherit;
+      font-size: 11.5px;
       font-weight: 700;
-      border: 0.5px solid var(--border-color);
+      border: 1px solid var(--border-color);
       border-radius: 6px;
       background-color: var(--white);
       color: var(--text-primary);
+      cursor: pointer;
+      outline: none;
+      max-width: 290px;
+    }
+
+    .slide-jump-select:focus {
+      border-color: var(--mk-orange);
+    }
+
+    .nav-btn {
+      padding: 5px 10px;
+      font-family: inherit;
+      font-size: 12px;
+      font-weight: 700;
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      background-color: var(--white);
+      color: var(--text-secondary);
       cursor: pointer;
       text-decoration: none;
       display: inline-flex;
       align-items: center;
       gap: 4px;
+      transition: all 0.12s ease;
+      white-space: nowrap;
     }
 
     .nav-btn:hover {
       border-color: var(--mk-orange);
       color: var(--mk-orange);
+      background-color: var(--mk-orange-light);
     }
 
     .nav-btn.primary {
@@ -111,23 +190,37 @@
       font-weight: 800;
     }
 
-    .slide-Jump-select {
-      padding: 6px 10px;
-      font-size: 12.5px;
-      font-weight: 700;
-      border: 0.5px solid var(--border-color);
-      border-radius: 6px;
-      background-color: var(--bg-subtle);
-      color: var(--text-primary);
+    .nav-btn.primary:hover {
+      background-color: var(--mk-orange-dark);
+      color: var(--white);
     }
 
-    /* 16:9 와이드스크린 PPT 슬라이드 컨테이너 */
+    .toolbar-downloads {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    /* 모달(iframe?embed=1) 내부에서 열릴 때는 상단 중복 제목과 중복 다운로드 버튼을 숨기고 깔끔한 1줄 네비게이션만 노출 */
+    body.is-embedded .toolbar-brand,
+    body.is-embedded .toolbar-downloads {
+      display: none !important;
+    }
+
+    body.is-embedded .guide-toolbar {
+      padding: 6px 16px;
+      background-color: #F8FAFC;
+    }
+
+    /* ===================================================================
+       16:9 와이드스크린 슬라이드 덱 레이아웃
+       =================================================================== */
     .deck-wrapper {
       max-width: 1280px;
-      margin: 20px auto 40px;
+      margin: 16px auto 36px;
       display: flex;
       flex-direction: column;
-      gap: 24px;
+      gap: 22px;
       padding: 0 16px;
     }
 
@@ -137,8 +230,9 @@
       margin: 0 auto;
       background-color: var(--white);
       border: 1px solid var(--border-color);
-      border-radius: 12px;
-      padding: 28px 34px 22px;
+      border-radius: 14px;
+      box-shadow: 0 4px 16px rgba(15, 23, 42, 0.04);
+      padding: 24px 32px 18px;
       display: flex;
       flex-direction: column;
       justify-content: space-between;
@@ -148,31 +242,46 @@
       break-after: page;
     }
 
+    /* 슬라이드 상단 헤더 (훨씬 정돈되고 깔끔한 스타일) */
     .slide-header {
       display: flex;
-      align-items: flex-start;
+      align-items: center;
       justify-content: space-between;
       gap: 16px;
       padding-bottom: 12px;
-      border-bottom: 2px solid var(--mk-orange);
+      border-bottom: 1.5px solid #E2E8F0;
       margin-bottom: 14px;
       flex-shrink: 0;
     }
 
+    .slide-header-left {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+
+    .slide-title-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
     .slide-step-tag {
-      display: inline-block;
+      display: inline-flex;
+      align-items: center;
       font-size: 11px;
       font-weight: 800;
       color: var(--mk-orange);
       background-color: var(--mk-orange-light);
-      border: 0.5px solid var(--mk-orange-mid);
+      border: 1px solid var(--mk-orange-border);
       padding: 2px 8px;
-      border-radius: 4px;
-      margin-bottom: 4px;
+      border-radius: 5px;
+      letter-spacing: -0.2px;
     }
 
     .slide-title {
-      font-size: 21px;
+      font-size: 20px;
       font-weight: 800;
       color: var(--text-primary);
       letter-spacing: -0.4px;
@@ -180,30 +289,32 @@
 
     .slide-subtitle {
       font-size: 12.5px;
-      color: var(--text-secondary);
-      margin-top: 2px;
+      color: var(--text-muted);
+      font-weight: 500;
     }
 
     .slide-page-num {
-      font-size: 12px;
+      font-size: 11.5px;
       font-weight: 800;
-      color: var(--text-muted);
+      color: var(--text-secondary);
       background-color: var(--bg-subtle);
-      border: 0.5px solid var(--border-color);
-      padding: 4px 10px;
-      border-radius: 6px;
+      border: 1px solid var(--border-color);
+      padding: 4px 11px;
+      border-radius: 99px;
       white-space: nowrap;
+      flex-shrink: 0;
     }
 
+    /* 슬라이드 본문 그리드 */
     .slide-body {
       flex: 1;
       min-height: 0;
       display: grid;
-      gap: 18px;
+      gap: 16px;
     }
 
     .slide-body.two-col {
-      grid-template-columns: 1.15fr 1fr;
+      grid-template-columns: 1.12fr 1fr;
     }
 
     .slide-body.two-col-equal {
@@ -214,11 +325,12 @@
       grid-template-columns: repeat(3, 1fr);
     }
 
+    /* 스크린샷 프레임 */
     .screenshot-box {
       border: 1px solid var(--border-color);
-      border-radius: 8px;
+      border-radius: 10px;
       background-color: var(--bg-subtle);
-      padding: 6px;
+      padding: 8px;
       display: flex;
       flex-direction: column;
       justify-content: center;
@@ -230,10 +342,10 @@
     .screenshot-box img {
       width: 100%;
       height: 100%;
-      max-height: 530px;
+      max-height: 520px;
       object-fit: contain;
-      border-radius: 4px;
-      border: 0.5px solid #E5E7EB;
+      border-radius: 6px;
+      border: 1px solid #E2E8F0;
       background-color: var(--white);
     }
 
@@ -241,10 +353,11 @@
       font-size: 11px;
       font-weight: 700;
       color: var(--text-muted);
-      margin-top: 5px;
+      margin-top: 6px;
       text-align: center;
     }
 
+    /* 우측 설명 카드 리스트 */
     .guide-list {
       display: flex;
       flex-direction: column;
@@ -253,9 +366,9 @@
     }
 
     .guide-item {
-      border: 0.5px solid var(--border-color);
-      border-radius: 8px;
-      padding: 9px 12px;
+      border: 1px solid var(--border-color);
+      border-radius: 10px;
+      padding: 10px 13px;
       background-color: var(--white);
       display: flex;
       align-items: flex-start;
@@ -263,17 +376,17 @@
     }
 
     .guide-item.highlight {
-      background-color: var(--mk-orange-light);
-      border-color: var(--mk-orange);
+      background-color: #FFF9F5;
+      border-color: var(--mk-orange-border);
     }
 
     .num-circle {
       width: 22px;
       height: 22px;
-      border-radius: 50%;
+      border-radius: 6px;
       background-color: var(--mk-orange);
       color: var(--white);
-      font-size: 12px;
+      font-size: 11.5px;
       font-weight: 800;
       display: inline-flex;
       align-items: center;
@@ -286,41 +399,118 @@
       font-size: 13px;
       font-weight: 800;
       color: var(--text-primary);
-      margin-bottom: 2px;
+      margin-bottom: 3px;
+      letter-spacing: -0.2px;
     }
 
     .guide-item-desc {
       font-size: 11.8px;
       color: var(--text-secondary);
-      line-height: 1.45;
+      line-height: 1.48;
     }
 
+    /* 인라인 UI 배지 */
     .ui-pill {
       display: inline-block;
       padding: 1px 6px;
-      font-size: 11px;
+      font-size: 10.8px;
       font-weight: 800;
       border-radius: 4px;
       background-color: var(--mk-orange-light);
       color: var(--mk-orange);
-      border: 0.5px solid var(--mk-orange-mid);
+      border: 1px solid var(--mk-orange-border);
+      white-space: nowrap;
     }
 
     .ui-pill.green {
       background-color: var(--green-bg);
       color: var(--green);
-      border-color: #8FD4B2;
+      border-color: var(--green-border);
+    }
+
+    .ui-pill.blue {
+      background-color: var(--blue-bg);
+      color: var(--blue);
+      border-color: var(--blue-border);
     }
 
     .ui-pill.amber {
       background-color: var(--amber-bg);
       color: var(--amber);
-      border-color: #F5D487;
+      border-color: var(--amber-border);
+    }
+
+    /* Slide 01 전용 요약 그리드 */
+    .kpi-strip {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+    }
+
+    .kpi-card {
+      background-color: var(--bg-subtle);
+      border: 1px solid var(--border-color);
+      border-radius: 10px;
+      padding: 12px 14px;
+    }
+
+    .kpi-card.orange {
+      background-color: #FFF9F5;
+      border-color: var(--mk-orange-border);
+    }
+
+    .kpi-tag {
+      font-size: 11px;
+      font-weight: 800;
+      color: var(--mk-orange);
+      margin-bottom: 4px;
+    }
+
+    .kpi-title {
+      font-size: 13.5px;
+      font-weight: 800;
+      color: var(--text-primary);
+      margin-bottom: 3px;
+      letter-spacing: -0.2px;
+    }
+
+    .kpi-desc {
+      font-size: 11.3px;
+      color: var(--text-secondary);
+      line-height: 1.42;
+    }
+
+    .workflow-card {
+      border: 1px solid var(--border-color);
+      border-radius: 10px;
+      padding: 16px 18px;
+      background-color: var(--white);
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .workflow-card-head {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid #F1F5F9;
+    }
+
+    .workflow-list {
+      font-size: 12px;
+      color: var(--text-secondary);
+      padding-left: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 7px;
+      line-height: 1.48;
     }
 
     .slide-footer {
       padding-top: 8px;
-      border-top: 0.5px solid var(--border-color);
+      border-top: 1px solid #F1F5F9;
       display: flex;
       align-items: center;
       justify-content: space-between;
@@ -332,15 +522,15 @@
     .table-compact {
       width: 100%;
       border-collapse: collapse;
-      font-size: 11.5px;
+      font-size: 11.4px;
     }
 
     .table-compact th,
     .table-compact td {
-      border: 0.5px solid var(--border-color);
-      padding: 7px 9px;
+      border: 1px solid var(--border-color);
+      padding: 6.5px 9px;
       text-align: left;
-      vertical-align: top;
+      vertical-align: middle;
     }
 
     .table-compact th {
@@ -371,128 +561,151 @@
         height: 720px;
         border: none;
         border-radius: 0;
+        box-shadow: none;
         margin: 0;
-        padding: 32px 40px 24px;
+        padding: 28px 36px 20px;
       }
     }
   </style>
 </head>
 <body>
+  <script>
+    if (window.location.search.includes('embed=1') || window.self !== window.top) {
+      document.body.classList.add('is-embedded');
+    }
+  </script>
 
-  <!-- 상단 컨트롤 바 -->
+  <!-- 깔끔하게 정돈된 1줄 컨트롤 네비게이션 바 -->
   <div class="guide-toolbar">
     <div class="toolbar-left">
-      <span class="toolbar-badge">실무 매뉴얼 v0.5</span>
-      <span class="toolbar-title">MK Pick GEO 콘텐츠 스튜디오 — 실무자 완벽 사용 가이드 (총 12슬라이드)</span>
+      <div class="toolbar-brand">
+        <span class="toolbar-badge">실무 매뉴얼</span>
+        <span class="toolbar-title">MK Pick 콘텐츠 스튜디오 사용 가이드</span>
+      </div>
+      <div class="chapter-pills" role="navigation" aria-label="챕터 빠른 이동">
+        <button type="button" class="chapter-pill active" data-jump-slide="slide-1">전체 요약 (01)</button>
+        <button type="button" class="chapter-pill" data-jump-slide="slide-2">1부 · 홈 & 트렌드 발굴 (02~06)</button>
+        <button type="button" class="chapter-pill" data-jump-slide="slide-7">2부 · 편집 & 유사도·팩트 검증 (07~11)</button>
+        <button type="button" class="chapter-pill" data-jump-slide="slide-12">3부 · AI 채팅 수정 & 출고 (12)</button>
+      </div>
     </div>
+
     <div class="toolbar-nav">
-      <select id="slideJumpSelect" class="slide-Jump-select" aria-label="슬라이드 바로가기">
-        <option value="slide-1">01. 표지 & 전체 제작 워크플로우 3단계</option>
-        <option value="slide-2">02. [1부 홈 화면] 전체 구조 한눈에 보기</option>
-        <option value="slide-3">03. [홈 화면 ①] 새 기사 초안 만들기 & 5대 콘텐츠 유형</option>
-        <option value="slide-4">04. [홈 화면 ②] 실시간 트렌드 추천 10선 발굴 및 초안 생성</option>
-        <option value="slide-5">05. [홈 화면 ③] 2026 월별 마케팅 캘린더 & 작업 보관함</option>
-        <option value="slide-6">06. [공통 상단] Perplexity API 연동 · 과금 모니터 & 팀 공유</option>
-        <option value="slide-7">07. [2부 편집 화면] 전체 화면 구성 & 상단 고정 액션 바</option>
-        <option value="slide-8">08. [편집 화면 ①] 좌측 패널 1번 탭 : 📝 취재·메모 활용법</option>
-        <option value="slide-9">09. [편집 화면 ②] 좌측 패널 2번 탭(점검·팩트) & 3번 탭(목차·흐름)</option>
-        <option value="slide-10">10. [편집 화면 ③] 우측 에디터 상단 STEP 01 ~ STEP 05 기능</option>
-        <option value="slide-11">11. [편집 화면 ④] 우측 에디터 하단 STEP 06 ~ STEP 08 기능</option>
-        <option value="slide-12">12. [최종 출고] 👁️ 실제 기사 미리보기 & 실무 FAQ 총정리</option>
+      <select id="slideJumpSelect" class="slide-jump-select" aria-label="슬라이드 바로가기">
+        <option value="slide-1">01. 한눈에 보는 전체 제작 흐름 & 핵심 기능</option>
+        <option value="slide-2">02. [홈 화면] 전체 구조 한눈에 보기</option>
+        <option value="slide-3">03. [홈 ①] 새 기사 초안 만들기 (서브키워드·기획방향·5대 관점)</option>
+        <option value="slide-4">04. [홈 ②] 실시간 트렌드 50선 (5대 탭 · 6시간 자동 갱신)</option>
+        <option value="slide-5">05. [홈 ③] 2026 마케팅 캘린더 & 최근 작업 기사 보관함</option>
+        <option value="slide-6">06. [상단 공통] 하이브리드 집필 AI 선택 · 과금 모니터 & 팀 공유</option>
+        <option value="slide-7">07. [편집 화면] 3단 레이아웃 전체 구성 & 상단 고정 액션 바</option>
+        <option value="slide-8">08. [편집 ①] 좌측 취재·메모장 & 본문 1:1 문장 비교 박스</option>
+        <option value="slide-9">09. [편집 ②] 좌측 점검·팩트 (독창성·기보도 유사도 검증 & 팩트체크)</option>
+        <option value="slide-10">10. [편집 ③] 중앙 에디터 상단 STEP 01~05 (도입부 ON/OFF · 본문)</option>
+        <option value="slide-11">11. [편집 ④] 중앙 에디터 하단 STEP 06~08 (요약표 · 용어사전 · FAQ)</option>
+        <option value="slide-12">12. [최종 출고] 우측 AI 채팅 부분 수정 · 버전 히스토리 & CMS 복사</option>
       </select>
-      <a href="./mk-pick-user-guide.pdf" download="MK_Pick_GEO_콘텐츠_스튜디오_사용가이드.pdf" class="nav-btn primary">
-        📥 PDF 파일 다운로드
-      </a>
-      <a href="./mk-pick-user-guide.pptx" download="MK_Pick_GEO_콘텐츠_스튜디오_사용가이드.pptx" class="nav-btn">
-        📊 PPTX 파일 다운로드
-      </a>
-      <button type="button" class="nav-btn" onclick="window.print()">🖨️ 인쇄 / PDF 저장</button>
+      <button type="button" class="nav-btn" id="prevSlideBtn" title="이전 슬라이드">◀ 이전</button>
+      <button type="button" class="nav-btn" id="nextSlideBtn" title="다음 슬라이드">다음 ▶</button>
+      <button type="button" class="nav-btn" onclick="window.print()">🖨️ 인쇄</button>
+      <div class="toolbar-downloads">
+        <a href="./mk-pick-user-guide.pdf" download="MK_Pick_GEO_콘텐츠_스튜디오_사용가이드.pdf" class="nav-btn primary">📥 PDF 다운로드</a>
+        <a href="./mk-pick-user-guide.pptx" download="MK_Pick_GEO_콘텐츠_스튜디오_사용가이드.pptx" class="nav-btn">📊 PPTX 다운로드</a>
+      </div>
     </div>
   </div>
 
   <div class="deck-wrapper">
 
     <!-- ===================================================================
-         SLIDE 01: 표지 & 전체 제작 워크플로우 3단계 요약
+         SLIDE 01: 한눈에 보는 전체 제작 흐름 & 최신 핵심 기능 요약
          =================================================================== -->
     <section class="slide" id="slide-1">
       <div class="slide-header">
-        <div>
-          <span class="slide-step-tag">OVERVIEW · 매일경제 AX TF 콘텐츠PR그룹</span>
-          <h1 class="slide-title">MK Pick GEO 콘텐츠 스튜디오 — 실무자 완벽 사용 가이드</h1>
-          <p class="slide-subtitle">처음 접속하는 실무자도 이 문서 하나로 트렌드 발굴부터 GEO·AEO 최적화 기사 작성, 팩트체크, CMS 등록까지 5분 안에 끝낼 수 있습니다.</p>
+        <div class="slide-header-left">
+          <div class="slide-title-row">
+            <span class="slide-step-tag">OVERVIEW · 빠른 시작 요약</span>
+            <h1 class="slide-title">한눈에 보는 MK Pick 콘텐츠 제작 3단계 워크플로우</h1>
+          </div>
+          <p class="slide-subtitle">실시간 뉴스 팩트 수집부터 GEO·AEO 최적화 기사 집필, 원문·기보도 유사도 검증, AI 채팅 부분 수정, CMS 출고까지 한 화면에서 완결합니다.</p>
         </div>
-        <span class="slide-page-num">SLIDE 01 / 12</span>
+        <span class="slide-page-num">01 / 12</span>
       </div>
 
-      <div class="slide-body" style="grid-template-columns: 1fr; gap: 16px;">
-        <!-- 상단 배너 박스 -->
-        <div style="background-color: var(--mk-orange-light); border: 1px solid var(--mk-orange); border-radius: 10px; padding: 18px 24px; display: flex; align-items: center; justify-content: space-between; gap: 20px;">
-          <div>
-            <div style="font-size: 12px; font-weight: 800; color: var(--mk-orange); margin-bottom: 4px;">왜 'MK Pick GEO 콘텐츠 스튜디오'를 사용하나요?</div>
-            <div style="font-size: 16.5px; font-weight: 800; color: var(--text-primary); margin-bottom: 6px;">
-              퍼플렉시티·챗GPT·구글 AI 오버뷰·네이버 큐(Cue:)가 가장 먼저 인용하는 '표준 구조화 기사'를 자동 생성합니다
-            </div>
-            <div style="font-size: 12.5px; color: var(--text-secondary);">
-              타 언론사 기사 문장을 그대로 베끼지 않고 핵심 수치·일정·브랜드 팩트만 추출하여 <strong>매일경제 고유의 경어체("~합니다/습니다")</strong>와 <strong>8단계 표준 구조(인용구 제목 · 3줄 요약 · 질문형 소제목 · 비교 요약표 · 자연어 FAQ · 한 줄 요약)</strong>로 즉시 재가공합니다.
-            </div>
+      <div class="slide-body" style="grid-template-columns: 1fr; gap: 14px;">
+        <!-- 최신 4대 핵심 엔진 요약 바 -->
+        <div class="kpi-strip">
+          <div class="kpi-card orange">
+            <div class="kpi-tag">01 · 하이브리드 AI 파이프라인</div>
+            <div class="kpi-title">Perplexity 검색 × 5대 집필 AI</div>
+            <div class="kpi-desc">1단계 <code>sonar-pro</code>가 최신 뉴스·원문 링크를 수집하고, 2단계 선택 모델(Gemini 4 / GPT-5 / Claude)이 매거진 문체로 집필합니다.</div>
           </div>
-          <div style="background: var(--white); border: 1px solid var(--mk-orange-mid); border-radius: 8px; padding: 12px 16px; min-width: 240px; text-align: center;">
-            <div style="font-size: 11px; font-weight: 800; color: var(--text-muted);">평균 기사 초안 완성 시간</div>
-            <div style="font-size: 24px; font-weight: 800; color: var(--mk-orange); margin: 2px 0;">약 15초</div>
-            <div style="font-size: 11px; color: var(--text-secondary);">실시간 뉴스 + Perplexity AI 연동 기준</div>
+          <div class="kpi-card">
+            <div class="kpi-tag">02 · 실시간 트렌드 레이더 50선</div>
+            <div class="kpi-title">5대 탭 · 6시간 주기 자동 갱신</div>
+            <div class="kpi-desc">브랜드 신상·쇼츠·MZ·포털·구글 5개 탭(50선)이 6시간마다 자동 갱신되며, 수동 새로고침 클릭 시 즉시 최신화됩니다.</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-tag">03 · 1:1 팩트 매칭 & 유사도 대조</div>
+            <div class="kpi-title">원문 복붙 제로 · 기보도 실시간 검증</div>
+            <div class="kpi-desc">취재 메모(2~3문장)와 재구성된 본문 문장을 1:1로 비교하고, 타 언론사 기보도 기사·보도자료와의 유사도를 즉시 진단합니다.</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-tag">04 · AI 부분 수정 & 버전 히스토리</div>
+            <div class="kpi-title">우측 AI 채팅 수정 · 전 버전 복원</div>
+            <div class="kpi-desc">우측 AI 채팅으로 원하는 단락·톤앤매너만 즉시 다듬고, 모든 수정 단계(<code>v1~vN</code>)를 원클릭으로 되돌릴 수 있습니다.</div>
           </div>
         </div>
 
-        <!-- 3단계 핵심 워크플로우 카드 -->
-        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px;">
-          <div style="border: 1px solid var(--border-color); border-radius: 10px; padding: 18px 20px; background: var(--white);">
-            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px;">
+        <!-- 3단계 핵심 실무 흐름 -->
+        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px;">
+          <div class="workflow-card">
+            <div class="workflow-card-head">
               <span class="num-circle">1</span>
-              <strong style="font-size: 15px; color: var(--text-primary);">1단계 : 소재 발굴 & 유형 선택 (홈 화면)</strong>
+              <strong style="font-size: 14.5px; color: var(--text-primary);">STEP 1 · 소재 발굴 & 맞춤 초안 생성 (홈)</strong>
             </div>
-            <ul style="font-size: 12.2px; color: var(--text-secondary); padding-left: 18px; display: flex; flex-direction: column; gap: 6px;">
-              <li><strong>직접 키워드 입력</strong>: <span class="ui-pill">STEP 1</span>에 키워드·기업명을 입력하고 <span class="ui-pill">STEP 2</span>에서 5대 콘텐츠 유형(01~05)을 선택한 뒤 <span class="ui-pill">✨ 초안 만들기 →</span> 클릭</li>
-              <li><strong>실시간 트렌드 10선 클릭</strong>: 쇼츠·MZ뉴스레터·포털유통·구글트렌드 탭에서 원하는 화제 키워드를 클릭하면 <strong>즉시 초안 자동 생성</strong></li>
-              <li><strong>2026 마케팅 캘린더 클릭</strong>: 1~12월 기념일·시즌 이슈를 클릭해 시즌 기획 기사 즉시 생성</li>
+            <ul class="workflow-list">
+              <li><strong>직접 기획 입력</strong>: <span class="ui-pill">STEP 1</span>에 메인 키워드·기업명과 함께 <strong>서브 키워드</strong>, <strong>원하는 글의 방향(기획 의도)</strong>을 입력 후 <span class="ui-pill">✨ 초안 만들기 →</span> 클릭 (진행 중 <span class="ui-pill">⏹ 중단</span> 가능)</li>
+              <li><strong>실시간 트렌드 50선 활용</strong>: 5개 탭에서 화제 키워드 클릭 시 즉시 생성하거나, <span class="ui-pill">↑ 방향 설정</span>으로 입력창에 담아 기획 방향 추가</li>
+              <li><strong>2026 마케팅 캘린더</strong>: 1~12월 날짜별 기념일 클릭 후 같은 날짜 이슈를 함께 엮어 맞춤 초안 생성</li>
             </ul>
           </div>
 
-          <div style="border: 1px solid var(--border-color); border-radius: 10px; padding: 18px 20px; background: var(--white);">
-            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px;">
+          <div class="workflow-card">
+            <div class="workflow-card-head">
               <span class="num-circle">2</span>
-              <strong style="font-size: 15px; color: var(--text-primary);">2단계 : 8단계 구조 편집 & 팩트 보강 (편집기)</strong>
+              <strong style="font-size: 14.5px; color: var(--text-primary);">STEP 2 · 8단계 구조 편집 & AI 채팅 수정</strong>
             </div>
-            <ul style="font-size: 12.2px; color: var(--text-secondary); padding-left: 18px; display: flex; flex-direction: column; gap: 6px;">
-              <li><strong>우측 8단계(STEP 01~08) 편집</strong>: 카테고리·바이라인 → 헤드라인(AI 5선 교체) → AI 3줄 요약 → 부제 → 질문형 본문 단락 → 비교 요약표 → 자연어 FAQ(팬아웃 8선 추가) → 한 줄 요약</li>
-              <li><strong>좌측 취재·메모장 활용</strong>: 보도자료나 타사 기사 문장을 붙여넣어 <span class="ui-pill">+ 매경 문체로 추가</span> 후 원하는 단락에 원클릭 삽입</li>
-              <li><strong>문체 자동 다듬기</strong>: 단락별 <span class="ui-pill">✨ 매경 문체(~합니다) 다듬기</span> 원클릭 변환</li>
+            <ul class="workflow-list">
+              <li><strong>중앙 구조별 에디터 편집</strong>: STEP 01 카테고리·바이라인 → STEP 02 헤드라인(5선)·한줄 소제목 → <strong>STEP 03 도입부 내용(ON/OFF)</strong> → STEP 05 본문 단락 → STEP 06 비교 요약표 → <strong>용어사전</strong>·STEP 07 FAQ → STEP 08 마무리·출처</li>
+              <li><strong>좌측 취재·메모 1:1 연동</strong>: 최신 뉴스 팩트(2~3문장) 추가 및 본문 단락 하단 노란색 박스에서 <strong>취재 원문 vs 재구성 본문 1:1 대조</strong></li>
+              <li><strong>우측 AI 채팅 & 히스토리</strong>: 대화형 지시로 특정 단락만 부분 수정하고 버전별(<code>v1~vN</code>) 자동 백업·복원</li>
             </ul>
           </div>
 
-          <div style="border: 1px solid var(--border-color); border-radius: 10px; padding: 18px 20px; background: var(--white);">
-            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px;">
+          <div class="workflow-card">
+            <div class="workflow-card-head">
               <span class="num-circle">3</span>
-              <strong style="font-size: 15px; color: var(--text-primary);">3단계 : GEO·팩트 점검 & CMS 전체 복사</strong>
+              <strong style="font-size: 14.5px; color: var(--text-primary);">STEP 3 · 유사도·팩트 점검 & CMS 복사</strong>
             </div>
-            <ul style="font-size: 12.2px; color: var(--text-secondary); padding-left: 18px; display: flex; flex-direction: column; gap: 6px;">
-              <li><strong>GEO 7대 체크리스트 점검</strong>: 좌측 <span class="ui-pill">✅ 점검·팩트</span> 탭에서 7개 GEO 기준 충족 여부를 확인하고 미충족 항목 클릭 시 해당 위치로 즉시 이동</li>
-              <li><strong>수치·날짜 형광펜 팩트체크</strong>: 노란색 형광펜 문장(금액·일자·수량)을 확인 후 클릭하여 초록색(<span class="ui-pill green">✓ 확인 완료</span>)으로 전환</li>
-              <li><strong>CMS 원클릭 복사</strong>: 상단 <span class="ui-pill">👁️ 실제 기사 미리보기</span> 확인 후 <span class="ui-pill">📋 CMS 붙여넣기용 전체 복사</span> 클릭!</li>
+            <ul class="workflow-list">
+              <li><strong>독창성 & 기보도 유사도 검증</strong>: 좌측 <span class="ui-pill">✅ 점검·팩트</span> 탭에서 원문 대비 독창성 점수를 확인하고, <strong>키워드 실시간 뉴스 검색</strong> 또는 <strong>보도자료 붙여넣기</strong>로 기보도 유사도 대조</li>
+              <li><strong>GEO 7대 기준 & 수치 팩트체크</strong>: 노란색 형광펜 수치·날짜 문장을 클릭해 <span class="ui-pill green">✓ 확인 완료</span> 처리</li>
+              <li><strong>CMS 원클릭 출고</strong>: <span class="ui-pill">👁️ 실제 기사 미리보기</span> 검수 후 <span class="ui-pill">📋 CMS 붙여넣기용 전체 복사</span> 클릭</li>
             </ul>
           </div>
         </div>
 
-        <!-- 하단 목차 요약 바 -->
-        <div style="background-color: var(--bg-subtle); border: 0.5px solid var(--border-color); border-radius: 8px; padding: 12px 18px; display: flex; align-items: center; justify-content: space-between; font-size: 12px;">
-          <div><strong>📌 가이드 구성 안내</strong> : <strong>[1부] 홈 화면 완벽 해부</strong> (Slide 02~06) &nbsp;|&nbsp; <strong>[2부] 기사 초안 작성(편집) 페이지 완벽 해부</strong> (Slide 07~12)</div>
-          <div style="color: var(--mk-orange); font-weight: 800;">웹 화면 우측 상단 [📖 사용 가이드 (PPT·PDF)] 버튼에서 언제든 다시 열람 가능</div>
+        <!-- 하단 빠른 이동 안내 바 -->
+        <div style="background-color: var(--bg-subtle); border: 1px solid var(--border-color); border-radius: 8px; padding: 10px 16px; display: flex; align-items: center; justify-content: space-between; font-size: 12px;">
+          <div><strong>📌 목차 구성</strong> : <strong>[1부] 홈 화면 & 트렌드 발굴</strong> (02~06p) &nbsp;·&nbsp; <strong>[2부] 3단 편집기 & 유사도·팩트 검증</strong> (07~11p) &nbsp;·&nbsp; <strong>[3부] AI 채팅 수정 & CMS 출고</strong> (12p)</div>
+          <div style="color: var(--mk-orange); font-weight: 800;">상단 챕터 버튼이나 드롭다운을 누르면 원하는 슬라이드로 즉시 이동합니다</div>
         </div>
       </div>
 
       <div class="slide-footer">
-        <span>매일경제 AX TF · 콘텐츠PR그룹 | MK Pick GEO 콘텐츠 스튜디오 실무 매뉴얼</span>
-        <span>1 / 12</span>
+        <span>매일경제 AX TF · 콘텐츠PR그룹 | MK Pick 콘텐츠 스튜디오 실무 매뉴얼 (최신 업데이트 반영)</span>
+        <span>01 / 12</span>
       </div>
     </section>
 
@@ -501,27 +714,29 @@
          =================================================================== -->
     <section class="slide" id="slide-2">
       <div class="slide-header">
-        <div>
-          <span class="slide-step-tag">PART 1 · 홈 화면 (소재 발굴 및 초안 생성)</span>
-          <h2 class="slide-title">1. 홈 화면 전체 구조 한눈에 보기</h2>
-          <p class="slide-subtitle">홈 화면은 불필요한 복잡함을 없애고 ① 상단 [새 기사 초안 만들기] 카드와 ② 하단 [소재 발굴 & 작업 보관함] 카드의 2단 구조로 구성되어 있습니다.</p>
+        <div class="slide-header-left">
+          <div class="slide-title-row">
+            <span class="slide-step-tag">PART 1 · 홈 화면 구조</span>
+            <h2 class="slide-title">홈 화면 전체 레이아웃 한눈에 보기</h2>
+          </div>
+          <p class="slide-subtitle">상단 [새 기사 초안 만들기] 통합 카드와 하단 [소재 발굴 & 작업 보관함] 3대 탭 카드로 직관적이게 구성되어 있습니다.</p>
         </div>
-        <span class="slide-page-num">SLIDE 02 / 12</span>
+        <span class="slide-page-num">02 / 12</span>
       </div>
 
       <div class="slide-body two-col">
         <div class="screenshot-box">
           <img src="./guide-assets/01-home-main.png" alt="홈 화면 전체 구조" />
-          <div class="screenshot-caption">[실제 화면] 접속 시 가장 먼저 나타나는 홈 화면 전체 레이아웃</div>
+          <div class="screenshot-caption">[실제 화면] 접속 시 나타나는 홈 화면 (STEP 1·2 초안 생성 카드 + 5대 실시간 트렌드 레이더)</div>
         </div>
 
         <div class="guide-list">
           <div class="guide-item">
             <span class="num-circle">1</span>
             <div>
-              <div class="guide-item-title">최상단 헤더 바 (로고 · 화면 전환 탭 · 가이드 · API 상태)</div>
+              <div class="guide-item-title">최상단 헤더 바 (집필 AI 선택 · 공유 링크 복사 · 가이드 · API 상태)</div>
               <div class="guide-item-desc">
-                좌측 <strong>MK Pick 로고</strong>를 누르면 언제든 홈으로 돌아오며, 중앙에서 <span class="ui-pill">홈 · 유형 및 트렌드 선택</span>과 <span class="ui-pill">편집 중인 기사</span>를 오갈 수 있습니다. 우측에는 <span class="ui-pill">📖 사용 가이드</span>와 <span class="ui-pill green">🟢 Perplexity 연결됨</span> 배지가 위치합니다.
+                좌측 <strong>MK Pick 로고</strong> 및 화면 전환 탭(<span class="ui-pill">홈 · 소재 선택</span> / <span class="ui-pill">편집 중인 기사</span>)이 위치하며, 우측에서 <strong>집필 AI 모델 선택 드롭다운</strong>, <span class="ui-pill">공유 링크 복사</span>, <span class="ui-pill">사용 가이드</span>, <span class="ui-pill green">🟢 API 연결됨</span> 상태를 제어합니다.
               </div>
             </div>
           </div>
@@ -529,9 +744,9 @@
           <div class="guide-item highlight">
             <span class="num-circle">2</span>
             <div>
-              <div class="guide-item-title">상단 카드 — STEP 1 : 키워드·기업명 입력 & [✨ 초안 만들기 →]</div>
+              <div class="guide-item-title">상단 카드 — STEP 1 : 메인 키워드 · 기업명 · 서브 키워드 · 기획 방향</div>
               <div class="guide-item-desc">
-                취재 키워드나 주제를 입력하고 우측 주황색 <span class="ui-pill">✨ 초안 만들기 →</span> 버튼을 누르면(또는 키보드 <code>Enter</code>) 즉시 AI 기사 초안이 생성됩니다. 기업·브랜드명을 쉼표(<code>,</code>)로 여러 개 적으면 복수 기업을 함께 다룹니다.
+                메인 키워드와 기업명뿐 아니라, 기사에 꼭 포함할 <strong>서브 키워드</strong>와 <strong>원하는 글의 방향·맥락(기획 의도)</strong>을 함께 지정해 편집자 의도에 100% 부합하는 초안을 생성합니다.
               </div>
             </div>
           </div>
@@ -539,9 +754,9 @@
           <div class="guide-item">
             <span class="num-circle">3</span>
             <div>
-              <div class="guide-item-title">[+ 보도자료 원문이나 참고 URL 추가 (선택)] 토글 링크</div>
+              <div class="guide-item-title">우측 상단 <span class="ui-pill">📎 + 보도자료 · 참고 URL 추가</span> 토글 버튼</div>
               <div class="guide-item-desc">
-                상단 카드 우측 위 링크를 클릭하면 <strong>참고 기사/행사 URL 입력칸</strong>과 <strong>보도자료 원문 텍스트 붙여넣기 칸</strong>이 펼쳐집니다. 보도자료 원문을 넣으면 핵심 수치와 일정을 초안에 최우선 반영합니다.
+                클릭 시 참고할 <strong>공식 홈페이지·보도자료 URL 입력칸</strong>과 <strong>보도자료 핵심 문구 붙여넣기 칸</strong>이 펼쳐지며, 입력된 수치를 초안에 최우선 반영합니다.
               </div>
             </div>
           </div>
@@ -549,9 +764,9 @@
           <div class="guide-item">
             <span class="num-circle">4</span>
             <div>
-              <div class="guide-item-title">상단 카드 — STEP 2 : 5대 콘텐츠 유형 선택 (01~05)</div>
+              <div class="guide-item-title">상단 카드 — STEP 2 : 기사 전개 관점 (<span class="ui-pill blue">✨ AI 자동 맞춤 ON</span> & 5대 관점)</div>
               <div class="guide-item-desc">
-                키워드를 입력하면 가장 알맞은 콘텐츠 유형이 <strong>자동으로 주황색 활성화(<span class="ui-pill">✓ 현재 선택됨</span>)</strong>됩니다. 다른 유형으로 쓰고 싶다면 원하는 유형 카드를 직접 클릭해 바꿀 수 있습니다.
+                기본값인 <span class="ui-pill blue">✨ AI 자동 맞춤 ON</span> 상태에서는 키워드 성격에 맞춰 최적의 관점(01~05)과 카테고리가 자동 선택되며, 원하는 카드를 직접 클릭해 수동 고정할 수도 있습니다.
               </div>
             </div>
           </div>
@@ -559,9 +774,9 @@
           <div class="guide-item">
             <span class="num-circle">5</span>
             <div>
-              <div class="guide-item-title">하단 카드 — 소재 발굴 & 작업 보관함 (3개 메인 탭 전환)</div>
+              <div class="guide-item-title">하단 카드 — 소재 발굴 3대 메인 탭 (드래그 & 화살표 순서 변경 지원)</div>
               <div class="guide-item-desc">
-                아직 작성할 키워드를 정하지 못했다면 하단 카드의 3개 탭(<span class="ui-pill">🔥 실시간 트렌드 추천 (10선)</span> / <span class="ui-pill">📅 2026 월별 마케팅 캘린더</span> / <span class="ui-pill">📂 최근 작업한 기사</span>)에서 키워드를 클릭해 1초 만에 초안을 생성하거나 이전 작업을 이어서 편집합니다.
+                <span class="ui-pill">🔥 실시간 트렌드 추천</span> · <span class="ui-pill">📅 2026 월별 마케팅 캘린더</span> · <span class="ui-pill">📂 최근 작업한 기사</span> 탭을 마우스로 끌거나 화살표로 순서를 바꿀 수 있으며 설정은 자동 저장됩니다.
               </div>
             </div>
           </div>
@@ -569,123 +784,125 @@
       </div>
 
       <div class="slide-footer">
-        <span>매일경제 AX TF · 콘텐츠PR그룹 | MK Pick GEO 콘텐츠 스튜디오 실무 매뉴얼</span>
-        <span>2 / 12</span>
+        <span>매일경제 AX TF · 콘텐츠PR그룹 | MK Pick 콘텐츠 스튜디오 실무 매뉴얼</span>
+        <span>02 / 12</span>
       </div>
     </section>
 
     <!-- ===================================================================
-         SLIDE 03: [홈 화면 ①] 새 기사 초안 만들기 & 5대 콘텐츠 유형·카테고리 매칭
+         SLIDE 03: [홈 화면 ①] 새 기사 초안 만들기 (서브키워드·기획방향·5대 관점)
          =================================================================== -->
     <section class="slide" id="slide-3">
       <div class="slide-header">
-        <div>
-          <span class="slide-step-tag">PART 1 · 홈 화면 상세 ①</span>
-          <h2 class="slide-title">2. [새 기사 초안 만들기] & 5대 콘텐츠 유형(01~05) 선택 가이드</h2>
-          <p class="slide-subtitle">유형(01~05)에 따라 기사 본문 단락의 논리 구조, 요약표 비교 항목, FAQ 문항 수(5문항 vs 7문항), 추천 MK Pick 카테고리가 달라집니다.</p>
+        <div class="slide-header-left">
+          <div class="slide-title-row">
+            <span class="slide-step-tag">PART 1 · 홈 화면 상세 ①</span>
+            <h2 class="slide-title">[새 기사 초안 만들기] 기획 입력 & 5대 기사 전개 관점(01~05)</h2>
+          </div>
+          <p class="slide-subtitle">서브 키워드와 작성 방향(빠른 칩 지원)을 지정하면 고정 템플릿 없이 주제 맞춤형 매거진 기사가 작성됩니다.</p>
         </div>
-        <span class="slide-page-num">SLIDE 03 / 12</span>
+        <span class="slide-page-num">03 / 12</span>
       </div>
 
       <div class="slide-body two-col">
-        <div style="display: flex; flex-direction: column; gap: 10px;">
-          <div class="screenshot-box" style="flex: 1;">
-            <img src="./guide-assets/02-home-raw-input.png" alt="보도자료 입력창 확장 화면" />
-            <div class="screenshot-caption">[실제 화면] '+ 보도자료 원문이나 참고 URL 추가' 클릭 시 확장된 입력 화면</div>
-          </div>
+        <div class="screenshot-box">
+          <img src="./guide-assets/02-home-raw-input.png" alt="새 기사 초안 만들기 상세 입력 화면" />
+          <div class="screenshot-caption">[실제 화면] 서브 키워드 · 원하는 글의 방향(빠른 칩) 및 보도자료·URL 입력창 확장 화면</div>
         </div>
 
-        <div style="display: flex; flex-direction: column; justify-content: space-between;">
+        <div style="display: flex; flex-direction: column; justify-content: space-between; gap: 8px;">
+          <div class="guide-item highlight">
+            <span class="num-circle">1</span>
+            <div>
+              <div class="guide-item-title">서브 키워드 & 원하는 글의 방향 · 빠른 방향 칩 3종 & <span class="ui-pill">⏹ 중단</span></div>
+              <div class="guide-item-desc">
+                • <strong>빠른 방향 칩</strong>: <code>+ 신메뉴·스펙 비교</code>, <code>+ 2030 인기 배경</code>, <code>+ 할인·구매 팁</code> 클릭 시 기획 의도가 자동 입력됩니다.<br/>
+                • <strong>초안 생성 중단(<span class="ui-pill">⏹ 중단</span>)</strong>: 초안 생성 도중 언제든 우측 <code>⏹ 중단</code> 버튼이나 하단 배너로 즉시 취소할 수 있습니다.
+              </div>
+            </div>
+          </div>
+
           <table class="table-compact">
             <thead>
               <tr>
-                <th style="width: 22%;">콘텐츠 유형</th>
-                <th style="width: 18%;">기본 카테고리</th>
-                <th>본문 3단락 구성 흐름 및 특징</th>
+                <th style="width: 23%;">전개 관점 (01~05)</th>
+                <th style="width: 18%;">추천 카테고리</th>
+                <th>본문 4단락 매거진 전개 구조 및 핵심 특징</th>
                 <th style="width: 11%;">FAQ 수</th>
               </tr>
             </thead>
             <tbody>
               <tr>
-                <td><strong>유형 01</strong><br/>유료 업체 타겟팅 기획</td>
-                <td><span class="ui-pill">브랜드스토리(기업관)</span></td>
-                <td>① 과거 vs 현재 트렌드 비교 → ② 파트너사 및 주요 업체 4곳 서비스·혜택 집중 소개 → ③ 업체 선택 기준</td>
+                <td><strong>01. 다자간 브랜드 비교</strong><br/><span style="font-size:10.5px; color:var(--text-muted);">유료 타겟팅·비교 기획</span></td>
+                <td><span class="ui-pill">브랜드스토리</span></td>
+                <td>① 소비자 고민·트렌드 배경 → ②~③ 실제 기업·서비스별 혜택·차별점 실명 비교 → ④ 선택 체크포인트</td>
                 <td><strong>7문항</strong></td>
               </tr>
               <tr>
-                <td><strong>유형 02</strong><br/>특정 기념일 관련 콘텐츠</td>
+                <td><strong>02. 시즌 · 기념일 기획</strong><br/><span style="font-size:10.5px; color:var(--text-muted);">기념일·주요 일정 맞춤</span></td>
                 <td><span class="ui-pill">기업뉴스</span></td>
-                <td>① 기념일 유래·법적 배경 → ② 정부·지자체 바우처 → ③ <strong>참여 브랜드별(<code>■ [브랜드명]</code>) 캠페인·제품 각각 소개</strong></td>
+                <td>① 기념일 유래·배경 화두 → ②~③ 시즌 핵심 이슈 및 참여 브랜드별 프로모션·캠페인 → ④ 참여·활용 팁</td>
                 <td><strong>5문항</strong></td>
               </tr>
               <tr>
-                <td><strong>유형 03</strong><br/>최신 트렌드 1 (숏폼·바이럴)</td>
+                <td><strong>03. 트렌드 · 이슈 심층</strong><br/><span style="font-size:10.5px; color:var(--text-muted);">숏폼·MZ 소비 현상 분석</span></td>
                 <td><span class="ui-pill">산업 Q&A</span></td>
-                <td>① 과거 원조부터 현재까지 유행 계보 → ② MZ세대가 열광하는 소비 심리 4가지 분석 → ③ 문화·유통 시사점</td>
+                <td>① 왜 지금 화제인지 배경 정의 → ②~③ 최신 보도 사례·수치·MZ 소비 심리 심층 분석 → ④ 전망 및 가이드</td>
                 <td><strong>5문항</strong></td>
               </tr>
               <tr>
-                <td><strong>유형 04</strong><br/>최신 트렌드 2 (신제품·팝업)</td>
+                <td><strong>04. 신제품 · 라이프스타일</strong><br/><span style="font-size:10.5px; color:var(--text-muted);">신상·팝업·프로모션</span></td>
                 <td><span class="ui-pill">제품·기술</span></td>
-                <td>① 신제품들을 관통하는 거시적 마케팅 콘셉트 → ② 브랜드·채널별 전용 라인업 비교 → ③ 오픈런·입고 구매 팁</td>
+                <td>① 출시 배경·핵심 콘셉트 → ②~③ 대표 신메뉴·신상품 실제 명칭·가격·특징 비교 → ④ 구매처·할인 팁</td>
                 <td><strong>5문항</strong></td>
               </tr>
               <tr>
-                <td><strong>유형 05</strong><br/>영업 기업 맞춤 기획</td>
+                <td><strong>05. 영업 기업 집중 조명</strong><br/><span style="font-size:10.5px; color:var(--text-muted);">타깃 기업 솔루션 브랜딩</span></td>
                 <td><span class="ui-pill">성공사례</span></td>
-                <td>① Q1~Q4 시장 메가 트렌드·소비자 페인포인트 문답 → ② Q5~Q6 선택 기준 후 <strong>마지막 Q7에서 타깃 기업 솔루션 집중 조명</strong></td>
+                <td>① 시장 페인포인트 문답(Q1~Q4) → ② 선택 기준(Q5~Q6) → ③~④ 타깃 기업의 핵심 솔루션·경쟁력 집중 조명</td>
                 <td><strong>7문항</strong></td>
               </tr>
             </tbody>
           </table>
-
-          <div class="guide-item highlight" style="margin-top: 8px;">
-            <span class="num-circle">!</span>
-            <div>
-              <div class="guide-item-title">실무 팁 : 여러 브랜드가 참여하는 기념일 기사(유형 02)를 쓸 때</div>
-              <div class="guide-item-desc">
-                예를 들어 <code>10월 10일 임산부의 날</code>이나 <code>빼빼로데이</code>처럼 여러 기업을 한 기사에서 소개하고 싶을 때는 <strong>기업·브랜드명 칸에 <code>매일유업, 유한킴벌리, 일동후디스</code>처럼 쉼표(<code>,</code>)로 구분해 입력</strong>하세요. 본문 3번째 단락에 각 브랜드별 소항목(<code>■ [브랜드명] 캠페인·제품</code>)과 브랜드 비교 요약표가 자동으로 만들어집니다.
-              </div>
-            </div>
-          </div>
         </div>
       </div>
 
       <div class="slide-footer">
-        <span>매일경제 AX TF · 콘텐츠PR그룹 | MK Pick GEO 콘텐츠 스튜디오 실무 매뉴얼</span>
-        <span>3 / 12</span>
+        <span>매일경제 AX TF · 콘텐츠PR그룹 | MK Pick 콘텐츠 스튜디오 실무 매뉴얼</span>
+        <span>03 / 12</span>
       </div>
     </section>
 
     <!-- ===================================================================
-         SLIDE 04: [홈 화면 ②] 실시간 트렌드 추천 10선 발굴 및 원클릭 초안 생성
+         SLIDE 04: [홈 화면 ②] 실시간 트렌드 추천 50선 (5대 탭 · 6시간 자동 갱신)
          =================================================================== -->
     <section class="slide" id="slide-4">
       <div class="slide-header">
-        <div>
-          <span class="slide-step-tag">PART 1 · 홈 화면 상세 ②</span>
-          <h2 class="slide-title">3. [🔥 실시간 트렌드 추천 (10선)] 탭 기능 및 사용법</h2>
-          <p class="slide-subtitle">오늘 가장 화제가 되고 있는 4대 채널별 실시간 트렌드 키워드 10개씩(총 40개)을 확인하고, 클릭 한 번으로 즉시 초안을 만듭니다.</p>
+        <div class="slide-header-left">
+          <div class="slide-title-row">
+            <span class="slide-step-tag">PART 1 · 홈 화면 상세 ②</span>
+            <h2 class="slide-title">[🔥 실시간 트렌드 추천] 5대 탭(50선) & 자동 갱신 주기</h2>
+          </div>
+          <p class="slide-subtitle">최근 7일 내 실제 언론 보도로 검증된 5개 탭 × 10개(총 50선) 최신 이슈를 제공하며, 6시간 주기로 자동 최신화됩니다.</p>
         </div>
-        <span class="slide-page-num">SLIDE 04 / 12</span>
+        <span class="slide-page-num">04 / 12</span>
       </div>
 
       <div class="slide-body two-col">
         <div class="screenshot-box">
-          <img src="./guide-assets/01-home-main.png" alt="실시간 트렌드 추천 10선" />
-          <div class="screenshot-caption">[실제 화면] 하단 첫 번째 탭 '🔥 실시간 트렌드 추천 (10선)' 및 4대 채널 서브 탭</div>
+          <img src="./guide-assets/01-home-main.png" alt="실시간 트렌드 추천 50선" />
+          <div class="screenshot-caption">[실제 화면] 5대 실시간 트렌드 탭과 우측 상단 갱신 주기·기준 시각 표시 바</div>
         </div>
 
         <div class="guide-list">
-          <div class="guide-item">
+          <div class="guide-item highlight">
             <span class="num-circle">1</span>
             <div>
-              <div class="guide-item-title">4대 트렌드 채널 서브 탭 (각 탭당 최신 키워드 10개 표시)</div>
+              <div class="guide-item-title">5대 실시간 트렌드 서브 탭 (탭당 10개 · 총 50선 · 드래그 순서 변경)</div>
               <div class="guide-item-desc">
-                • <strong>유튜브 쇼츠 · 릴스 화제 (10)</strong>: 최근 7일 내 쇼츠·릴스에서 오픈런·품절 대란을 일으킨 바이럴 키워드<br/>
-                • <strong>트렌드 뉴스레터 · MZ 키워드 (10)</strong>: 캐릿·어피티·생활변화관측소 등 MZ 소비문화·신조어 키워드<br/>
-                • <strong>네이버 · 포털 유통 화제 (10)</strong>: 편의점·다이소·백화점·이커머스 신상 출시 및 프로모션 이슈<br/>
-                • <strong>구글 트렌드 급상승 (10)</strong>: 대한민국 구글 트렌드 실시간 일간 검색량 급상승 토픽
+                • <strong>🎁 브랜드 신상 · 프로모션 뉴스 (10)</strong>: 식음료·뷰티·유통·IT 주요 브랜드의 최신 신제품 출시 및 할인·콜라보 뉴스<br/>
+                • <strong>유튜브 쇼츠 · 릴스 화제 (10)</strong> / <strong>트렌드 뉴스레터 · MZ 키워드 (10)</strong><br/>
+                • <strong>네이버 · 포털 유통 화제 (10)</strong> / <strong>구글 트렌드 급상승 (10)</strong>
               </div>
             </div>
           </div>
@@ -693,9 +910,10 @@
           <div class="guide-item highlight">
             <span class="num-circle">2</span>
             <div>
-              <div class="guide-item-title">트렌드 키워드 행 클릭 (<span class="ui-pill">초안 생성 →</span>) — 자동 유형 매칭</div>
+              <div class="guide-item-title">갱신 주기 표기 : <span class="ui-pill blue">⏱ 6시간마다 자동 갱신</span> & <span class="ui-pill">↻ 실시간 트렌드 새로고침</span></div>
               <div class="guide-item-desc">
-                1~10번 키워드 옆에는 해당 이슈의 성격을 분석해 매칭된 <span class="ui-pill">유형 0X · 추천 카테고리</span> 배지가 표시되어 있습니다. <strong>원하는 키워드 줄을 클릭하면 상단 입력창에 타이핑할 필요 없이 곧바로 맞춤형 기사 초안이 생성</strong>됩니다. (예: <code>한남동 팔란티어 팝업 품절</code> 클릭 시 팝업·신제품 분석 템플릿으로 즉시 생성)
+                • <strong>자동 갱신 (6시간 주기)</strong>: 마지막 수집 후 6시간 이내 접속 시에는 캐시된 최신 목록을 0.3초 만에 표시하고, 6시간 경과 시 자동으로 최신 보도 이슈를 새로 수집합니다.<br/>
+                • <strong>수동 즉시 최신화</strong>: 우측 상단 <span class="ui-pill">↻ 실시간 트렌드 새로고침 (즉시 최신화)</span> 클릭 시 캐시를 건너뛰고 즉시 실시간 AI 웹 검색으로 50선을 새로 받아옵니다. (옆에 <code>MM/DD HH:MM 기준 업데이트</code> 시각 상시 표기)
               </div>
             </div>
           </div>
@@ -703,19 +921,11 @@
           <div class="guide-item">
             <span class="num-circle">3</span>
             <div>
-              <div class="guide-item-title">우측 상단 <span class="ui-pill">↻ 실시간 트렌드 새로고침</span> 버튼</div>
+              <div class="guide-item-title">트렌드 행 우측 4대 액션 버튼 (`원문` · `팩트 검색` · `↑ 방향 설정` · `초안 생성`)</div>
               <div class="guide-item-desc">
-                기본적으로 웹 접속 시 30분 이내 수집된 최신 트렌드가 즉시 표시되어 불필요한 API 비용 소진을 막아줍니다. 만약 <strong>지금 당장 새로운 실시간 트렌드 키워드로 강제 재수집</strong>하고 싶을 때만 우측의 <span class="ui-pill">↻ 실시간 트렌드 새로고침</span>을 클릭하세요.
-              </div>
-            </div>
-          </div>
-
-          <div class="guide-item">
-            <span class="num-circle">4</span>
-            <div>
-              <div class="guide-item-title">과거 유행어 자동 배제 필터 적용</div>
-              <div class="guide-item-desc">
-                이미 유행이 지난 과거 키워드(예: 탕후루, 두바이 초콜릿 등 회고성 기사 키워드)는 자동 필터링하고 <strong>최근 7일 이내 보도·쇼츠 데이터</strong>만 선별해 보여줍니다.
+                • <code>[언론사 원문 ↗]</code> & <code>[팩트 검색 ↗]</code>: 보도 원문 열람 및 네이버 뉴스 교차 확인<br/>
+                • <strong><code>[↑ 방향 설정]</code></strong>: 곧바로 생성하지 않고 상단 STEP 1 입력창으로 키워드를 올려 서브 키워드·방향을 추가 입력할 때 사용<br/>
+                • <strong><span class="ui-pill">초안 생성 →</span></strong>: 클릭 즉시 최적 유형으로 초안 생성 (생성 중 <span class="ui-pill">⏹ 생성 중단</span> 버튼으로 취소 가능)
               </div>
             </div>
           </div>
@@ -723,8 +933,8 @@
       </div>
 
       <div class="slide-footer">
-        <span>매일경제 AX TF · 콘텐츠PR그룹 | MK Pick GEO 콘텐츠 스튜디오 실무 매뉴얼</span>
-        <span>4 / 12</span>
+        <span>매일경제 AX TF · 콘텐츠PR그룹 | MK Pick 콘텐츠 스튜디오 실무 매뉴얼</span>
+        <span>04 / 12</span>
       </div>
     </section>
 
@@ -733,27 +943,29 @@
          =================================================================== -->
     <section class="slide" id="slide-5">
       <div class="slide-header">
-        <div>
-          <span class="slide-step-tag">PART 1 · 홈 화면 상세 ③</span>
-          <h2 class="slide-title">4. [📅 2026 월별 마케팅 캘린더] & [📂 최근 작업한 기사] 탭 설명</h2>
-          <p class="slide-subtitle">KT 나스미디어·아이보스 마케팅 캘린더를 기반으로 월별 시즌 기획 기사를 미리 준비하고, 작업 중인 기사를 안전하게 관리합니다.</p>
+        <div class="slide-header-left">
+          <div class="slide-title-row">
+            <span class="slide-step-tag">PART 1 · 홈 화면 상세 ③</span>
+            <h2 class="slide-title">[📅 2026 월별 마케팅 캘린더] & [📂 최근 작업한 기사] 보관함</h2>
+          </div>
+          <p class="slide-subtitle">월별 기념일·시즌 이슈를 클릭해 인라인으로 기획 방향을 설정하고, 작업했던 모든 기사를 안전하게 이어서 편집합니다.</p>
         </div>
-        <span class="slide-page-num">SLIDE 05 / 12</span>
+        <span class="slide-page-num">05 / 12</span>
       </div>
 
       <div class="slide-body two-col">
         <div class="screenshot-box">
-          <img src="./guide-assets/03-home-calendar.png" alt="2026 월별 마케팅 캘린더 탭" />
-          <div class="screenshot-caption">[실제 화면] 하단 두 번째 탭 '📅 2026 월별 마케팅 캘린더' 화면</div>
+          <img src="./guide-assets/03-home-calendar.png" alt="2026 월별 마케팅 캘린더" />
+          <div class="screenshot-caption">[실제 화면] '📅 2026 월별 마케팅 캘린더' 업종별 큐레이션 및 일자별 기념일 카드</div>
         </div>
 
         <div class="guide-list">
           <div class="guide-item">
             <span class="num-circle">1</span>
             <div>
-              <div class="guide-item-title">1월 ~ 12월 월별 버튼 & 업종별 큐레이션 (EAT · BUY · DO · PLAY)</div>
+              <div class="guide-item-title">1~12월 마케팅 테마 & 4대 업종별 큐레이션 (EAT · BUY · DO · PLAY)</div>
               <div class="guide-item-desc">
-                원하는 달(<code>1월</code>~<code>12월</code>)을 클릭하면 해당 월의 <strong>핵심 마케팅 테마</strong>, <strong>추천 해시태그</strong>, 그리고 4대 업종별(<strong>🍽️ 식음료/외식 · 🛍️ 가전/패션/쇼핑 · 📚 교육/생활 · 🎬 여가/콘텐츠</strong>) 중점 아이템이 한눈에 표시됩니다.
+                월(<code>1월~12월</code>) 선택 시 해당 월의 핵심 마케팅 테마와 4대 업종별(식음료·쇼핑·생활·여가) 추천 기획 아이템이 표시되며, 클릭 시 즉시 기획 입력창과 연동됩니다.
               </div>
             </div>
           </div>
@@ -761,9 +973,9 @@
           <div class="guide-item highlight">
             <span class="num-circle">2</span>
             <div>
-              <div class="guide-item-title">일자별 기념일·시즌 이벤트 클릭 (<span class="ui-pill">초안 생성 →</span>)</div>
+              <div class="guide-item-title">일자별 기념일 클릭 시 열리는 <strong>인라인 맞춤 기획 설정 바</strong></div>
               <div class="guide-item-desc">
-                캘린더 목록에서 원하는 날짜 이슈(예: <code>10.10 임산부의 날</code>, <code>11.11 빼빼로데이</code> 등)를 클릭하면 해당 기념일·시즌에 가장 적합한 콘텐츠 유형으로 <strong>즉시 기사 초안이 생성</strong>됩니다.
+                달력에서 기념일(예: <code>11.11 빼빼로데이 / 농업인의 날</code>)을 클릭하면 바로 아래에 <strong>인라인 기획 설정창</strong>이 열립니다. 같은 날짜의 다른 기념일을 <span class="ui-pill">+ 함께 엮기</span>로 서브 키워드에 추가하거나 작성 방향을 적은 뒤 <span class="ui-pill">⚡ 바로 초안 생성</span> 또는 <span class="ui-pill">✨ 맞춤 초안 생성 →</span>을 선택할 수 있습니다.
               </div>
             </div>
           </div>
@@ -773,8 +985,7 @@
             <div>
               <div class="guide-item-title"><span class="ui-pill">🔗 아이보스 마케팅 캘린더 팝업 ↗</span> & <span class="ui-pill">📄 나스미디어 2026 원본 PDF 보기 ▼</span></div>
               <div class="guide-item-desc">
-                • <strong>아이보스 팝업 버튼</strong>: 외부 iframe 임베드를 차단하는 아이보스(i-boss) 공식 마케팅 캘린더를 전용 팝업 창으로 즉시 띄워줍니다.<br/>
-                • <strong>나스미디어 원본 PDF 보기</strong>: 클릭하면 바로 아래에 <strong>KT 나스미디어 2026 마케팅 이슈 캘린더 원본 PDF 뷰어</strong>가 펼쳐지며, 새 탭 열기/다운로드도 가능합니다.
+                우측 상단 버튼으로 아이보스 공식 캘린더 팝업을 띄우거나, KT 나스미디어 2026 마케팅 캘린더 원본 PDF를 화면 안에서 바로 열람할 수 있습니다.
               </div>
             </div>
           </div>
@@ -782,9 +993,9 @@
           <div class="guide-item">
             <span class="num-circle">4</span>
             <div>
-              <div class="guide-item-title">세 번째 탭 : <span class="ui-pill">📂 최근 작업한 기사 (N)</span> 보관함</div>
+              <div class="guide-item-title"><span class="ui-pill">📂 최근 작업한 기사 (N)</span> — 영구 자동 저장 & 버전 복원</div>
               <div class="guide-item-desc">
-                한 번이라도 생성하거나 수정한 기사는 모두 이곳에 자동 저장됩니다. <span class="ui-pill">이어서 편집 →</span>을 누르면 마지막 수정 상태 그대로 편집 화면이 열리고, 불필요한 기사는 우측 <code>[삭제]</code> 버튼으로 지울 수 있습니다.
+                생성·편집한 모든 기사와 버전 히스토리는 브라우저 로컬 저장소에 실시간 백업되어 PC를 재부팅해도 유지됩니다. <span class="ui-pill">이어서 편집 →</span>으로 언제든 작업을 재개하세요.
               </div>
             </div>
           </div>
@@ -792,49 +1003,52 @@
       </div>
 
       <div class="slide-footer">
-        <span>매일경제 AX TF · 콘텐츠PR그룹 | MK Pick GEO 콘텐츠 스튜디오 실무 매뉴얼</span>
-        <span>5 / 12</span>
+        <span>매일경제 AX TF · 콘텐츠PR그룹 | MK Pick 콘텐츠 스튜디오 실무 매뉴얼</span>
+        <span>05 / 12</span>
       </div>
     </section>
 
     <!-- ===================================================================
-         SLIDE 06: [공통 상단] Perplexity API 연동 · 과금 모니터 & 팀 공유
+         SLIDE 06: [상단 공통] 하이브리드 집필 AI 선택 · 과금 모니터 & 팀 공유
          =================================================================== -->
     <section class="slide" id="slide-6">
       <div class="slide-header">
-        <div>
-          <span class="slide-step-tag">PART 1 · 상단 공통 기능</span>
-          <h2 class="slide-title">5. Perplexity API 설정 · 실시간 과금(버닝) 모니터 & 팀 공유</h2>
-          <p class="slide-subtitle">화면 우측 상단의 초록색 [🟢 Perplexity 연결됨 · 호출 N회 (약 X원)] 버튼을 누르면 API 소진 현황과 공유 링크를 확인할 수 있습니다.</p>
+        <div class="slide-header-left">
+          <div class="slide-title-row">
+            <span class="slide-step-tag">PART 1 · 상단 공통 기능</span>
+            <h2 class="slide-title">2단계 하이브리드 집필 AI 선택 · 과금 모니터 & 팀 공유 링크</h2>
+          </div>
+          <p class="slide-subtitle">상단 드롭다운에서 5종의 최신 집필 AI 모델을 자유롭게 변경할 수 있으며, 원클릭 공유 링크로 팀원 누구나 즉시 연결됩니다.</p>
         </div>
-        <span class="slide-page-num">SLIDE 06 / 12</span>
+        <span class="slide-page-num">06 / 12</span>
       </div>
 
       <div class="slide-body two-col">
         <div class="screenshot-box">
-          <img src="./guide-assets/05-api-modal.png" alt="Perplexity API 설정 및 과금 모니터 모달" />
-          <div class="screenshot-caption">[실제 화면] 우측 상단 Perplexity 상태 버튼 클릭 시 열리는 실시간 과금 모니터 모달</div>
+          <img src="./guide-assets/05-api-modal.png" alt="하이브리드 AI 설정 및 실시간 과금 모니터" />
+          <div class="screenshot-caption">[실제 화면] 우측 상단 'API 연결됨' 클릭 시 열리는 하이브리드 AI 설정 및 과금 모니터</div>
         </div>
 
         <div class="guide-list">
           <div class="guide-item highlight">
             <span class="num-circle">1</span>
             <div>
-              <div class="guide-item-title">단순 접속·새로고침(F5) 시 과금 0원! (30분 스마트 캐시)</div>
+              <div class="guide-item-title">상단 <code>집필 AI 모델 선택</code> 드롭다운 (5종 실시간 전환)</div>
               <div class="guide-item-desc">
-                가장 경제적인 온라인 검색 모델인 <code>sonar</code> 모델(1회 호출당 약 $0.008, 한화 약 11~15원)을 사용하며, <strong>30분 스마트 캐시</strong>가 적용되어 있습니다. 따라서 <strong>웹페이지에 접속하거나 새로고침(<code>F5</code>)을 여러 번 눌러도 API가 중복 호출되지 않아 요금이 전혀 나가지 않습니다(0원).</strong>
+                1단계 실시간 뉴스·출처 수집은 <strong>Perplexity(<code>sonar-pro</code>)</strong>가 수행하고, 2단계 본문 집필 모델을 선택할 수 있습니다:<br/>
+                • <strong>✨ Gemini 4 Argon (기본 추천)</strong>: 자연스러운 MK Pick 매거진 문체<br/>
+                • <strong>⚡ GPT-5 Mini / 🧠 GPT-5</strong>: 빠른 논리 구조 및 정밀 지시 반영<br/>
+                • <strong>🖋️ Claude Sonnet 4.5</strong> / <strong>🌐 Perplexity Sonar-Pro (초고속 직결)</strong>
               </div>
             </div>
           </div>
 
-          <div class="guide-item">
+          <div class="guide-item highlight">
             <span class="num-circle">2</span>
             <div>
-              <div class="guide-item-title">📊 현재 세션 API 호출 및 예상 버닝 현황 (3대 지표)</div>
+              <div class="guide-item-title">우측 상단 <span class="ui-pill">공유 링크 복사</span> — 다른 PC·브라우저 즉시 자동 연결</div>
               <div class="guide-item-desc">
-                • <strong>누적 API 호출</strong>: 실제 Perplexity AI가 호출된 총 횟수 (트렌드 수집 횟수 + 기사 초안 생성 횟수 구분 표시)<br/>
-                • <strong>누적 예상 소진액</strong>: 입·출력 토큰 수를 실시간 계산해 한화(<code>약 N원</code>)와 달러(<code>$0.000</code>)로 투명하게 표시<br/>
-                • <strong>새로고침 캐시 방어</strong>: 캐시 덕분에 절약된 중복 호출 횟수 표시
+                상단 바의 <span class="ui-pill">공유 링크 복사</span>(또는 모달 내 <span class="ui-pill green">🔗 API 포함 공유 링크 복사</span>)를 눌러 동료에게 전달하면, 동료가 링크를 여는 즉시 API 키가 자동 등록되어 별도 설정 없이 바로 사용할 수 있습니다.
               </div>
             </div>
           </div>
@@ -842,19 +1056,9 @@
           <div class="guide-item">
             <span class="num-circle">3</span>
             <div>
-              <div class="guide-item-title"><span class="ui-pill green">🔗 팀 공유 링크 복사</span> & Netlify 환경 변수 자동 연동</div>
+              <div class="guide-item-title">📊 누적 API 호출 및 실제 과금(버닝) 투명 모니터링</div>
               <div class="guide-item-desc">
-                Netlify 서버 환경 변수(<code>PERPLEXITY_API_KEY</code>)가 등록된 배포 링크로 접속하면 팀원 누구나 별도 키 입력 없이 즉시 <span class="ui-pill green">🟢 Perplexity 연결됨</span> 상태로 사용할 수 있습니다.
-              </div>
-            </div>
-          </div>
-
-          <div class="guide-item">
-            <span class="num-circle">4</span>
-            <div>
-              <div class="guide-item-title">API 키 변경 및 <span class="ui-pill">연결 해제(키 삭제)</span></div>
-              <div class="guide-item-desc">
-                새로운 Perplexity API 키(<code>pplx-...</code>)로 교체하고 싶다면 입력칸에 붙여넣고 <span class="ui-pill">저장 및 실시간 트렌드 반영</span>을 누르세요.
+                트렌드 수집 호출 횟수, 초안 집필 호출 횟수, 누적 예상 소진액(원화/달러), 그리고 6시간 캐시로 절약된 새로고침 방어 횟수를 실시간으로 확인할 수 있습니다.
               </div>
             </div>
           </div>
@@ -862,49 +1066,51 @@
       </div>
 
       <div class="slide-footer">
-        <span>매일경제 AX TF · 콘텐츠PR그룹 | MK Pick GEO 콘텐츠 스튜디오 실무 매뉴얼</span>
-        <span>6 / 12</span>
+        <span>매일경제 AX TF · 콘텐츠PR그룹 | MK Pick 콘텐츠 스튜디오 실무 매뉴얼</span>
+        <span>06 / 12</span>
       </div>
     </section>
 
     <!-- ===================================================================
-         SLIDE 07: [2부 편집 화면] 전체 화면 구성 & 상단 고정 액션 바
+         SLIDE 07: [2부 편집 화면] 3단 레이아웃 전체 구성 & 상단 고정 액션 바
          =================================================================== -->
     <section class="slide" id="slide-7">
       <div class="slide-header">
-        <div>
-          <span class="slide-step-tag">PART 2 · 기사 초안 작성(편집) 페이지</span>
-          <h2 class="slide-title">6. 기사 초안 작성 페이지 전체 구성 & 상단 고정 액션 바 설명</h2>
-          <p class="slide-subtitle">키워드나 트렌드를 클릭해 초안이 생성되면 열리는 화면입니다. 스크롤을 내려도 상단 액션 바와 좌측 보조 패널이 따라오며 편집을 돕습니다.</p>
+        <div class="slide-header-left">
+          <div class="slide-title-row">
+            <span class="slide-step-tag">PART 2 · 편집 화면 전체 구조</span>
+            <h2 class="slide-title">기사 편집 페이지 3단 레이아웃 & 상단 고정 액션 바</h2>
+          </div>
+          <p class="slide-subtitle">좌측 [취재·검증·목차 패널] + 중앙 [STEP 01~08 에디터] + 우측 [AI 채팅 수정 & 히스토리 패널]의 3단 워크스테이션 구조입니다.</p>
         </div>
-        <span class="slide-page-num">SLIDE 07 / 12</span>
+        <span class="slide-page-num">07 / 12</span>
       </div>
 
       <div class="slide-body two-col">
         <div class="screenshot-box">
-          <img src="./guide-assets/06-editor-top-memo.png" alt="편집 화면 전체 및 상단 고정 바" />
-          <div class="screenshot-caption">[실제 화면] 기사 초안 작성 페이지 (상단 고정 바 + 좌측 3탭 패널 + 우측 8단계 편집기)</div>
+          <img src="./guide-assets/06-editor-top-memo.png" alt="편집 화면 3단 레이아웃" />
+          <div class="screenshot-caption">[실제 화면] 편집 페이지 3단 구성 (좌측 취재·검증 + 중앙 에디터 + 우측 AI 채팅 수정·히스토리)</div>
         </div>
 
         <div class="guide-list">
-          <div class="guide-item">
+          <div class="guide-item highlight">
             <span class="num-circle">1</span>
             <div>
-              <div class="guide-item-title"><span class="ui-pill">← 홈 · 소재 선택</span> & <span class="ui-pill">콘텐츠 유형 변경 드롭다운 (1~5)</span></div>
+              <div class="guide-item-title">한눈에 보는 좌 · 중 · 우 3단 패널 역할</div>
               <div class="guide-item-desc">
-                • <strong>홈 · 소재 선택</strong>: 작업 내용을 자동 저장하고 첫 화면으로 돌아갑니다.<br/>
-                • <strong>유형 변경 드롭다운</strong>: 작성 도중 다른 유형(예: 유형 2 → 유형 4)으로 바꾸면 해당 유형의 예시 구조로 즉시 전환됩니다.
+                • <strong>좌측 패널 (3탭)</strong>: <span class="ui-pill">📝 취재·메모</span> · <span class="ui-pill">✅ 점검·팩트</span>(독창성/기보도 유사도/팩트체크) · <span class="ui-pill">🧭 목차·흐름</span><br/>
+                • <strong>중앙 패널 (STEP 01~08)</strong>: 헤드라인·부제·3줄요약·도입부(ON/OFF)·본문·요약표·용어사전·FAQ 편집<br/>
+                • <strong>우측 패널 (2탭)</strong>: <span class="ui-pill">💬 AI 채팅 수정</span>(부분 다듬기) · <span class="ui-pill">🕒 히스토리</span>(버전별 복원)
               </div>
             </div>
           </div>
 
-          <div class="guide-item highlight">
+          <div class="guide-item">
             <span class="num-circle">2</span>
             <div>
-              <div class="guide-item-title"><span class="ui-pill">✏️ 구조별 편집</span> vs <span class="ui-pill">👁️ 실제 기사 미리보기</span> 모드 스위치</div>
+              <div class="guide-item-title">상단 고정 바 — <span class="ui-pill">✏️ 구조별 편집</span> vs <span class="ui-pill">👁️ 실제 기사 미리보기</span></div>
               <div class="guide-item-desc">
-                • <strong>구조별 편집</strong>: STEP 01부터 STEP 08까지 각 블록을 수정·추가·순서 변경하는 기본 작업 화면입니다.<br/>
-                • <strong>실제 기사 미리보기</strong>: 입력 상자 테두리를 모두 숨기고 실제 매경 Pick에 출고될 기사 형태 그대로 가독성을 점검합니다.
+                작업 중 언제든 <span class="ui-pill">👁️ 실제 기사 미리보기</span>를 누르면 입력창 테두리가 사라지고 실제 MK Pick에 출고될 매거진 레이아웃 그대로 가독성과 팩트체크 하이라이트를 점검할 수 있습니다.
               </div>
             </div>
           </div>
@@ -912,30 +1118,19 @@
           <div class="guide-item">
             <span class="num-circle">3</span>
             <div>
-              <div class="guide-item-title"><code>빈 양식</code> & <code>↺ 초안 복원</code> 텍스트 버튼</div>
+              <div class="guide-item-title">실시간 분량(<span class="ui-pill">공백 포함 N,NNN자</span>) · <span class="ui-pill amber">🖍️ 팩트 확인 필요</span> · <span class="ui-pill">↺ 초안 복원</span></div>
               <div class="guide-item-desc">
-                • <strong>빈 양식</strong>: 처음부터 직접 타이핑해 쓰고 싶을 때 모든 입력칸을 깨끗이 비웁니다.<br/>
-                • <strong>↺ 초안 복원</strong>: 수정하던 내용을 취소하고 처음 생성된 초안 상태로 되돌립니다.
-              </div>
-            </div>
-          </div>
-
-          <div class="guide-item">
-            <span class="num-circle">4</span>
-            <div>
-              <div class="guide-item-title">실시간 <span class="ui-pill">공백 포함 N,NNN자</span> & <span class="ui-pill amber">🖍️ 팩트 확인 필요 N건</span> 배지</div>
-              <div class="guide-item-desc">
-                글자를 입력할 때마다 전체 분량(글자 수)이 실시간 계산되며, 본문 속 수치·날짜 문장 중 아직 확인하지 않은 팩트체크 건수를 알려줍니다. 배지를 클릭하면 좌측 팩트 점검창이 열립니다.
+                글자 수가 실시간 집계되며, <code>🖍️ 팩트 확인 필요 N건</code> 배지 클릭 시 좌측 팩트체크 탭으로 즉시 이동합니다.
               </div>
             </div>
           </div>
 
           <div class="guide-item highlight">
-            <span class="num-circle">5</span>
+            <span class="num-circle">4</span>
             <div>
-              <div class="guide-item-title"><span class="ui-pill">📋 CMS 붙여넣기용 전체 복사</span> (최종 출고 버튼)</div>
+              <div class="guide-item-title"><span class="ui-pill">📋 CMS 붙여넣기용 전체 복사</span> (원클릭 최종 출고)</div>
               <div class="guide-item-desc">
-                편집이 끝난 뒤 이 버튼을 누르면 <strong>[바이라인 · 태그 · 제목 · AI 3줄 요약 · 부제 · 본문 · 요약표 · FAQ · 한 줄 요약 · 이미지 캡션 · 출처]</strong> 전체가 CMS 등록용 텍스트로 깔끔하게 복사됩니다.
+                클릭 한 번으로 <strong>[바이라인 · 제목 · 부제 · AI 3줄 요약 · 도입부(ON 시) · 본문 · 요약표 · 용어사전(ON 시) · FAQ · 한 줄 요약 · 출처]</strong> 전체가 매경 CMS 표준 포맷으로 복사됩니다.
               </div>
             </div>
           </div>
@@ -943,38 +1138,39 @@
       </div>
 
       <div class="slide-footer">
-        <span>매일경제 AX TF · 콘텐츠PR그룹 | MK Pick GEO 콘텐츠 스튜디오 실무 매뉴얼</span>
-        <span>7 / 12</span>
+        <span>매일경제 AX TF · 콘텐츠PR그룹 | MK Pick 콘텐츠 스튜디오 실무 매뉴얼</span>
+        <span>07 / 12</span>
       </div>
     </section>
 
     <!-- ===================================================================
-         SLIDE 08: [편집 화면 ①] 좌측 패널 1번 탭 : 📝 취재·메모 활용법
+         SLIDE 08: [편집 화면 ①] 좌측 [📝 취재·메모] 탭 & 본문 1:1 문장 비교 박스
          =================================================================== -->
     <section class="slide" id="slide-8">
       <div class="slide-header">
-        <div>
-          <span class="slide-step-tag">PART 2 · 편집 화면 상세 ① (좌측 패널 1번 탭)</span>
-          <h2 class="slide-title">7. 좌측 패널 [📝 취재·메모] 탭 — 실시간 뉴스 검색 & 매경 문체 메모장</h2>
-          <p class="slide-subtitle">편집 도중 추가 팩트를 검색하거나, 외부 보도자료 문장을 매경 경어체("~합니다")로 자동 변환해 원하는 본문 단락에 끼워 넣습니다.</p>
+        <div class="slide-header-left">
+          <div class="slide-title-row">
+            <span class="slide-step-tag">PART 2 · 편집 화면 상세 ① (좌측 1번 탭)</span>
+            <h2 class="slide-title">좌측 [📝 취재·메모] 탭 & 본문 단락 1:1 취재 메모 비교 박스</h2>
+          </div>
+          <p class="slide-subtitle">원문 기사에서 발췌한 2~3문장 핵심 팩트가 어느 본문 단락의 어떤 문장으로 재구성되었는지 1:1로 투명하게 대조합니다.</p>
         </div>
-        <span class="slide-page-num">SLIDE 08 / 12</span>
+        <span class="slide-page-num">08 / 12</span>
       </div>
 
       <div class="slide-body two-col">
         <div class="screenshot-box">
-          <img src="./guide-assets/06-editor-top-memo.png" alt="좌측 패널 취재 메모 탭" />
-          <div class="screenshot-caption">[실제 화면] 좌측 패널 첫 번째 탭 '📝 취재·메모' 상세 기능</div>
+          <img src="./guide-assets/06-editor-top-memo.png" alt="좌측 취재 메모 탭 및 본문 반영 표시" />
+          <div class="screenshot-caption">[실제 화면] 좌측 '📝 취재·메모' 카드의 단락 반영 배지 및 본문 하단 노란색 비교 박스</div>
         </div>
 
         <div class="guide-list">
           <div class="guide-item highlight">
             <span class="num-circle">1</span>
             <div>
-              <div class="guide-item-title">🔄 다른 키워드로 기사 새로 쓰기 & 인기 키워드 1줄 드롭다운 전환</div>
+              <div class="guide-item-title"><code>+ 최신 뉴스 팩트 더 불러오기</code> (원문 핵심 팩트 2~3문장 + 실제 기사 링크)</div>
               <div class="guide-item-desc">
-                • <strong><span class="ui-pill">🔄 위 키워드로 오른쪽 기사 전체 새로 쓰기 →</span></strong>: 홈 화면으로 나가지 않고도 새 키워드를 입력해 오른쪽 기사 전체(제목·본문·요약표·FAQ)를 즉시 새로 작성합니다.<br/>
-                • <strong><code>🔥 실시간 인기 키워드에서 바로 골라 바꾸기 ▼</code> 드롭다운</strong>: 깔끔한 1줄 선택창에서 오늘의 실시간 인기 키워드를 고르면 즉시 해당 주제의 새 기사로 전환됩니다.
+                오른쪽에서 작성 중인 본문은 절대 덮어쓰지 않고, 현재 키워드의 가장 최신 보도 기사들을 검색해 <strong>각 기사별 핵심 팩트(2~3문장)와 실제 개별 기사 URL</strong>을 메모장에 추가합니다.
               </div>
             </div>
           </div>
@@ -982,9 +1178,9 @@
           <div class="guide-item">
             <span class="num-circle">2</span>
             <div>
-              <div class="guide-item-title">📌 취재 팩트 메모장 — <code>[📰 최신 뉴스 문장만 메모장에 더 불러오기]</code></div>
+              <div class="guide-item-title">외부 보도자료 붙여넣기 — <span class="ui-pill">+ 매경 문체로 추가</span> & <span class="ui-pill">본문 반영 →</span></div>
               <div class="guide-item-desc">
-                <strong>오른쪽에서 수정 중인 기사 본문은 절대 덮어쓰지 않고</strong>, 현재 키워드에 대한 최신 뉴스 팩트 문장들만 새로 검색해 아래 메모장 카드 목록에 안전하게 추가해 주는 기능입니다. (원문 기사 링크 포함)
+                보도자료나 타사 문장을 붙여넣고 <span class="ui-pill">+ 매경 문체로 추가</span>를 누르면 매경 경어체(<code>~합니다</code>)로 자동 패러프레이징되며, 원하는 단락(<code>단락 01~04</code>)을 골라 <span class="ui-pill">본문 반영 →</span>으로 즉시 삽입합니다.
               </div>
             </div>
           </div>
@@ -992,19 +1188,19 @@
           <div class="guide-item highlight">
             <span class="num-circle">3</span>
             <div>
-              <div class="guide-item-title">외부 문장 자동 변환 — <span class="ui-pill">+ 매경 문체로 추가</span> (복제 방지 패러프레이징)</div>
+              <div class="guide-item-title">정밀 1:1 매칭 배지 : <span class="ui-pill amber">📌 단락 0X 반영됨 · AI재구성 · 유사 N% ↗</span></div>
               <div class="guide-item-desc">
-                보도자료나 타 언론사 기사의 문장을 그대로 복사해 메모 입력창에 붙여넣고 <span class="ui-pill">+ 매경 문체로 추가</span>를 누르면, 타사 문장 표현을 배제하고 핵심 수치·팩트만 남긴 뒤 <strong>매일경제 Pick 표준 경어체(<code>"~합니다/습니다"</code>)로 자동 변환</strong>해 메모장에 저장합니다.
+                단순 키워드 겹침으로 여러 단락에 중복 표시하지 않고, <strong>실제로 해당 취재 메모를 바탕으로 작성된 본문 단락과 문장만 1:1로 정확히 매칭</strong>해 유사도(%)와 재구성 여부를 표시합니다.
               </div>
             </div>
           </div>
 
-          <div class="guide-item">
+          <div class="guide-item highlight">
             <span class="num-circle">4</span>
             <div>
-              <div class="guide-item-title">메모 카드 원문 확인(<code>🔗 출처 원문 ↗</code>) & <span class="ui-pill">본문 반영 →</span></div>
+              <div class="guide-item-title">본문 단락 하단 노란색 <code>[📌 취재 메모 반영]</code> 1:1 문장 비교 박스</div>
               <div class="guide-item-desc">
-                각 팩트 메모 카드의 <code>[🔗 출처: 언론사 (원문 확인 ↗)]</code>을 눌러 팩트를 대조할 수 있으며, 드롭다운에서 <strong><code>AI 3줄 요약에 넣기</code></strong> 또는 <strong><code>단락 01~03에 넣기</code></strong>를 고른 뒤 <span class="ui-pill">본문 반영 →</span>을 누르면 해당 위치 끝에 문장이 즉시 삽입됩니다.
+                본문 가독성을 해치지 않도록 본문 입력창 바로 아래 노란색 박스에 <strong>① 취재 메모 원문(2~3문장)</strong>과 <strong>② 그 메모를 바탕으로 재구성된 실제 본문 문장(노란 형광펜)</strong>을 1:1로 나란히 보여주며, <code>[본문에서 빼기 ✕]</code>로 즉시 제거할 수도 있습니다.
               </div>
             </div>
           </div>
@@ -1012,58 +1208,60 @@
       </div>
 
       <div class="slide-footer">
-        <span>매일경제 AX TF · 콘텐츠PR그룹 | MK Pick GEO 콘텐츠 스튜디오 실무 매뉴얼</span>
-        <span>8 / 12</span>
+        <span>매일경제 AX TF · 콘텐츠PR그룹 | MK Pick 콘텐츠 스튜디오 실무 매뉴얼</span>
+        <span>08 / 12</span>
       </div>
     </section>
 
     <!-- ===================================================================
-         SLIDE 09: [편집 화면 ②] 좌측 패널 2번 탭(점검·팩트) & 3번 탭(목차·흐름)
+         SLIDE 09: [편집 화면 ②] 좌측 [✅ 점검·팩트] 독창성·유사도 검증 & 팩트체크
          =================================================================== -->
     <section class="slide" id="slide-9">
       <div class="slide-header">
-        <div>
-          <span class="slide-step-tag">PART 2 · 편집 화면 상세 ② (좌측 패널 2·3번 탭)</span>
-          <h2 class="slide-title">8. 좌측 패널 [✅ 점검·팩트] 탭 & [🧭 목차·흐름] 탭 활용법</h2>
-          <p class="slide-subtitle">출고 전 GEO 7대 최적화 점수와 수치·날짜 팩트체크를 완료하고, 목차 탭으로 긴 기사의 원하는 단락에 0.1초 만에 이동합니다.</p>
+        <div class="slide-header-left">
+          <div class="slide-title-row">
+            <span class="slide-step-tag">PART 2 · 편집 화면 상세 ② (좌측 2·3번 탭)</span>
+            <h2 class="slide-title">좌측 [✅ 점검·팩트] 독창성 · 기보도 기사 유사도 검증 & 팩트체크</h2>
+          </div>
+          <p class="slide-subtitle">취재 원문과의 문장 유사도는 물론, 외부 기보도 뉴스 검색 및 원본 보도자료 붙여넣기 대조까지 앱 안에서 한 번에 검증합니다.</p>
         </div>
-        <span class="slide-page-num">SLIDE 09 / 12</span>
+        <span class="slide-page-num">09 / 12</span>
       </div>
 
       <div class="slide-body two-col">
         <div class="screenshot-box">
-          <img src="./guide-assets/07-editor-check-body.png" alt="좌측 패널 점검 팩트 탭 및 본문 편집" />
-          <div class="screenshot-caption">[실제 화면] 좌측 패널 두 번째 탭 '✅ 점검·팩트 (GEO 7대 체크리스트 + 수치 팩트체크)'</div>
+          <img src="./guide-assets/07-editor-check-body.png" alt="점검 팩트 탭 유사도 검증 화면" />
+          <div class="screenshot-caption">[실제 화면] 좌측 '✅ 점검·팩트' 탭의 원문 독창성 진단 및 기보도 기사 실시간 검색 대조</div>
         </div>
 
         <div class="guide-list">
           <div class="guide-item highlight">
             <span class="num-circle">1</span>
             <div>
-              <div class="guide-item-title"><span class="ui-pill green">✅ GEO 최적화 7대 체크리스트 (N/7 충족)</span> 자동 진단</div>
+              <div class="guide-item-title">🛡️ 원문 출처 대비 독창성 · 유사도 검증 & <span class="ui-pill">✨ 이 문장만 즉시 재작성</span></div>
               <div class="guide-item-desc">
-                오른쪽 본문을 수정할 때마다 실시간으로 7가지 GEO 필수 요건을 자동 검사합니다:<br/>
-                ① 인용구(<code>" "</code>) + 말줄임(<code>…</code>) 제목 &nbsp;② 상단 AI 팩트 요약 3줄 &nbsp;③ 독자 질문형 도입부(<code>~나요?</code>) &nbsp;④ 구체적 수치·날짜·고유명사 &nbsp;⑤ 구조화된 비교 요약표 &nbsp;⑥ 자연어 FAQ 5문항 이상 &nbsp;⑦ <code>"한 줄 요약!"</code> 마무리 및 <code>~합니다</code> 체 통일
-              </div>
-            </div>
-          </div>
-
-          <div class="guide-item">
-            <span class="num-circle">2</span>
-            <div>
-              <div class="guide-item-title">미충족 항목 클릭 시 해당 영역으로 즉시 점프 (<span class="ui-pill">보완 이동 →</span>)</div>
-              <div class="guide-item-desc">
-                아직 충족되지 않은 항목(<span class="ui-pill">보완 이동 →</span>)을 클릭하면 오른쪽 편집기의 해당 STEP 위치로 화면이 즉시 스크롤되며 주황색 테두리로 표시해 주어 바로 보완할 수 있습니다.
+                수집된 취재 메모·출처와 현재 기사 본문 전체를 문장 단위로 대조해 <strong>종합 독창성 점수(예: <code>독창성 88% · 복붙 0건</code>)</strong>와 단락별 최고 유사도를 진단합니다. 유사도가 가장 높은 문장은 <span class="ui-pill">✨ 이 문장만 즉시 재작성</span> 버튼으로 1초 만에 다르게 고쳐 쓸 수 있습니다.
               </div>
             </div>
           </div>
 
           <div class="guide-item highlight">
+            <span class="num-circle">2</span>
+            <div>
+              <div class="guide-item-title">🌐 외부 기보도 기사 실시간 키워드 검색 대조 & 보도자료 직접 붙여넣기 대조</div>
+              <div class="guide-item-desc">
+                • <strong>기보도 뉴스 실시간 검색</strong>: 검색창에 핵심 키워드를 입력하고 <span class="ui-pill">실시간 뉴스 검색</span>을 누르면 실제 보도된 타 언론사 기사 5건을 앱 안으로 불러와 <strong>내 기사 제목·본문과의 유사도(%)를 1:1 비교</strong>합니다.<br/>
+                • <strong>원본 보도자료 직접 붙여넣어 대조</strong>: 보유 중인 보도자료 원문을 붙여넣어 본문과의 유사도(%)를 즉시 계산합니다.
+              </div>
+            </div>
+          </div>
+
+          <div class="guide-item">
             <span class="num-circle">3</span>
             <div>
-              <div class="guide-item-title">🖍️ 수치·날짜 팩트체크 — 노란색 형광펜 클릭 확인 & <span class="ui-pill">일괄 확인 완료 ✓</span></div>
+              <div class="guide-item-title"><span class="ui-pill green">✅ GEO 7대 체크리스트</span> & 🖍️ 수치·날짜 형광펜 팩트체크</div>
               <div class="guide-item-desc">
-                본문 중 금액(원/억), 비율(%), 일자(월/일), 수량(종/개)이 포함된 문장을 자동으로 뽑아 <span class="ui-pill amber">• 확인 필요</span> 노란색 카드로 보여줍니다. 팩트 확인 후 카드를 클릭하면 <span class="ui-pill green">✓ 확인 완료</span> 초록색으로 바뀌며, 우측 상단 <span class="ui-pill">일괄 확인 완료 ✓</span>로 한 번에 완료 처리할 수도 있습니다.
+                7가지 GEO 최적화 기준 충족 여부를 실시간 진단하며, 금액·일자·비율 문장을 클릭해 <span class="ui-pill green">✓ 확인 완료</span>(또는 <code>일괄 확인 완료 ✓</code>)로 전환합니다.
               </div>
             </div>
           </div>
@@ -1071,9 +1269,9 @@
           <div class="guide-item">
             <span class="num-circle">4</span>
             <div>
-              <div class="guide-item-title">3번 탭 <span class="ui-pill">🧭 목차·흐름</span> — 기사 구성 블록 빠른 이동</div>
+              <div class="guide-item-title">좌측 3번 탭 <span class="ui-pill">🧭 목차·흐름</span> — STEP 01~08 원하는 위치로 즉시 이동</div>
               <div class="guide-item-desc">
-                세 번째 탭인 <span class="ui-pill">🧭 목차·흐름</span>을 누르면 현재 기사의 <code>STEP 01</code>부터 <code>STEP 08</code>(및 각 본문 소제목 단락) 목차가 나열됩니다. 원하는 항목을 클릭하면 긴 스크롤 없이 즉시 해당 단락으로 이동합니다.
+                기사 전체 목차와 각 단락 소제목을 한눈에 보며 클릭 즉시 해당 단락으로 스크롤 이동합니다.
               </div>
             </div>
           </div>
@@ -1081,37 +1279,39 @@
       </div>
 
       <div class="slide-footer">
-        <span>매일경제 AX TF · 콘텐츠PR그룹 | MK Pick GEO 콘텐츠 스튜디오 실무 매뉴얼</span>
-        <span>9 / 12</span>
+        <span>매일경제 AX TF · 콘텐츠PR그룹 | MK Pick 콘텐츠 스튜디오 실무 매뉴얼</span>
+        <span>09 / 12</span>
       </div>
     </section>
 
     <!-- ===================================================================
-         SLIDE 10: [편집 화면 ③] 우측 에디터 상단 STEP 01 ~ STEP 05 기능
+         SLIDE 10: [편집 화면 ③] 중앙 에디터 상단 STEP 01 ~ STEP 05 (도입부 ON/OFF · 본문)
          =================================================================== -->
     <section class="slide" id="slide-10">
       <div class="slide-header">
-        <div>
-          <span class="slide-step-tag">PART 2 · 편집 화면 상세 ③ (우측 에디터 STEP 01 ~ 05)</span>
-          <h2 class="slide-title">9. 우측 편집기 상단 — STEP 01(카테고리) ~ STEP 05(본문 단락) 기능</h2>
-          <p class="slide-subtitle">오른쪽 편집기는 모든 입력창이 내용 길이에 맞춰 자동으로 늘어나며, 개별 영역 복사와 문체 자동 다듬기 기능을 제공합니다.</p>
+        <div class="slide-header-left">
+          <div class="slide-title-row">
+            <span class="slide-step-tag">PART 2 · 편집 화면 상세 ③ (중앙 에디터 상단)</span>
+            <h2 class="slide-title">중앙 에디터 상단 — STEP 01(카테고리) · STEP 02(헤드라인·소제목) · STEP 03(도입부 ON/OFF) · STEP 05(본문)</h2>
+          </div>
+          <p class="slide-subtitle">STEP 02의 한줄 소제목(부제)과 STEP 03의 매거진 도입부 내용(300~500자, ON/OFF 가능)으로 기사 완성도를 높입니다.</p>
         </div>
-        <span class="slide-page-num">SLIDE 10 / 12</span>
+        <span class="slide-page-num">10 / 12</span>
       </div>
 
       <div class="slide-body two-col">
         <div class="screenshot-box">
-          <img src="./guide-assets/06-editor-top-memo.png" alt="우측 에디터 STEP 01~04" />
-          <div class="screenshot-caption">[실제 화면] 우측 편집기 상단 STEP 01(카테고리) · STEP 02(헤드라인 5선) · STEP 03(3줄 요약)</div>
+          <img src="./guide-assets/07-editor-check-body.png" alt="중앙 에디터 STEP 03 도입부 및 STEP 05 본문" />
+          <div class="screenshot-caption">[실제 화면] STEP 03 기사 도입부 내용(ON/OFF 토글) 및 STEP 05 본문 단락 에디터</div>
         </div>
 
         <div class="guide-list">
           <div class="guide-item">
             <span class="num-circle">1</span>
             <div>
-              <div class="guide-item-title"><span class="ui-pill">STEP 01 · 카테고리 & 바이라인</span> — MK Pick 5대 카테고리 칩</div>
+              <div class="guide-item-title"><span class="ui-pill">STEP 01 · 카테고리 & 바이라인</span> — 5대 카테고리 칩 & 핵심 키워드 태그</div>
               <div class="guide-item-desc">
-                AI가 기사 성격에 맞춰 추천 사유와 함께 선택한 카테고리(<strong>산업 Q&A / 제품·기술 / 성공사례 / 기업뉴스 / 브랜드스토리(기업관)</strong>)가 주황색으로 표시됩니다. 다른 카테고리 칩을 클릭하면 아래 <code>라벨 · 기자 바이라인</code> 첫머리도 즉시 함께 변경됩니다.
+                산업 Q&A · 제품·기술 · 성공사례 · 기업뉴스 · 브랜드스토리(기업관) 중 기사 성격에 맞는 카테고리를 원클릭으로 선택하며, 기자 바이라인과 업체명·핵심 키워드 태그를 편집합니다.
               </div>
             </div>
           </div>
@@ -1119,19 +1319,21 @@
           <div class="guide-item highlight">
             <span class="num-circle">2</span>
             <div>
-              <div class="guide-item-title"><span class="ui-pill">STEP 02 · 기사 헤드라인</span> & 💡 AI 추천 헤드라인 5선 원클릭 교체</div>
+              <div class="guide-item-title"><span class="ui-pill">STEP 02 · 기사 헤드라인</span> — <code>✂️ 40자 초과분 소제목으로 분리</code> & 한줄 소제목 · 추천 5선</div>
               <div class="guide-item-desc">
-                큰 글씨 제목칸에서 직접 제목을 수정할 수 있으며, 바로 아래 <strong>AI 추천 헤드라인 5선(01~05번)</strong> 중 마음에 드는 제목 줄(<span class="ui-pill">이 제목으로 교체 →</span>)을 클릭하면 즉시 메인 제목으로 반영됩니다. 우측 상단 <code>[📋 제목만 복사]</code>로 제목만 따로 복사할 수 있습니다.
+                • 메인 제목이 40자를 넘으면 우측 상단 <code>[✂️ 40자 초과분 소제목으로 분리 ↓]</code> 버튼으로 뒷부분을 아래 <strong>한줄 소제목</strong> 칸으로 자동 분리할 수 있습니다.<br/>
+                • 하단 <strong>💡 추천 헤드라인 5선(01~05)</strong>을 클릭하면 즉시 메인 제목으로 교체됩니다.
               </div>
             </div>
           </div>
 
-          <div class="guide-item">
+          <div class="guide-item highlight">
             <span class="num-circle">3</span>
             <div>
-              <div class="guide-item-title"><span class="ui-pill">STEP 03 · AI 팩트 체크 3줄 요약</span> & <span class="ui-pill">STEP 04 · 기사 리드 부제</span></div>
+              <div class="guide-item-title"><span class="ui-pill">STEP 03 · 도입부 내용</span> — 300~500자 매거진 리드문 & <span class="ui-pill">도입부 ON / OFF</span></div>
               <div class="guide-item-desc">
-                생성형 AI가 가장 먼저 인용하는 1~3번 핵심 팩트 요약문과 2줄 리드 부제를 수정합니다. 우측 상단 <code>[📋 AI 요약만 복사]</code> 버튼을 누르면 3줄 요약만 클립보드에 복사됩니다.
+                • 본문 첫 소제목 단락이 시작되기 전에 독자의 시선을 끄는 <strong>2~3문단(권장 300~500자) 도입부 내용</strong>입니다.<br/>
+                • 우측 상단 <strong><span class="ui-pill">도입부 ON</span> / <code>도입부 OFF</code> 토글 버튼</strong>으로 언제든 켜거나 끌 수 있으며, <code>[✨ 300~500자 자동 생성]</code>으로 즉시 재작성할 수 있습니다.
               </div>
             </div>
           </div>
@@ -1139,11 +1341,9 @@
           <div class="guide-item highlight">
             <span class="num-circle">4</span>
             <div>
-              <div class="guide-item-title"><span class="ui-pill">STEP 05 · 본문 단락</span> — <span class="ui-pill">✨ 매경 문체(~합니다) 다듬기</span> & 순서 이동</div>
+              <div class="guide-item-title"><span class="ui-pill">STEP 05 · 본문 단락</span> — 매거진형 소제목 · <span class="ui-pill">✨ 문체 다듬기</span> & 하단 메모 비교 박스</div>
               <div class="guide-item-desc">
-                • 각 단락은 <strong>독자 질문형 소제목(<code>~할까요? / ~인가요?</code>)</strong>과 본문으로 구성되며 실시간 글자 수가 표시됩니다.<br/>
-                • 단락 우측 상단의 <strong><span class="ui-pill">✨ 매경 문체(~합니다) 다듬기</span></strong>를 누르면 평어체(<code>~한다/이다/했다</code>) 문장이 즉시 <code>~합니다/입니다/했습니다</code> 체로 자동 변환됩니다!<br/>
-                • <code>[↑ 위로]</code> / <code>[↓ 아래로]</code> / <code>[삭제]</code> / <span class="ui-pill">+ 새 질문 단락 추가</span>로 구성을 자유롭게 편집하세요.
+                단락별 실시간 글자 수와 역할 배지가 표시되며, <span class="ui-pill">✨ 문체 다듬기</span> 클릭 시 평어체를 매경 경어체(<code>~합니다</code>)로 자동 교정합니다. 취재 메모가 반영된 단락은 하단 노란색 박스에서 원문과 1:1로 비교할 수 있습니다.
               </div>
             </div>
           </div>
@@ -1151,37 +1351,39 @@
       </div>
 
       <div class="slide-footer">
-        <span>매일경제 AX TF · 콘텐츠PR그룹 | MK Pick GEO 콘텐츠 스튜디오 실무 매뉴얼</span>
+        <span>매일경제 AX TF · 콘텐츠PR그룹 | MK Pick 콘텐츠 스튜디오 실무 매뉴얼</span>
         <span>10 / 12</span>
       </div>
     </section>
 
     <!-- ===================================================================
-         SLIDE 11: [편집 화면 ④] 우측 에디터 하단 STEP 06 ~ STEP 08 기능
+         SLIDE 11: [편집 화면 ④] 중앙 에디터 하단 STEP 06 ~ STEP 08 (요약표 · 용어사전 · FAQ)
          =================================================================== -->
     <section class="slide" id="slide-11">
       <div class="slide-header">
-        <div>
-          <span class="slide-step-tag">PART 2 · 편집 화면 상세 ④ (우측 에디터 STEP 06 ~ 08)</span>
-          <h2 class="slide-title">10. 우측 편집기 하단 — STEP 06(요약표) · STEP 07(FAQ·팬아웃) · STEP 08(마무리)</h2>
-          <p class="slide-subtitle">AI 답변 엔진이 표와 Q&A로 즉시 채택할 수 있도록 비교 요약표와 구어체 자연어 FAQ(쿼리 팬아웃 추천 질문 8선 포함)를 완성합니다.</p>
+        <div class="slide-header-left">
+          <div class="slide-title-row">
+            <span class="slide-step-tag">PART 2 · 편집 화면 상세 ④ (중앙 에디터 STEP 06 ~ 08)</span>
+            <h2 class="slide-title">중앙 에디터 하단 — 비교 요약표 · 용어 사전(ON/OFF) · 자연어 FAQ · 출처</h2>
+          </div>
+          <p class="slide-subtitle">AI 검색엔진이 가장 선호하는 구조화 비교표, 핵심 용어 사전, 문맥순 FAQ, 검증 출처 목록을 손쉽게 편집합니다.</p>
         </div>
-        <span class="slide-page-num">SLIDE 11 / 12</span>
+        <span class="slide-page-num">11 / 12</span>
       </div>
 
       <div class="slide-body two-col">
         <div class="screenshot-box">
-          <img src="./guide-assets/09-editor-step8-footer.png" alt="우측 에디터 STEP 06~08" />
-          <div class="screenshot-caption">[실제 화면] 우측 편집기 하단 STEP 06(비교 요약표) 및 STEP 07(팬아웃 추천 질문 & FAQ)</div>
+          <img src="./guide-assets/08-editor-outline-table-faq.png" alt="중앙 에디터 STEP 06~08" />
+          <div class="screenshot-caption">[실제 화면] STEP 06 핵심 비교 요약표 및 STEP 07 용어 사전(ON/OFF) · 독자 자연어 FAQ</div>
         </div>
 
         <div class="guide-list">
           <div class="guide-item">
             <span class="num-circle">1</span>
             <div>
-              <div class="guide-item-title"><span class="ui-pill">STEP 06 · 핵심 비교 요약표</span> — 행·열 자유 추가 및 삭제</div>
+              <div class="guide-item-title"><span class="ui-pill">STEP 06 · 핵심 비교 요약표</span> — 행·열 자유 추가 및 <code>📋 요약표만 복사</code></div>
               <div class="guide-item-desc">
-                표 제목과 각 셀의 내용을 클릭해 바로 수정할 수 있습니다. 우측 상단 <strong><span class="ui-pill">+ 행 추가</span></strong>로 비교 대상을 늘리거나 <strong><code>[+ 열 추가]</code></strong>로 비교 기준 열을 추가할 수 있으며, 각 행 우측 <code>[✕]</code> 버튼으로 행을 삭제합니다. (<code>[📋 요약표만 복사]</code> 지원)
+                브랜드·상품별 핵심 스펙과 특징을 한눈에 비교하는 표입니다. <span class="ui-pill">+ 행 추가</span>, <code>[+ 열 추가]</code>, 행/열 삭제 버튼으로 자유롭게 편집할 수 있습니다.
               </div>
             </div>
           </div>
@@ -1189,10 +1391,71 @@
           <div class="guide-item highlight">
             <span class="num-circle">2</span>
             <div>
-              <div class="guide-item-title"><span class="ui-pill">STEP 07 · 독자 자연어 FAQ</span> & 💡 팬아웃(Query Fan-out) 추천 질문 8선</div>
+              <div class="guide-item-title"><span class="ui-pill">STEP 07 · 핵심 용어 사전 (ON/OFF)</span> & 본문 문맥순 자연어 FAQ</div>
               <div class="guide-item-desc">
-                • <strong>팬아웃 쿼리 연관 추천 질문 8선</strong>: 독자가 검색창에 꼬리에 꼬리를 물고 물어볼 법한 8가지 다각도 질문(예약·대기, 가격·혜택, 위치·교통, 구매제한, 동반·선물팁, 차별점, 온라인연동, 후속일정)과 답변을 AI가 미리 생성해 줍니다.<br/>
-                • 마음에 드는 질문 우측의 <strong><span class="ui-pill">+ FAQ에 추가</span></strong> 버튼을 누르면 아래 본문 FAQ 목록에 즉시 편입됩니다!
+                • <strong>핵심 용어 사전</strong>: 기사에 등장하는 신조어·기술·트렌드 용어 4~5개를 알기 쉽게 해설하며, 우측 상단 <code>[용어사전 ON/OFF]</code> 버튼으로 포함 여부를 선택할 수 있습니다.<br/>
+                • <strong>문맥순 FAQ & 팬아웃 추천 질문</strong>: 본문 1~4단락 흐름 순서대로 FAQ가 배치되며, 상단 <strong>팬아웃(Query Fan-out) 연관 추천 질문</strong>에서 <span class="ui-pill">+ FAQ에 추가</span>로 문항을 즉시 보강할 수 있습니다.
+              </div>
+            </div>
+          </div>
+
+          <div class="guide-item highlight">
+            <span class="num-circle">3</span>
+            <div>
+              <div class="guide-item-title"><span class="ui-pill">STEP 08 · 마무리 문단 · 한 줄 요약 & 실시간 검증 출처 목록</span></div>
+              <div class="guide-item-desc">
+                기사 전체를 갈무리하는 마무리 문단과 <strong><code>"한 줄 요약!"</code></strong>, 그리고 실제 수집된 <strong>참고 자료 및 실시간 검증 출처 목록</strong>이 표시됩니다. 각 출처의 <code>[원문 열기 ↗]</code>로 기사를 확인하거나 체크박스로 CMS 복사 포함 여부를 제어합니다.
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="slide-footer">
+        <span>매일경제 AX TF · 콘텐츠PR그룹 | MK Pick 콘텐츠 스튜디오 실무 매뉴얼</span>
+        <span>11 / 12</span>
+      </div>
+    </section>
+
+    <!-- ===================================================================
+         SLIDE 12: [3부 최종 출고] 우측 AI 채팅 부분 수정 · 버전 히스토리 & CMS 복사
+         =================================================================== -->
+    <section class="slide" id="slide-12">
+      <div class="slide-header">
+        <div class="slide-header-left">
+          <div class="slide-title-row">
+            <span class="slide-step-tag">PART 3 · AI 채팅 수정 · 히스토리 & 최종 출고</span>
+            <h2 class="slide-title">우측 [💬 AI 채팅 수정] · [🕒 버전 히스토리] 및 [📋 CMS 전체 복사]</h2>
+          </div>
+          <p class="slide-subtitle">기사를 처음부터 다시 생성할 필요 없이 우측 AI 채팅으로 원하는 부분만 즉시 다듬고, 모든 수정 버전을 자유롭게 오갑니다.</p>
+        </div>
+        <span class="slide-page-num">12 / 12</span>
+      </div>
+
+      <div class="slide-body two-col">
+        <div class="screenshot-box">
+          <img src="./guide-assets/10-editor-preview.png" alt="실제 기사 미리보기 및 우측 AI 채팅 수정 패널" />
+          <div class="screenshot-caption">[실제 화면] '👁️ 실제 기사 미리보기' 검수 모드 및 우측 AI 부분 수정 채팅 · 히스토리 패널</div>
+        </div>
+
+        <div class="guide-list">
+          <div class="guide-item highlight">
+            <span class="num-circle">1</span>
+            <div>
+              <div class="guide-item-title">우측 1번 탭 <span class="ui-pill">💬 AI 채팅으로 기사 수정</span> (원클릭 빠른 요청 칩 지원)</div>
+              <div class="guide-item-desc">
+                • <strong>빠른 수정 칩</strong>: <code>더 친근하고 읽기 쉽게</code>, <code>수치·팩트 보강</code>, <code>요약표-본문 일치 보강</code>, <code>분량 10% 줄이기</code> 등 원클릭 요청 칩 제공<br/>
+                • <strong>자유 대화형 지시</strong>: <em>"2단락에 가격 정보를 더 자세히 넣어줘"</em>처럼 입력하면 AI가 해당 단락만 정밀 수정하고 수정된 위치를 <strong>초록색 하이라이트</strong>로 표시합니다.
+              </div>
+            </div>
+          </div>
+
+          <div class="guide-item highlight">
+            <span class="num-circle">2</span>
+            <div>
+              <div class="guide-item-title">우측 2번 탭 <span class="ui-pill">🕒 수정 히스토리 (v1 ~ vN)</span> — 원클릭 시점 복원</div>
+              <div class="guide-item-desc">
+                <code>v1 초기 초안</code>부터 AI 채팅 수정본, 직접 편집본까지 모든 버전이 시간순으로 자동 기록됩니다. 원하는 버전 카드의 <span class="ui-pill">이 버전으로 복원</span>을 누르면 언제든 해당 시점의 원고로 즉시 되돌아갑니다.
               </div>
             </div>
           </div>
@@ -1200,19 +1463,9 @@
           <div class="guide-item">
             <span class="num-circle">3</span>
             <div>
-              <div class="guide-item-title">FAQ 직접 추가 (<code>+ 직접 질문 추가</code>) 및 개별 복사 (<code>📋 FAQ만 복사</code>)</div>
+              <div class="guide-item-title"><span class="ui-pill">👁️ 실제 기사 미리보기</span> 최종 점검 & <span class="ui-pill">📋 CMS 붙여넣기용 전체 복사</span></div>
               <div class="guide-item-desc">
-                각 FAQ 질문(Q)과 답변(A)을 직접 수정하거나 우측 <code>[삭제]</code>로 지울 수 있고, <code>[+ 직접 질문 추가]</code>로 새 문항을 추가할 수 있습니다.
-              </div>
-            </div>
-          </div>
-
-          <div class="guide-item highlight">
-            <span class="num-circle">4</span>
-            <div>
-              <div class="guide-item-title"><span class="ui-pill">STEP 08 · 마무리 한 줄 요약 & 출처 고지</span> (우측 하단 출처 목록)</div>
-              <div class="guide-item-desc">
-                기사 맨 끝의 <strong><code>"한 줄 요약! ~입니다."</code></strong> 문장, <strong>대표 이미지 캡션</strong>, <strong>하단 고지 문구</strong>와 함께 <strong><code>🔗 참고 자료 및 실시간 검증 출처 목록</code></strong>이 표시됩니다. 각 출처의 <code>[원문 열기 ↗]</code>로 팩트를 대조하거나 체크박스로 <strong>CMS 복사 시 특정 출처 표기 포함/제외</strong>를 선택할 수 있습니다.
+                미리보기 화면에서 실제 매경 Pick 출고 레이아웃과 노란색 수치 형광펜을 최종 확인한 뒤, 우측 상단 <span class="ui-pill">📋 CMS 붙여넣기용 전체 복사</span>를 눌러 사내 CMS 본문창에 <code>Ctrl + V</code>로 바로 붙여넣으면 출고 준비가 완료됩니다!
               </div>
             </div>
           </div>
@@ -1220,75 +1473,7 @@
       </div>
 
       <div class="slide-footer">
-        <span>매일경제 AX TF · 콘텐츠PR그룹 | MK Pick GEO 콘텐츠 스튜디오 실무 매뉴얼</span>
-        <span>11 / 12</span>
-      </div>
-    </section>
-
-    <!-- ===================================================================
-         SLIDE 12: [최종 출고] 👁️ 실제 기사 미리보기 & 실무 FAQ 총정리
-         =================================================================== -->
-    <section class="slide" id="slide-12">
-      <div class="slide-header">
-        <div>
-          <span class="slide-step-tag">PART 2 · 최종 검수 및 CMS 출고</span>
-          <h2 class="slide-title">11. [👁️ 실제 기사 미리보기] 최종 검수 & 실무자 자주 묻는 질문(FAQ)</h2>
-          <p class="slide-subtitle">출고 직전 미리보기 모드에서 노란색 형광펜 팩트체크를 마저 완료하고, [📋 CMS 붙여넣기용 전체 복사]로 출고를 마무리합니다.</p>
-        </div>
-        <span class="slide-page-num">SLIDE 12 / 12</span>
-      </div>
-
-      <div class="slide-body two-col">
-        <div class="screenshot-box">
-          <img src="./guide-assets/10-editor-preview.png" alt="실제 기사 미리보기 화면" />
-          <div class="screenshot-caption">[실제 화면] 상단 '👁️ 실제 기사 미리보기' 클릭 시 나타나는 실제 출고 형태 화면</div>
-        </div>
-
-        <div class="guide-list">
-          <div class="guide-item highlight">
-            <span class="num-circle">1</span>
-            <div>
-              <div class="guide-item-title"><span class="ui-pill">👁️ 실제 기사 미리보기</span> 화면에서의 형광펜 팩트체크 & 편집 복귀</div>
-              <div class="guide-item-desc">
-                미리보기 화면에서는 실제 독자가 읽는 기사 레이아웃 그대로 전체 흐름을 점검할 수 있습니다. 본문 속 <strong>노란색 형광펜 문장(미확인 수치·날짜)을 직접 클릭하면 즉시 초록색(팩트 확인 완료)으로 전환</strong>되며, 우측 상단 <span class="ui-pill">✏️ 편집 화면으로 돌아가기</span>를 누르면 언제든 다시 수정할 수 있습니다.
-              </div>
-            </div>
-          </div>
-
-          <div class="guide-item">
-            <span class="num-circle">Q1</span>
-            <div>
-              <div class="guide-item-title">실수로 브라우저를 닫거나 새로고침(F5)을 누르면 작성하던 기사가 날아가나요?</div>
-              <div class="guide-item-desc">
-                <strong>절대 날아가지 않습니다.</strong> 글자를 수정할 때마다 실시간으로 자동 저장되며, 홈 화면 하단의 <span class="ui-pill">📂 최근 작업한 기사</span> 탭에서 언제든 이어서 편집할 수 있습니다.
-              </div>
-            </div>
-          </div>
-
-          <div class="guide-item">
-            <span class="num-circle">Q2</span>
-            <div>
-              <div class="guide-item-title">팀원 여러 명이 공유 링크에 접속하거나 새로고침하면 API 비용이 계속 나가나요?</div>
-              <div class="guide-item-desc">
-                <strong>나가지 않습니다(0원).</strong> 30분 스마트 캐시가 작동하므로 단순 접속이나 <code>F5</code> 새로고침 시에는 캐시된 트렌드를 즉시 보여주어 API 요금이 소진되지 않습니다.
-              </div>
-            </div>
-          </div>
-
-          <div class="guide-item">
-            <span class="num-circle">Q3</span>
-            <div>
-              <div class="guide-item-title">복사한 기사를 사내 CMS에 붙여넣을 때 서식이 깨지지 않나요?</div>
-              <div class="guide-item-desc">
-                우측 상단 <span class="ui-pill">📋 CMS 붙여넣기용 전체 복사</span> 버튼은 불필요한 HTML 태그 없이 <strong>매경 CMS 표준 줄바꿈·소제목(<code>■</code>)·요약표·FAQ 순수 텍스트 포맷</strong>으로 복사하므로, CMS 본문창에 <code>Ctrl + V</code>만 하시면 깔끔하게 등록됩니다!
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div class="slide-footer">
-        <span>매일경제 AX TF · 콘텐츠PR그룹 | MK Pick GEO 콘텐츠 스튜디오 실무 매뉴얼</span>
+        <span>매일경제 AX TF · 콘텐츠PR그룹 | MK Pick 콘텐츠 스튜디오 실무 매뉴얼</span>
         <span>12 / 12</span>
       </div>
     </section>
@@ -1296,13 +1481,74 @@
   </div>
 
   <script>
-    document.getElementById('slideJumpSelect')?.addEventListener('change', function (e) {
-      const targetId = e.target.value;
-      const el = document.getElementById(targetId);
-      if (el) {
-        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    (function () {
+      const selectEl = document.getElementById('slideJumpSelect');
+      const pills = Array.from(document.querySelectorAll('.chapter-pill'));
+      const slides = Array.from(document.querySelectorAll('.slide'));
+
+      function updateActiveControls(slideId) {
+        if (selectEl && selectEl.value !== slideId) {
+          selectEl.value = slideId;
+        }
+        const num = Number((slideId || '').replace('slide-', '')) || 1;
+        let targetChapterSlide = 'slide-1';
+        if (num >= 2 && num <= 6) targetChapterSlide = 'slide-2';
+        else if (num >= 7 && num <= 11) targetChapterSlide = 'slide-7';
+        else if (num >= 12) targetChapterSlide = 'slide-12';
+
+        pills.forEach(p => {
+          p.classList.toggle('active', p.getAttribute('data-jump-slide') === targetChapterSlide);
+        });
       }
-    });
+
+      function scrollToSlide(slideId) {
+        const el = document.getElementById(slideId);
+        if (!el) return;
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        updateActiveControls(slideId);
+      }
+
+      selectEl?.addEventListener('change', function (e) {
+        scrollToSlide(e.target.value);
+      });
+
+      pills.forEach(btn => {
+        btn.addEventListener('click', function () {
+          const targetId = btn.getAttribute('data-jump-slide');
+          if (targetId) scrollToSlide(targetId);
+        });
+      });
+
+      function getCurrentSlideIndex() {
+        const currentVal = selectEl ? selectEl.value : 'slide-1';
+        const idx = slides.findIndex(s => s.id === currentVal);
+        return idx >= 0 ? idx : 0;
+      }
+
+      document.getElementById('prevSlideBtn')?.addEventListener('click', function () {
+        const idx = getCurrentSlideIndex();
+        const nextIdx = Math.max(0, idx - 1);
+        scrollToSlide(slides[nextIdx].id);
+      });
+
+      document.getElementById('nextSlideBtn')?.addEventListener('click', function () {
+        const idx = getCurrentSlideIndex();
+        const nextIdx = Math.min(slides.length - 1, idx + 1);
+        scrollToSlide(slides[nextIdx].id);
+      });
+
+      // 스크롤 시 현재 보고 있는 슬라이드에 맞춰 상단 드롭다운과 챕터 버튼 자동 동기화
+      if ('IntersectionObserver' in window) {
+        const io = new IntersectionObserver((entries) => {
+          entries.forEach(entry => {
+            if (entry.isIntersecting && entry.intersectionRatio >= 0.45) {
+              updateActiveControls(entry.target.id);
+            }
+          });
+        }, { threshold: [0.45, 0.65] });
+        slides.forEach(s => io.observe(s));
+      }
+    })();
   </script>
 </body>
 </html>
