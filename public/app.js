@@ -10,6 +10,9 @@
     recommendMkPickCategory,
     paraphraseNewsToMkFact,
     cleanTrendTopicKeyword,
+    isUnusableGossipOrBlindItem,
+    extractTrendContextMetadata,
+    sanitizeAndFilterTrendList,
     extractBrandFromTopic,
     splitKeywordIntoBrandsAndTopic,
     splitLongHeadlineToSubtitle,
@@ -1001,30 +1004,37 @@
     const todayStr = new Date().toISOString().slice(0, 10);
     const sys = `당신은 매일경제 디지털뉴스룸(MK Pick) 실시간 트렌드 및 팩트체크 데스크입니다.
 철칙:
-1. [가장 중요] 오늘(${todayStr}) 기준으로 최근 7일 이내(특히 최근 24~72시간 내 최신 보도 우선!) 실제 기업·브랜드가 정식 출시·발표하고 국내 주요 언론사에 보도된 **100% 팩트 검증된 실제 상품·서비스·트렌드**만 선정하세요! 유튜브 쇼츠·틱톡·릴스에서 AI 합성으로 만든 가상 밈이나 공식 보도가 없는 미확인 루머는 절대 포함하지 마세요.
-2. '두바이 초콜릿/쿠키', '버터떡', '우베', '탕후루', '요아정'처럼 이미 유행이 지났거나 일주일 전 과거 이슈에 머물러 있는 항목은 제외하고, 오늘(${todayStr}) 기준 가장 최신 보도된 신상품·프로모션·품절템·팝업스토어·MZ 소비 이슈로 새롭게 구성하세요.
-3. 각 항목마다 보도한 언론사명(source), 보도일(pubDateShort, YYYY-MM-DD), 실제 뉴스 원문 URL(url, 검색 결과에 있는 실제 URL)을 함께 기재하세요.
-4. 5개 탭(shortFormTrends, newsletterTrends, portalRetailTrends, googleTrends, brandPromoTrends) 각각 정확히 10개씩 작성하되, 중복 없이 순수 JSON 객체만 출력하세요.
-5. 특히 brandPromoTrends 탭은 [식음료·외식], [뷰티·패션], [유통·리빙], [가전·IT] 4대 업종의 주요 브랜드가 최근 발표한 '신상품·신메뉴 출시' 및 '할인·사은품·콜라보 프로모션' 최신 뉴스 10선으로 고르게 구성하세요.`;
+1. [가장 중요 · 팩트 검증 및 가십/낚시 원천 배제] 오늘(${todayStr}) 기준으로 최근 7일 이내 실제 기업·브랜드가 정식 출시·발표하고 국내 주요 언론사에 보도된 **100% 팩트 검증된 실제 상품·서비스·소비 트렌드**만 선정하세요!
+   - 절대 포함 금지: 연예인 개인 일상·다이어트·열애 가십, 단순 주가 급등락·환율·정치·군사·사건사고 뉴스, 의학/질병 공포 기사, 유튜브/SNS의 AI 합성 가상 밈.
+   - 절대 포함 금지(블라인드 낚시 제목): "'이 캐릭터' 콜라보", "다이소 갔더니 품절입니다", "5000원짜리 화장품 정체", "이런 신발이 유행합니다"처럼 실제 브랜드명이나 구체적인 상품명을 숨긴 낚시성 제목은 절대 선정하지 마세요!
+2. [명사형 핵심 키워드 작성 원칙 — 서술형 문장 절대 금지!]
+   - 모든 탭(특히 shortFormTrends 유튜브 쇼츠·릴스 탭 포함)의 \`keyword\`는 절대로 "~늘었다", "~뛰었다", "~품절입니다", "~뭐길래", "~돌파하더니", "~맞손" 같은 **서술형·의문형 문장 조각으로 작성하지 마세요!**
+   - 반드시 **\`[브랜드/채널명 + 구체적인 상품·품목명 + 핵심 현상/신상/할인]\` 형태의 명확한 명사구(2~5어절)**로 작성하세요!
+     · 나쁜 예(절대 금지): "삼립 편의점 매출 44% 늘었다", "다이소 갔더니 품절입니다", "최대 70% 세일 올리브영 라스트픽 뭐길래"
+     · 좋은 예(필수 준수): "삼립호빵 숏폼 레시피·편의점 인기 열풍", "다이소 본셉·VT 가성비 뷰티 품절대란", "올리브영 라스트픽 최대 70% 할인 오픈런"
+3. '두바이 초콜릿/쿠키', '버터떡', '우베', '탕후루', '요아정'처럼 이미 유행이 지났거나 과거에 머물러 있는 항목은 제외하고, 오늘(${todayStr}) 기준 가장 최신 보도된 신상품·프로모션·품절템·팝업스토어·MZ 소비 이슈로 구성하세요.
+4. 각 항목마다 보도한 언론사명(source), 보도일(pubDateShort, YYYY-MM-DD), 실제 뉴스 원문 URL(url), 핵심 기업·브랜드명(company), 그리고 초안 집필 시 함께 다룰 세부 팩트 키워드 2~3개(subKeywords, 쉼표 구분)를 함께 기재하세요.
+5. 5개 탭(shortFormTrends, newsletterTrends, portalRetailTrends, googleTrends, brandPromoTrends) 각각 정확히 10개씩 작성하되, 동일 브랜드·동일 품목이 중복되지 않게 순수 JSON 객체만 출력하세요.`;
 
     const usr = `기준일: ${todayStr} (최근 7일 이내 최신 한국 뉴스 기준)
 오늘 대한민국에서 가장 화제가 되고 있는 실시간 유통·팝업·패션·라이프스타일·IT 트렌드 및 브랜드 신상품·프로모션 뉴스 키워드를 탭별로 서로 겹치지 않게 정확히 10개씩 JSON으로 작성하세요.
-- keyword는 2~5어절의 직관적인 최신 트렌드·브랜드 신상·프로모션 키워드로 작성하세요.
-- source는 실제 보도 언론사명(예: 한국경제, 연합뉴스, 머니투데이 등), pubDateShort는 YYYY-MM-DD로 작성하세요.
-- desc는 언론사 보도에 따른 구체적인 브랜드명·가격·수치·프로모션 혜택·일정을 담아 "~합니다" 체 1문장으로 작성하세요.
+- keyword는 서술형 어미(~늘었다, ~입니다, ~뭐길래)가 없는 **[브랜드/채널명 + 구체적 품목/상품명 + 핵심 트렌드/출시]** 명사구(2~5어절)로 작성하세요.
+- company는 핵심 기업·브랜드명(예: SPC삼립, 올리브영, 다이소, 오뚜기, 아모레퍼시픽 등)을 정확히 기입하세요.
+- subKeywords는 원문 기사에 등장하는 구체적인 신제품명, 수치(예: 매출 44% 증가, 최대 70% 할인), 세부 트렌드 키워드 2~3개를 쉼표로 구분해 작성하세요.
+- desc는 언론사 보도에 따른 구체적인 브랜드명·신제품명·가격·수치·프로모션 혜택을 담아 "~합니다" 체 1문장으로 작성하세요.
 
 {
-  "shortFormTrends": [{"keyword": "숏폼·바이럴·오픈런 최신 키워드 (10개)", "company": "브랜드명(있을 시)", "source": "보도 언론사명", "pubDateShort": "${todayStr}", "badge": "✓ 언론 보도 확인", "desc": "이번 주 화제 이유와 수치 1문장 (~합니다 체)", "url": "실제 기사 URL"}],
-  "newsletterTrends": [{"keyword": "MZ 소비문화·패션·팝업 최신 키워드 (10개)", "source": "보도 언론사명", "pubDateShort": "${todayStr}", "category": "MZ·소비 이슈", "desc": "이번 주 화제 이유와 수치 1문장 (~합니다 체)", "url": "실제 기사 URL"}],
-  "portalRetailTrends": [{"keyword": "편의점·다이소·백화점·마트 최신 신상 키워드 (10개)", "source": "보도 언론사명", "pubDateShort": "${todayStr}", "badge": "포털·유통 신상", "desc": "최근 출시·품절·프로모션 팩트 1문장 (~합니다 체)", "url": "실제 기사 URL"}],
-  "googleTrends": [{"keyword": "오늘·이번주 급상승 키워드 (10개)", "source": "보도 언론사명", "pubDateShort": "실시간 급상승", "badge": "실시간 급상승", "desc": "급상승 배경 1문장 (~합니다 체)", "url": "실제 기사 URL"}],
-  "brandPromoTrends": [{"keyword": "브랜드명 + 신상품/프로모션 최신 키워드 (10개)", "company": "브랜드/기업명", "sector": "식음료·외식 | 뷰티·패션 | 유통·리빙 | 가전·IT 중 택1", "source": "보도 언론사명", "pubDateShort": "${todayStr}", "badge": "업종 · 신상품/프로모션", "desc": "출시 신제품 특징 및 프로모션 혜택 팩트 1문장 (~합니다 체)", "url": "실제 기사 URL"}]
+  "shortFormTrends": [{"keyword": "브랜드+구체적품목+숏폼/품절/오픈런 명사형 키워드 (10개)", "company": "브랜드/기업명", "subKeywords": "세부 품목명, 핵심 수치, 연관 트렌드", "source": "보도 언론사명", "pubDateShort": "${todayStr}", "badge": "✓ 언론 보도 확인", "desc": "이번 주 화제 이유와 구체적 품목·수치 1문장 (~합니다 체)", "url": "실제 기사 URL"}],
+  "newsletterTrends": [{"keyword": "MZ 소비문화·패션·팝업 명사형 키워드 (10개)", "company": "브랜드/기업명(있을 시)", "subKeywords": "세부 키워드 2~3개", "source": "보도 언론사명", "pubDateShort": "${todayStr}", "category": "MZ·소비 이슈", "desc": "이번 주 화제 이유와 수치 1문장 (~합니다 체)", "url": "실제 기사 URL"}],
+  "portalRetailTrends": [{"keyword": "편의점·다이소·백화점·마트 신상 명사형 키워드 (10개)", "company": "유통사/브랜드명", "subKeywords": "세부 상품명, 가격/할인율", "source": "보도 언론사명", "pubDateShort": "${todayStr}", "badge": "포털·유통 신상", "desc": "최근 출시·품절·프로모션 팩트 1문장 (~합니다 체)", "url": "실제 기사 URL"}],
+  "googleTrends": [{"keyword": "오늘·이번주 급상승 명사형 키워드 (10개)", "company": "관련 기업/기관명(있을 시)", "subKeywords": "핵심 배경 키워드 2개", "source": "보도 언론사명", "pubDateShort": "실시간 급상승", "badge": "실시간 급상승", "desc": "급상승 배경 1문장 (~합니다 체)", "url": "실제 기사 URL"}],
+  "brandPromoTrends": [{"keyword": "브랜드명 + 신상품/프로모션 명사형 키워드 (10개)", "company": "브랜드/기업명", "subKeywords": "신제품 정식 명칭, 프로모션 혜택", "sector": "식음료·외식 | 뷰티·패션 | 유통·리빙 | 가전·IT 중 택1", "source": "보도 언론사명", "pubDateShort": "${todayStr}", "badge": "업종 · 신상품/프로모션", "desc": "출시 신제품 특징 및 프로모션 혜택 팩트 1문장 (~합니다 체)", "url": "실제 기사 URL"}]
 }`;
     const { parsed, searchResults } = await callPerplexityDirectFromBrowser(apiKey, sys, usr, 'week', 'trend');
     const usedUrls = new Set();
-    function enrichTrendArr(arr = []) {
+    function enrichTrendArr(arr = [], tabKey = '') {
       if (!Array.isArray(arr)) return [];
-      return arr.map(item => {
+      const mapped = arr.map(item => {
         const matchedSr = matchBestSearchResult({ sourceTitle: item.keyword, fact: item.desc }, searchResults, usedUrls);
         const directUrl = isRealArticleUrl(item.url)
           ? item.url.trim()
@@ -1038,13 +1048,14 @@
           url: directUrl
         };
       });
+      return sanitizeAndFilterTrendList ? sanitizeAndFilterTrendList(mapped, tabKey) : mapped;
     }
     return {
-      shortFormTrends: enrichTrendArr(parsed?.shortFormTrends),
-      newsletterTrends: enrichTrendArr(parsed?.newsletterTrends),
-      portalRetailTrends: enrichTrendArr(parsed?.portalRetailTrends),
-      googleTrends: enrichTrendArr(parsed?.googleTrends),
-      brandPromoTrends: enrichTrendArr(parsed?.brandPromoTrends)
+      shortFormTrends: enrichTrendArr(parsed?.shortFormTrends, 'shortform'),
+      newsletterTrends: enrichTrendArr(parsed?.newsletterTrends, 'newsletter'),
+      portalRetailTrends: enrichTrendArr(parsed?.portalRetailTrends, 'portal'),
+      googleTrends: enrichTrendArr(parsed?.googleTrends, 'google'),
+      brandPromoTrends: enrichTrendArr(parsed?.brandPromoTrends, 'brandpromo')
     };
   }
 
@@ -3741,17 +3752,29 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
       }
     }, 200);
 
-    function sanitizeShortFormItems(list = []) {
-      if (!Array.isArray(list)) return [];
-      return list.map(item => {
-        const cleanedKw = cleanTrendTopicKeyword ? cleanTrendTopicKeyword(item.keyword, item.desc) : item.keyword;
-        const detectedComp = extractBrandFromTopic ? extractBrandFromTopic(cleanedKw + ' ' + (item.desc || ''), item.company) : (item.company || '');
-        return {
-          ...item,
-          keyword: cleanedKw,
-          ...(detectedComp ? { company: detectedComp } : {})
-        };
-      });
+    function sanitizeAllTrendRadarObj(raw = {}) {
+      const sanitizeTab = (list, tabKey) => {
+        if (!Array.isArray(list)) return [];
+        if (typeof sanitizeAndFilterTrendList === 'function') {
+          return sanitizeAndFilterTrendList(list, tabKey);
+        }
+        return list.map(item => {
+          const cleanedKw = cleanTrendTopicKeyword ? cleanTrendTopicKeyword(item.keyword, item.desc) : item.keyword;
+          const detectedComp = extractBrandFromTopic ? extractBrandFromTopic(cleanedKw + ' ' + (item.desc || ''), item.company) : (item.company || '');
+          return {
+            ...item,
+            keyword: cleanedKw,
+            ...(detectedComp ? { company: detectedComp } : {})
+          };
+        });
+      };
+      return {
+        googleTrends: sanitizeTab(raw.googleTrends, 'google'),
+        portalRetailTrends: sanitizeTab(raw.portalRetailTrends, 'portal'),
+        shortFormTrends: sanitizeTab(raw.shortFormTrends, 'shortform'),
+        newsletterTrends: sanitizeTab(raw.newsletterTrends, 'newsletter'),
+        brandPromoTrends: sanitizeTab(raw.brandPromoTrends, 'brandpromo')
+      };
     }
 
     try {
@@ -3764,13 +3787,7 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
           : localStats;
         saveClientUsageStats(mergedStats);
       }
-      state.trendRadar = {
-        googleTrends: Array.isArray(radar.googleTrends) ? radar.googleTrends : [],
-        portalRetailTrends: Array.isArray(radar.portalRetailTrends) ? radar.portalRetailTrends : [],
-        shortFormTrends: sanitizeShortFormItems(radar.shortFormTrends),
-        newsletterTrends: Array.isArray(radar.newsletterTrends) ? radar.newsletterTrends : [],
-        brandPromoTrends: Array.isArray(radar.brandPromoTrends) ? radar.brandPromoTrends : []
-      };
+      state.trendRadar = sanitizeAllTrendRadarObj(radar);
       const nowTs = Date.now();
       state.trendUpdatedAt = formatTrendTimestamp(radar.updatedAt || nowTs);
       state.trendSourceLabel = forceRefresh ? '수동 실시간 수집' : '캐시/스냅샷 즉시 로드 (과금 0원)';
@@ -3799,13 +3816,7 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
             saveClientUsageStats(mergedStats);
           }
           if (snapData && Array.isArray(snapData.shortFormTrends) && snapData.shortFormTrends.length > 0) {
-            snapshotDataObj = {
-              googleTrends: snapData.googleTrends || [],
-              portalRetailTrends: snapData.portalRetailTrends || [],
-              shortFormTrends: sanitizeShortFormItems(snapData.shortFormTrends),
-              newsletterTrends: snapData.newsletterTrends || [],
-              brandPromoTrends: snapData.brandPromoTrends || []
-            };
+            snapshotDataObj = sanitizeAllTrendRadarObj(snapData);
             const parsedSnapTs = snapData.updatedAt ? Date.parse(snapData.updatedAt) : 0;
             snapshotTs = Number.isNaN(parsedSnapTs) ? 0 : parsedSnapTs;
           }
@@ -3824,13 +3835,7 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
         const cacheTs = Number(cachedObj?.timestamp || 0);
 
         if (cacheTs > 0 && cacheTs >= snapshotTs && cachedObj?.data) {
-          state.trendRadar = {
-            googleTrends: cachedObj.data.googleTrends || [],
-            portalRetailTrends: cachedObj.data.portalRetailTrends || [],
-            shortFormTrends: sanitizeShortFormItems(cachedObj.data.shortFormTrends),
-            newsletterTrends: cachedObj.data.newsletterTrends || [],
-            brandPromoTrends: cachedObj.data.brandPromoTrends || []
-          };
+          state.trendRadar = sanitizeAllTrendRadarObj(cachedObj.data);
           state.trendUpdatedAt = formatTrendTimestamp(cacheTs);
           state.trendSourceLabel = '최근 수집 캐시 (접속 과금 0원)';
           loadedFromCacheOrSnapshot = true;
@@ -3854,12 +3859,13 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
       if ((forceRefresh || !loadedFromCacheOrSnapshot) && clientKey) {
         try {
           const pplxTrends = await fetchClientPerplexityTrends(clientKey);
+          const sanitizedPplx = sanitizeAllTrendRadarObj(pplxTrends);
           const mergedRadar = {
-            googleTrends: (pplxTrends.googleTrends || []).slice(0, 10),
-            portalRetailTrends: (pplxTrends.portalRetailTrends || []).slice(0, 10),
-            shortFormTrends: sanitizeShortFormItems((pplxTrends.shortFormTrends || []).slice(0, 10)),
-            newsletterTrends: (pplxTrends.newsletterTrends || []).slice(0, 10),
-            brandPromoTrends: (pplxTrends.brandPromoTrends || []).slice(0, 10)
+            googleTrends: (sanitizedPplx.googleTrends || []).slice(0, 10),
+            portalRetailTrends: (sanitizedPplx.portalRetailTrends || []).slice(0, 10),
+            shortFormTrends: (sanitizedPplx.shortFormTrends || []).slice(0, 10),
+            newsletterTrends: (sanitizedPplx.newsletterTrends || []).slice(0, 10),
+            brandPromoTrends: (sanitizedPplx.brandPromoTrends || []).slice(0, 10)
           };
           const hasValidItems = mergedRadar.shortFormTrends.length > 0 || mergedRadar.brandPromoTrends.length > 0;
           if (hasValidItems) {
@@ -3887,13 +3893,13 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
           state.trendUpdatedAt = formatTrendTimestamp(snapshotTs || Date.now());
           state.trendSourceLabel = '스냅샷 폴백';
         } else {
-          state.trendRadar = {
+          state.trendRadar = sanitizeAllTrendRadarObj({
             googleTrends: CURATED_TREND_TOPICS.google || [],
             portalRetailTrends: CURATED_TREND_TOPICS.portalRetail || [],
-            shortFormTrends: sanitizeShortFormItems(CURATED_TREND_TOPICS.shortForm),
+            shortFormTrends: CURATED_TREND_TOPICS.shortForm || [],
             newsletterTrends: CURATED_TREND_TOPICS.newsletter || [],
             brandPromoTrends: CURATED_TREND_TOPICS.brandPromo || []
-          };
+          });
           state.trendUpdatedAt = formatTrendTimestamp(Date.now());
         }
       }
@@ -4292,13 +4298,13 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
                 </div>
               </div>
               <div class="flex-row" style="gap: 6px; flex-wrap: wrap;">
-                <a href="./mk-pick-user-guide.pdf?v=80" download="MK_Pick_GEO_콘텐츠_스튜디오_사용가이드.pdf" class="btn btn-sm btn-primary" style="text-decoration: none; font-weight: 800; padding: 5px 11px;">
+                <a href="./mk-pick-user-guide.pdf?v=81" download="MK_Pick_GEO_콘텐츠_스튜디오_사용가이드.pdf" class="btn btn-sm btn-primary" style="text-decoration: none; font-weight: 800; padding: 5px 11px;">
                   📥 PDF 다운로드
                 </a>
-                <a href="./mk-pick-user-guide.pptx?v=80" download="MK_Pick_GEO_콘텐츠_스튜디오_사용가이드.pptx" class="btn btn-sm" style="text-decoration: none; font-weight: 800; padding: 5px 11px; border-color: #CBD5E1; color: var(--text-primary);">
+                <a href="./mk-pick-user-guide.pptx?v=81" download="MK_Pick_GEO_콘텐츠_스튜디오_사용가이드.pptx" class="btn btn-sm" style="text-decoration: none; font-weight: 800; padding: 5px 11px; border-color: #CBD5E1; color: var(--text-primary);">
                   📊 PPTX 다운로드
                 </a>
-                <a href="./guide.html?v=80" target="_blank" rel="noopener noreferrer" class="btn btn-sm" style="text-decoration: none; font-weight: 700; padding: 5px 11px; color: var(--text-secondary);">
+                <a href="./guide.html?v=81" target="_blank" rel="noopener noreferrer" class="btn btn-sm" style="text-decoration: none; font-weight: 700; padding: 5px 11px; color: var(--text-secondary);">
                   새 탭 열기 ↗
                 </a>
                 <button type="button" class="btn btn-sm" id="closeGuideModalBtn" style="font-weight: 800; padding: 5px 11px;">✕ 닫기</button>
@@ -4306,9 +4312,9 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
             </div>
             <div style="flex: 1; min-height: 0; margin-top: 10px; border: 1px solid #E2E8F0; border-radius: 10px; overflow: hidden; background: #F1F5F9;">
               ${activeTab === 'slides' ? `
-                <iframe src="./guide.html?embed=1&v=80" style="width: 100%; height: 100%; border: none; display: block; background: #F1F5F9;" title="MK Pick 사용 가이드 슬라이드"></iframe>
+                <iframe src="./guide.html?embed=1&v=81" style="width: 100%; height: 100%; border: none; display: block; background: #F1F5F9;" title="MK Pick 사용 가이드 슬라이드"></iframe>
               ` : `
-                <iframe src="./mk-pick-user-guide.pdf?v=80#view=FitH" style="width: 100%; height: 100%; border: none; display: block; background: #FFFFFF;" title="MK Pick 사용 가이드 PDF"></iframe>
+                <iframe src="./mk-pick-user-guide.pdf?v=81#view=FitH" style="width: 100%; height: 100%; border: none; display: block; background: #FFFFFF;" title="MK Pick 사용 가이드 PDF"></iframe>
               `}
             </div>
           </div>
@@ -4817,6 +4823,28 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
     };
   }
 
+  // 입력된 키워드(또는 과거 서술형 문장 키워드)와 일치하는 트렌드 항목이 있으면 해당 항목의 원문 맥락(desc, subKeywords, directionHint, company)을 찾아주는 헬퍼
+  function findMatchingTrendItemMeta(rawKw = '') {
+    const target = String(rawKw || '').trim();
+    if (!target) return null;
+    const allLists = [
+      ...(state.trendRadar?.shortFormTrends || []),
+      ...(state.trendRadar?.brandPromoTrends || []),
+      ...(state.trendRadar?.portalRetailTrends || []),
+      ...(state.trendRadar?.newsletterTrends || []),
+      ...(state.trendRadar?.googleTrends || [])
+    ];
+    const normTarget = target.replace(/\s+/g, '');
+    const found = allLists.find(it => {
+      if (!it) return false;
+      const k = String(it.keyword || '').replace(/\s+/g, '');
+      const d = String(it.desc || '').replace(/\s+/g, '');
+      return k === normTarget || (normTarget.length >= 6 && d.includes(normTarget));
+    });
+    if (!found) return null;
+    return extractTrendContextMetadata ? extractTrendContextMetadata(found) : found;
+  }
+
   // 트렌드 키워드 또는 직접 입력으로 바로 기사 초안 생성하는 공통 함수 (서브 키워드 및 편집자 기획 방향·맥락 반영 + 언제든 생성 중단 가능)
   async function startWorkWithKeyword(rawKeyword, typeId = 4, rawCompany = '', autoMatchType = false, customSubKeywords = undefined, customDirection = undefined) {
     if (state.isSearchingNews) return;
@@ -4827,15 +4855,22 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
     currentDraftAbortController = abortController;
     const runId = ++currentDraftRunId;
 
-    const keyword = cleanTrendTopicKeyword ? cleanTrendTopicKeyword(rawKeyword) : String(rawKeyword || '').trim();
-    const company = extractBrandFromTopic ? extractBrandFromTopic(keyword, rawCompany) : String(rawCompany || '').trim();
-    const subKeywords = (customSubKeywords !== undefined ? customSubKeywords : (state.homeInput.subKeywords || '')).trim();
-    const direction = (customDirection !== undefined ? customDirection : (state.homeInput.direction || '')).trim();
+    const matchedMeta = findMatchingTrendItemMeta(rawKeyword);
+    const keyword = matchedMeta?.keyword || (cleanTrendTopicKeyword ? cleanTrendTopicKeyword(rawKeyword) : String(rawKeyword || '').trim());
+    const company = extractBrandFromTopic
+      ? extractBrandFromTopic(`${keyword} ${matchedMeta?.company || ''}`, rawCompany || matchedMeta?.company || '')
+      : String(rawCompany || matchedMeta?.company || '').trim();
+    const subKeywords = (customSubKeywords !== undefined
+      ? customSubKeywords
+      : (state.homeInput.subKeywords || matchedMeta?.subKeywords || '')).trim();
+    const direction = (customDirection !== undefined
+      ? customDirection
+      : (state.homeInput.direction || matchedMeta?.directionHint || '')).trim();
     const matchedType = autoMatchType ? detectBestContentType(keyword, company, `${state.homeInput.rawText || ''} ${direction} ${subKeywords}`, 0) : typeId;
     const tName = CONTENT_TYPES[matchedType]?.shortName || '맞춤 유형';
     const selectedWriter = getSelectedWriterModel();
     state.homeInput.keyword = keyword;
-    if (company) state.homeInput.company = company;
+    state.homeInput.company = company;
     state.homeInput.subKeywords = subKeywords;
     state.homeInput.direction = direction;
     state.homeInput.typeId = matchedType;
@@ -5504,7 +5539,7 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
                   : { isWarning: isYoutubeShorts };
                 const factCheckSearchUrl = `https://search.naver.com/search.naver?where=news&query=${encodeURIComponent(item.keyword)}`;
                 return `
-                  <div class="trend-clean-row" style="${rowGenStyle}" data-use-trend-kw="${escapeHtml(item.keyword)}" data-use-trend-comp="${escapeHtml(item.company || '')}" data-use-trend-type="${matchedTypeId}">
+                  <div class="trend-clean-row" style="${rowGenStyle}" data-use-trend-kw="${escapeHtml(item.keyword)}" data-use-trend-comp="${escapeHtml(item.company || '')}" data-use-trend-sub="${escapeHtml(item.subKeywords || '')}" data-use-trend-dir="${escapeHtml(item.directionHint || '')}" data-use-trend-type="${matchedTypeId}">
                     <!-- 좌측: 순위 번호 + 키워드 제목·배지·요약 설명 (1열 와이드 폭을 넉넉히 사용하여 문단이 쪼개지지 않고 한눈에 읽힘) -->
                     <div style="display: flex; align-items: flex-start; gap: 12px; min-width: 0; flex: 1;">
                       <span style="font-size: 14px; font-weight: 800; color: var(--mk-orange); flex-shrink: 0; min-width: 22px; padding-top: 1px;">${idx + 1}</span>
@@ -5550,6 +5585,8 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
                         type="button"
                         data-stage-trend-kw="${escapeHtml(item.keyword)}"
                         data-stage-trend-comp="${escapeHtml(item.company || '')}"
+                        data-stage-trend-sub="${escapeHtml(item.subKeywords || '')}"
+                        data-stage-trend-dir="${escapeHtml(item.directionHint || '')}"
                         data-stage-trend-type="${matchedTypeId}"
                         style="font-size: 11.5px; font-weight: 700; color: var(--text-secondary); background-color: #FFFFFF; border: var(--border-thin); padding: 4px 9px; border-radius: 6px; cursor: pointer; white-space: nowrap; font-family: inherit;"
                         title="이 키워드를 위 STEP 1 입력창에 담고 서브 키워드·원하는 글의 방향을 직접 입력한 뒤 생성합니다"
@@ -5975,9 +6012,13 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
         syncHomeInputs();
         const kw = btn.getAttribute('data-stage-trend-kw') || '';
         const comp = extractBrandFromTopic ? extractBrandFromTopic(kw, btn.getAttribute('data-stage-trend-comp') || '') : (btn.getAttribute('data-stage-trend-comp') || '');
-        const matchedType = Number(btn.getAttribute('data-stage-trend-type')) || detectBestContentType(kw, comp, '', 0);
+        const subKw = (btn.getAttribute('data-stage-trend-sub') || '').trim();
+        const dirHint = (btn.getAttribute('data-stage-trend-dir') || '').trim();
+        const matchedType = Number(btn.getAttribute('data-stage-trend-type')) || detectBestContentType(kw, comp, `${subKw} ${dirHint}`, 0);
         hi.keyword = kw;
         hi.company = comp;
+        hi.subKeywords = subKw;
+        hi.direction = dirHint;
         hi.typeId = matchedType;
         hi.typeMode = 'auto';
         render(false);
@@ -5985,7 +6026,7 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
           flashElement('homeStep1Box');
           document.getElementById('homeDirectionInput')?.focus();
         }, 60);
-        showToast(`✓ '${kw}' 키워드가 상단 STEP 1에 담기고 [유형 0${matchedType}]이 자동 추천되었습니다!`);
+        showToast(`✓ '${kw}' 명사형 키워드와 원문 세부 팩트가 상단 STEP 1에 담겼습니다!`);
       });
     });
 
@@ -6207,7 +6248,7 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
       });
     });
 
-    // 실시간 트렌드 키워드 클릭 시 최적 유형(1~5)으로 즉시 초안 생성
+    // 실시간 트렌드 키워드 클릭 시 원문 기사의 핵심 품목·수치 맥락(subKeywords, directionHint)까지 함께 담아 즉시 고품질 초안 생성
     root.querySelectorAll('[data-use-trend-kw]').forEach(btn => {
       btn.addEventListener('click', () => {
         const kw = btn.getAttribute('data-use-trend-kw');
@@ -6216,13 +6257,17 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
           return;
         }
         const trendComp = (btn.getAttribute('data-use-trend-comp') || '').trim();
-        const finalComp = trendComp || hi.company;
-        const matchedType = Number(btn.getAttribute('data-use-trend-type')) || detectBestContentType(kw, finalComp, '', 4);
+        const trendSub = (btn.getAttribute('data-use-trend-sub') || '').trim();
+        const trendDir = (btn.getAttribute('data-use-trend-dir') || '').trim();
+        const finalComp = extractBrandFromTopic ? extractBrandFromTopic(kw, trendComp) : trendComp;
+        const matchedType = Number(btn.getAttribute('data-use-trend-type')) || detectBestContentType(kw, finalComp, `${trendSub} ${trendDir}`, 4);
         syncHomeInputs();
         hi.keyword = kw;
-        if (trendComp) hi.company = trendComp;
+        hi.company = finalComp;
+        hi.subKeywords = trendSub;
+        hi.direction = trendDir;
         hi.typeId = matchedType;
-        startWorkWithKeyword(kw, matchedType, finalComp, true);
+        startWorkWithKeyword(kw, matchedType, finalComp, true, trendSub, trendDir);
       });
     });
 

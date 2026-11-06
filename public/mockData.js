@@ -1344,29 +1344,175 @@ function extractFactSentencesFromSections(sections, sources) {
   return results;
 }
 
-// 유튜브 쇼츠·SNS·뉴스 제목에서 유튜버 감탄사·수식어·오탈자·구어체 어미를 제거하고 기사 작성용 핵심 주제·브랜드 키워드로 정제
-function cleanTrendTopicKeyword(rawTitle = '', fullContext = '') {
-  let base = String(rawTitle || '').trim();
-  const quotedMatch = String(fullContext || '').match(/"([^"]{5,120})"/);
-  if (quotedMatch && quotedMatch[1]) {
-    const qText = quotedMatch[1].trim();
-    const strippedBase = base.replace(/\s+/g, '');
-    const strippedQuote = qText.replace(/#[a-zA-Z0-9가-힣_]+/g, '').replace(/\s+/g, '');
-    if (
-      qText.length > base.length &&
-      (strippedQuote.includes(strippedBase.slice(0, Math.min(8, strippedBase.length))) ||
-        /(?:조회수|똥손|용기까지|잠깐만|개야르렁)/.test(base))
-    ) {
-      base = qText;
+// 기사 초안 소재로 적합하지 않은 연예인 가십·다이어트·정체불명 수수께끼(블라인드) 클릭베이트·의학 공포·단순 경영/주가 기사를 판별해 걸러내는 필터
+function isUnusableGossipOrBlindItem(rawTitle = '', fullContext = '', tabKey = '') {
+  const combined = `${rawTitle || ''} ${fullContext || ''}`.trim();
+  if (!combined) return true;
+
+  // 1) 연예인 다이어트/일상 가십, 스포츠 경기, 군사/외교, 사건사고, 의학/질병 공포 기사 원천 배제
+  if (
+    /\d+\s*kg\s*(?:빼고|감량|살\s*빼)|디저트는\s*못\s*참아|광대\s*승천|남매\s*자랑|열애설|이혼\s*고백|공항패션|포토월|무력시위|전투기에|조기경보기|공중급유기|구속|영장|재판|사망|부고|인사|동정|서킷브레이커|circuit\s*breaker|혈당\s*쓰나미|당뇨병\s*키운다|주주서한|주주환원\s*유보|AI가\s*매달\s*보고|임직원은\s*원인\s*분석|최인석\s*의장|미래\s*마케팅\s*경쟁력/i.test(combined)
+  ) {
+    return true;
+  }
+
+  // 2) 상품명·캐릭터명·브랜드명을 숨긴 수수께끼(블라인드) 클릭베이트 제목 배제
+  if (
+    /['"‘“]?\s*이\s*(?:캐릭터|브랜드|화장품|제품|음료|간식|신발|가방)\s*['"’”]?|관객\s*수\s*\d+만\s*돌파하더니|이런\s*신발이\s*유행합니다|2000원짜리에\s*또\s*난리났다.*다이소\s*갔더니|^다이소\s*갔더니\s*['"‘“]?품절입니다['"’”]?$|화장품\s*정체['"’”]?\s*$/i.test(combined)
+  ) {
+    return true;
+  }
+
+  // 3) 구글 급상승 탭이 아닌 일반 소비/트렌드 탭에서는 단순 주가 급등락·환율·군함 기사도 배제
+  if (tabKey && tabKey !== 'google') {
+    if (/(?:삼성전자|하이닉스|삼전)\s*주가|\bkospi\b|코스피|원\/달러\s*환율|^군함$/i.test(combined)) {
+      return true;
     }
   }
 
-  let s = base
+  return false;
+}
+
+// 설명문(desc)에서 언론사 원문 기사 제목("..." 구간)을 추출하는 헬퍼
+function extractOriginalHeadlineFromDesc(fullContext = '') {
+  const ctx = String(fullContext || '').trim();
+  if (!ctx) return '';
+  const pressMatch = ctx.match(/보도에\s*따르면,\s*"(.+?)"\s*소식이\s*전해지며/);
+  if (pressMatch && pressMatch[1]) {
+    return pressMatch[1].replace(/\s+By\s+[A-Za-z가-힣0-9_.\s]+$/i, '').trim();
+  }
+  const googleMatch = ctx.match(/^\[구글\s*실시간\s*검색량[^\]]*\]\s*(.+)$/);
+  if (googleMatch && googleMatch[1] && !googleMatch[1].includes('관련 오늘 급상승')) {
+    return googleMatch[1].replace(/\s+-\s+[^-]+$/, '').trim();
+  }
+  return '';
+}
+
+// 유튜브 쇼츠·SNS·뉴스 제목에서 유튜버 감탄사·수식어·서술형 어미·낚시성 문구를 제거하고
+// '[브랜드/채널] + [핵심 품목/이슈] + [트렌드/신상]' 형태의 명확한 명사형 키워드로 정제하는 함수
+function cleanTrendTopicKeyword(rawTitle = '', fullContext = '') {
+  let base = String(rawTitle || '').trim();
+  const origHeadline = extractOriginalHeadlineFromDesc(fullContext);
+
+  // 만약 기존 키워드가 서술형 어미(~늘었다, ~입니다, ~뭐길래, ~보는, ~맞손, ~탈락, ~몰렸다 등)로 끝나거나 잘린 문장일 때,
+  // 원문 전체 제목(origHeadline)이 있으면 원문 전체 제목에서 핵심 명사들을 재조합
+  const looksLikeSentenceOrTruncated =
+    /(?:늘었다|뛰었다|몰렸다|입니다|뭐길래|맞손|탈락|선봬|보는|가볼까|결합이|담은|써도|하더니|정체|간다|웃는|유행합니다|푸드위크서|스타일링\s*라인.*\s올리브영$|\s-\s[가-힣A-Za-z0-9]+$)/.test(base) ||
+    (origHeadline && origHeadline.length > base.length && /(?:호빵|크림\s*미스트|콜라보|에디션|신제품|출시|방어회)/.test(origHeadline) && !/(?:호빵|크림\s*미스트|콜라보|에디션|신제품|출시|방어회)/.test(base));
+
+  if (origHeadline && looksLikeSentenceOrTruncated) {
+    base = origHeadline;
+  } else if (!origHeadline && fullContext) {
+    const quotedMatch = String(fullContext || '').match(/"([^"]{5,120})"/);
+    if (quotedMatch && quotedMatch[1]) {
+      const qText = quotedMatch[1].trim();
+      const strippedBase = base.replace(/\s+/g, '');
+      const strippedQuote = qText.replace(/#[a-zA-Z0-9가-힣_]+/g, '').replace(/\s+/g, '');
+      if (
+        qText.length > base.length &&
+        (strippedQuote.includes(strippedBase.slice(0, Math.min(8, strippedBase.length))) ||
+          /(?:조회수|똥손|용기까지|잠깐만|개야르렁)/.test(base))
+      ) {
+        base = qText;
+      }
+    }
+  }
+
+  // 언론사 꼬리표 및 불필요 태그 제거
+  base = base
+    .replace(/\s+-\s+[가-힣A-Za-z0-9.\s]+$/, '')
+    .replace(/\s+By\s+[A-Za-z0-9가-힣_.\s]+$/i, '')
     .replace(/#[a-zA-Z0-9가-힣_]+/g, ' ')
     .replace(/\[[^\]]*\]/g, ' ')
     .replace(/\([^\)]*포토[^\)]*\)/g, ' ')
     .replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\u{FE00}-\u{FE0F}]/gu, ' ')
-    .replace(/[;~!?‼⁉…⋯‥"“”'‘’`]+/g, ' ')
+    .trim();
+
+  // 자주 등장하는 대표 낚시성·서술형 뉴스 제목 패턴을 직관적인 명사형 키워드로 정밀 변환
+  if (/호빵/.test(base) && /삼립/.test(base) && /숏폼|찌는\s*법/.test(base)) {
+    return '삼립호빵 숏폼 레시피·편의점 인기 열풍';
+  }
+  if (/호빵/.test(base) && (/삼립/.test(base) || /편의점\s*매출/.test(base))) {
+    return /삼립/.test(base) ? '삼립 호빵 편의점 겨울 간식 열풍' : '편의점 겨울 간식 호빵 인기 열풍';
+  }
+  if (/올리브영/.test(base) && /라스트픽/.test(base)) {
+    return '올리브영 라스트픽 최대 70% 할인 오픈런';
+  }
+  if (/외국인\s*놀이터된\s*편의점/.test(base) && /민음사/.test(base)) {
+    return '편의점 외국인 인기·민음사·리센느 콜라보 빵';
+  }
+  if (/명품백\s*메고\s*다이소/.test(base) || (/다이소/.test(base) && /초저가\s*소비/.test(base))) {
+    return '다이소 초저가 가성비 소비 트렌드';
+  }
+  if (/다이소\s*5000원\s*vs\s*와우샵\s*1만원/i.test(base)) {
+    return '다이소 vs 이마트 와우샵 균일가 경쟁';
+  }
+  if (/비욘드/.test(base) && /다마고치/.test(base)) {
+    return 'LG생활건강 비욘드 다마고치 올리브영 콜라보 출시';
+  }
+  if (/컬리/.test(base) && /VIP/.test(base)) {
+    return '컬리 VIP 멤버십 개편·월 4회 주문 혜택';
+  }
+  if (/대방어/.test(base) && /방어회/.test(base)) {
+    return '겨울 제철 대방어회 2030 미식 소비 열풍';
+  }
+  if (/캐논\s*팝업스토어/.test(base)) {
+    return '캐논 체험형 팝업스토어 2030 방문 열풍';
+  }
+  if (/치이카와/.test(base) && (/뷰티/.test(base) || /파우치/.test(base))) {
+    return '뷰티업계 치이카와 콜라보 파우치 굿즈 열풍';
+  }
+  if (/아모레퍼시픽/.test(base) && /PDRN/.test(base) && /에이피\s*뷰티/.test(base)) {
+    return '아모레퍼시픽 에이피 뷰티 PDRN 크림 미스트 출시';
+  }
+  if (/한강라면/.test(base) && /오뚜기/.test(base) && /푸드위크/.test(base)) {
+    return '오뚜기 코엑스 푸드위크 한강라면·신제품 부스';
+  }
+  if (/이마트/.test(base) && /쓱데이/.test(base)) {
+    return /주말\s*총력전|반값/.test(base)
+      ? '이마트 쓱데이 먹거리·가전 반값 할인 총력전'
+      : '이마트 쓱데이 특가 할인 프로모션';
+  }
+  if (/달리프/.test(base) && /헬로키티/.test(base)) {
+    return '달리프 글램 스타일링 헬로키티 에디션 올리브영 출시';
+  }
+  if (/농심/.test(base) && /구미라면축제면/.test(base)) {
+    return '농심 구미 밀 구미라면축제면 한정판 출시';
+  }
+  if (/삼성전자/.test(base) && /갤럭시\s*버즈\s*온/.test(base)) {
+    return '삼성전자 클립형 이어폰 갤럭시 버즈 온 출시 완판';
+  }
+  if (/다이소/.test(base) && /5000원짜리\s*화장품/.test(base)) {
+    return '다이소 5000원 가성비 뷰티 화장품 품절대란';
+  }
+  if (/코아팜바이오/.test(base) && /비타민C/.test(base)) {
+    return '코아팜바이오 비타민C 2030 이너뷰티 공략';
+  }
+  if (/마미케어/.test(base) && /뷰티\s*디바이스/.test(base)) {
+    return '마미케어 2030 홈케어 뷰티 디바이스 출시';
+  }
+  if (/반값\s*한우에\s*오픈런/.test(base)) {
+    return '한우데이 반값 한우 특가전 오픈런 열풍';
+  }
+
+  // 말줄임표(… / ...) 또는 콜론(:)으로 나뉜 문장에서 앞·뒤의 핵심 명사구를 잃지 않고 결합
+  const parts = base.split(/\s*[…⋯:]\s*|\s*\.\.\.\s*|\s*‥\s*/).map(p => p.trim()).filter(Boolean);
+  if (parts.length >= 2) {
+    let p1 = parts[0].replace(/^[“"‘'](.+)[”"’'][?!.]?$/, '$1').trim();
+    let p2 = parts[1].replace(/^[“"‘'](.+)[”"’'][?!.]?$/, '$1').trim();
+
+    // p1이 순수 감탄/도입 수식어("보이면 일단 사야한다", "한강라면 맛보러 코엑스 가볼까", "여행비 부담 확 낮춘다")면 p2 우선,
+    // 반대로 p1에 핵심 상품/주제가 있고 p2가 매출/결과 서술("편의점 매출 44% 늘었다")이면 두 부분을 자연스럽게 결합
+    const p1IsPureHook = /(?:사야\s*한다|가볼까|낮춘다|난리났다|돌파하더니|길래|일상이\s*된|놀이터된)/.test(p1) && !/(?:호빵|콜라보|팝업|라스트픽|쓱데이|페스타)/.test(p1);
+    if (p1IsPureHook && p2.length >= 6) {
+      base = p2;
+    } else {
+      base = `${p1} ${p2}`;
+    }
+  }
+
+  let s = base
+    .replace(/[;~!?‼⁉…⋯‥"“”'‘’`↑↓]+/g, ' ')
     .replace(/[ㅋㅎㅠㅜ]{2,}/g, ' ')
     // 오탈자 및 대표 신조어 정규화
     .replace(/찹살떡|찹살덕|찹쌀덕/g, '찹쌀떡')
@@ -1380,6 +1526,17 @@ function cleanTrendTopicKeyword(rawTitle = '', fullContext = '') {
     .replace(/대구\s*더현대에?/g, '더현대 대구')
     .replace(/더현대에(\s|$)/g, '더현대$1')
     .replace(/올기\s*찹쌀떡/g, '생과일 딸기 찹쌀떡')
+    // 서술형 뉴스 제목 어미 -> 명사형 키워드로 자동 정규화
+    .replace(/매출\s*\d+(?:\.\d+)?%\s*(?:늘었다|뛰었다|급증했다|상승했다|증가했다)/g, '인기 열풍')
+    .replace(/\d+(?:,\d+)?명\s*몰렸다/g, '방문 열풍')
+    .replace(/(?:와|과)\s*맞손/g, '콜라보')
+    .replace(/손잡고/g, '콜라보')
+    .replace(/(?:선봬|선보여|선보인다|내놨다|내놓아)(\s|$)/g, '출시$1')
+    .replace(/(?:돌입했다|돌입)(\s|$)/g, '개막$1')
+    .replace(/(?:완판됐다|동났다|품절됐다|품절입니다)(\s|$)/g, '품절 열풍$1')
+    .replace(/(?:뭐길래|왜\s*그럴까|비결은|이유는|정체는?|정체)(\s|$)/g, ' ')
+    .replace(/일찍\s*찾아온/g, ' ')
+    .replace(/날\s*추워지니\s*(?:호호\s*웃는)?/g, '겨울 간식 ')
     // 유튜버 클릭베이트 수식어·감탄사·리뷰 어미 제거
     .replace(/조회수\s*\d+(?:\.\d+)?[만천]?회/g, ' ')
     .replace(/논란의\s*똥손\s*\.*/g, ' ')
@@ -1402,24 +1559,26 @@ function cleanTrendTopicKeyword(rawTitle = '', fullContext = '') {
     .replace(/종결\s*가능할까/g, ' ')
     .replace(/추천템으로\s+([가-힣A-Za-z0-9\s]+)$/g, '$1 추천템')
     .replace(/\d+월\s*\d+일\s*끝/g, '시즌 한정')
-    .replace(/(?:먹어봄|먹어봤습니다|먹어봤어요|가봤습니다|다녀왔어요|화장해봄|써봄|리뷰해봄|언박싱|떴어요|떴다)(\s|$)/g, ' ')
+    .replace(/(?:먹어봄|먹어봤습니다|먹어봤어요|가봤습니다|다녀왔어요|화장해봄|써봄|리뷰해봄|언박싱|떴어요|떴다|늘었다|뛰었다|몰렸다|키운다|참아|간다)(\s|$)/g, ' ')
     .replace(/잠깐만/g, ' ')
+    .replace(/,\s*/g, ' ')
     .replace(/\.\.+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 
-  // 문장 끝에 남은 불완전 조사 제거
-  s = s.replace(/\s+(?:에서|으로|에게|에는|까지|부터)$/, '').trim();
+  // 문장 끝에 남은 불완전 조사·관형형 어미 제거
+  s = s.replace(/\s+(?:에서|으로|에게|에는|까지|부터|보는|담은|쓴|써도|메고|앞|통해|맞아|겨냥|위한|따른|가볼까|할까|결합이|푸드위크서)$/, '').trim();
 
   if (!s) return String(rawTitle || '').trim();
-  if (s.length <= 28) return s;
+  if (s.length <= 30) return s;
   const words = s.split(' ');
   let acc = '';
   for (const w of words) {
-    if ((acc + ' ' + w).trim().length > 28) break;
+    if ((acc + ' ' + w).trim().length > 30) break;
     acc = (acc + ' ' + w).trim();
   }
-  return acc || s.slice(0, 28);
+  acc = acc.replace(/\s+(?:에서|으로|에게|에는|까지|부터|보는|담은|쓴|써도|메고|앞|통해|맞아|겨냥|위한|따른)$/, '').trim();
+  return acc || s.slice(0, 30);
 }
 
 // 키워드·설명에서 핵심 기업/브랜드명을 자동 추출하는 헬퍼 (복수 브랜드 키워드 시 모든 브랜드 추출!)
@@ -1451,35 +1610,61 @@ const BRAND_DETECTION_RULES = [
   { pattern: /파리바게뜨/, tokenPattern: /^파리바게뜨$/, name: '파리바게뜨' },
   { pattern: /뚜레쥬르/, tokenPattern: /^뚜레쥬르$/, name: '뚜레쥬르' },
   { pattern: /성심당/, tokenPattern: /^성심당$/, name: '성심당' },
+  { pattern: /SPC삼립|삼립호빵|삼립/, tokenPattern: /^(?:SPC)?삼립(?:호빵)?$/, name: 'SPC삼립' },
   { pattern: /하인즈/, tokenPattern: /^하인즈$/, name: '하인즈' },
   { pattern: /농심/, tokenPattern: /^농심$/, name: '농심' },
   { pattern: /오뚜기/, tokenPattern: /^오뚜기$/, name: '오뚜기' },
   { pattern: /삼양/, tokenPattern: /^삼양(?:식품)?$/, name: '삼양식품' },
   { pattern: /롯데웰푸드/, tokenPattern: /^롯데웰푸드$/, name: '롯데웰푸드' },
+  { pattern: /빙그레/, tokenPattern: /^빙그레$/, name: '빙그레' },
+  { pattern: /해태제과|해태/, tokenPattern: /^해태(?:제과)?$/, name: '해태제과' },
+  { pattern: /오리온/, tokenPattern: /^오리온$/, name: '오리온' },
+  { pattern: /매일유업/, tokenPattern: /^매일유업$/, name: '매일유업' },
+  { pattern: /하림/, tokenPattern: /^하림$/, name: '하림' },
+  { pattern: /동원F&B|동원/, tokenPattern: /^동원(?:F&B)?$/, name: '동원F&B' },
   { pattern: /CJ제일제당/, tokenPattern: /^CJ제일제당$/, name: 'CJ제일제당' },
   { pattern: /풀무원/, tokenPattern: /^풀무원$/, name: '풀무원' },
   { pattern: /교촌/, tokenPattern: /^교촌(?:치킨)?$/, name: '교촌치킨' },
   { pattern: /BBQ/i, tokenPattern: /^BBQ$/i, name: 'BBQ' },
   { pattern: /bhc/i, tokenPattern: /^bhc$/i, name: 'bhc' },
   { pattern: /아모레퍼시픽|아모레/, tokenPattern: /^아모레(?:퍼시픽)?$/, name: '아모레퍼시픽' },
+  { pattern: /에이피\s*뷰티|AP\s*뷰티/i, tokenPattern: /^(?:에이피|AP)\s*뷰티$/i, name: '에이피 뷰티' },
   { pattern: /아이오페/, tokenPattern: /^아이오페$/, name: '아이오페' },
   { pattern: /헤라/, tokenPattern: /^헤라$/, name: '헤라' },
+  { pattern: /비욘드/, tokenPattern: /^비욘드$/, name: '비욘드' },
+  { pattern: /달리프/, tokenPattern: /^달리프$/, name: '달리프' },
+  { pattern: /안국약품/, tokenPattern: /^안국약품$/, name: '안국약품' },
+  { pattern: /코아팜바이오/, tokenPattern: /^코아팜바이오$/, name: '코아팜바이오' },
+  { pattern: /마미케어/, tokenPattern: /^마미케어$/, name: '마미케어' },
   { pattern: /LG생활건강/, tokenPattern: /^LG생활건강$/, name: 'LG생활건강' },
   { pattern: /삼성전자|갤럭시/, tokenPattern: /^삼성전자$/, name: '삼성전자' },
   { pattern: /LG전자/, tokenPattern: /^LG전자$/, name: 'LG전자' },
+  { pattern: /캐논/, tokenPattern: /^캐논(?:코리아)?$/, name: '캐논' },
   { pattern: /오늘의집/, tokenPattern: /^오늘의집$/, name: '오늘의집' },
   { pattern: /컬리/, tokenPattern: /^(?:마켓)?컬리$/, name: '컬리' },
   { pattern: /쿠팡/, tokenPattern: /^쿠팡$/, name: '쿠팡' },
+  { pattern: /G마켓|지마켓/i, tokenPattern: /^(?:G마켓|지마켓)$/i, name: 'G마켓' },
+  { pattern: /11번가/, tokenPattern: /^11번가$/, name: '11번가' },
+  { pattern: /SSG닷컴|쓱닷컴/i, tokenPattern: /^(?:SSG닷컴|쓱닷컴)$/i, name: 'SSG닷컴' },
+  { pattern: /비씨카드|BC카드/i, tokenPattern: /^(?:비씨카드|BC카드)$/i, name: 'BC카드' },
+  { pattern: /하나투어/, tokenPattern: /^하나투어$/, name: '하나투어' },
+  { pattern: /모두투어/, tokenPattern: /^모두투어$/, name: '모두투어' },
+  { pattern: /민음사/, tokenPattern: /^민음사$/, name: '민음사' },
   { pattern: /이마트(?!24)/, tokenPattern: /^이마트$/, name: '이마트' },
   { pattern: /롯데마트/, tokenPattern: /^롯데마트$/, name: '롯데마트' },
   { pattern: /롯데백화점/, tokenPattern: /^롯데백화점$/, name: '롯데백화점' },
+  { pattern: /광주신세계/, tokenPattern: /^광주신세계$/, name: '광주신세계' },
   { pattern: /신세계백화점|신세계/, tokenPattern: /^신세계(?:백화점)?$/, name: '신세계백화점' },
   { pattern: /현대백화점/, tokenPattern: /^현대백화점$/, name: '현대백화점' }
 ];
 
+const NON_BRAND_REJECT_WORDS = new Set([
+  '한강라면', '겨울', '최대', '관객', '외국인', '명품백', '유행', '반값', '뷰티업계로', '일찍', '품절대란'
+]);
+
 function normalizeBrandName(raw = '') {
   const s = String(raw || '').trim();
-  if (!s) return '';
+  if (!s || NON_BRAND_REJECT_WORDS.has(s)) return '';
   for (const rule of BRAND_DETECTION_RULES) {
     if (rule.tokenPattern && rule.tokenPattern.test(s)) return rule.name;
   }
@@ -1502,6 +1687,7 @@ function extractBrandFromTopic(text = '', existingCompany = '') {
   for (const rule of BRAND_DETECTION_RULES) {
     if (rule.pattern.test(src) && !found.includes(rule.name)) {
       if (rule.name === '더현대' && found.includes('더현대 대구')) continue;
+      if (rule.name === '신세계백화점' && found.includes('광주신세계')) continue;
       // 이미 동일 계열 세부 브랜드가 있으면 중복 방지
       if (rule.name === '아모레퍼시픽' && (found.includes('아이오페') || found.includes('헤라'))) continue;
       found.push(rule.name);
@@ -1509,6 +1695,132 @@ function extractBrandFromTopic(text = '', existingCompany = '') {
     }
   }
   return found.join(', ');
+}
+
+// 트렌드 항목(keyword, desc, company)에서 원문 기사의 핵심 세부 수치·품목(subKeywords)과 기획 방향(directionHint)을 자동 추출하는 헬퍼
+function extractTrendContextMetadata(item = {}) {
+  const rawKw = String(item.keyword || '').trim();
+  const rawDesc = String(item.desc || '').trim();
+  const origHeadline = extractOriginalHeadlineFromDesc(rawDesc);
+  const cleanedKw = cleanTrendTopicKeyword(rawKw, rawDesc);
+  const detectedComp = extractBrandFromTopic(`${cleanedKw} ${origHeadline} ${rawDesc}`, item.company || '');
+
+  // 이미 지정된 subKeywords가 있으면 우선 활용하되, 없으면 원문 제목(origHeadline)과 desc에서 핵심 수치·보조 키워드 자동 추출
+  const subParts = [];
+  if (item.subKeywords && String(item.subKeywords).trim()) {
+    String(item.subKeywords).split(/[,/]+/).map(s => s.trim()).filter(Boolean).forEach(s => {
+      if (!subParts.includes(s)) subParts.push(s);
+    });
+  }
+
+  const combinedText = `${origHeadline} ${rawDesc}`;
+  if (/호빵/.test(combinedText)) {
+    if (/44%/.test(combinedText)) subParts.push('편의점 호빵 매출 44% 증가');
+    if (/숏폼|찌는\s*법/.test(combinedText)) subParts.push('숏폼 호빵 찌는 법 레시피');
+    else subParts.push('삼립호빵 겨울 시즌 라인업');
+  } else if (/라스트픽/.test(combinedText)) {
+    subParts.push('올리브영 라스트픽 최대 70% 할인', '클리어런스 오픈런');
+  } else if (/다마고치/.test(combinedText)) {
+    subParts.push('비욘드×다마고치 콜라보 에디션', '올리브영 단독 기획세트');
+  } else if (/치이카와/.test(combinedText)) {
+    subParts.push('치이카와 캐릭터 콜라보 화장품', '한정판 메론빵 파우치 굿즈');
+  } else if (/대방어/.test(combinedText)) {
+    subParts.push('겨울 제철 방어회 오픈런', '2030 제철코어 미식 트렌드');
+  } else if (/민음사/.test(combinedText) && /리센느/.test(combinedText)) {
+    subParts.push('편의점 외국인 필수 관광 코스', '민음사 콜라보 빵·리센느 도시락');
+  } else if (/캐논/.test(combinedText) && /팝업/.test(combinedText)) {
+    subParts.push('캐논 체험형 팝업스토어 방문객 8000명', '2030 카메라·사진 열풍');
+  } else if (/컬리/.test(combinedText) && /VIP/.test(combinedText)) {
+    subParts.push('컬리 러버스 멤버십 개편', '월 4회 주문 조건');
+  } else if (origHeadline) {
+    // 원문 제목에서 작은따옴표 안의 핵심 고유명사(상품명·행사명)만 추출하고 구어체 문장은 제외
+    const quoteTokens = [];
+    const qRegex = /['‘“]([^'’”]{2,18})['’”]/g;
+    let qm;
+    while ((qm = qRegex.exec(origHeadline)) !== null) {
+      const tok = qm[1].trim();
+      const isConversationalQuote = /(?:사야|한다|했다|기다렸|꽁꽁|찰떡|글쎄|어쩌나|참아|몰렸|늘었|뛰었|터졌)/.test(tok);
+      if (tok && !isConversationalQuote && !cleanedKw.includes(tok) && !quoteTokens.includes(tok)) {
+        quoteTokens.push(tok);
+      }
+    }
+    quoteTokens.slice(0, 2).forEach(t => subParts.push(t));
+    const metricMatch = origHeadline.match(/\d+(?:,\d+)?(?:\.\d+)?\s*(?:%|만\s*원|원|종|곳|명|배)/g);
+    if (metricMatch) {
+      metricMatch.slice(0, 2).forEach(m => {
+        if (m === '100%') return;
+        if (!cleanedKw.includes(m) && !subParts.some(sp => sp.includes(m))) {
+          subParts.push(m);
+        }
+      });
+    }
+  }
+
+  const finalSubKeywords = subParts.slice(0, 3).join(', ');
+  const directionHint = item.directionHint || (origHeadline
+    ? `최근 보도된 "${origHeadline}" 이슈의 핵심 배경·수치와 주요 제품·브랜드 특징, 소비자 체크포인트를 구체적으로 분석`
+    : '');
+
+  return {
+    keyword: cleanedKw,
+    company: detectedComp,
+    subKeywords: finalSubKeywords,
+    directionHint
+  };
+}
+
+// 5개 트렌드 탭 전체에 공통 적용되는 정제·가십 필터링·중복 제거 파이프라인
+// (향후 실시간 트렌드 새로고침 시에도 모든 탭 항목이 이 함수를 거쳐 낚시성·가십 기사는 걸러지고 명사형 키워드로 자동 정규화됨)
+function sanitizeAndFilterTrendList(list = [], tabKey = '') {
+  if (!Array.isArray(list)) return [];
+  const out = [];
+  const seenKeywords = new Set();
+  const seenTopicSignatures = new Set();
+
+  for (const rawItem of list) {
+    if (!rawItem || (!rawItem.keyword && !rawItem.desc)) continue;
+    if (isUnusableGossipOrBlindItem(rawItem.keyword, rawItem.desc, tabKey)) {
+      continue;
+    }
+    const meta = extractTrendContextMetadata(rawItem);
+    const cleanKw = meta.keyword;
+    if (!cleanKw || cleanKw.length < 2) continue;
+    if (isUnusableGossipOrBlindItem(cleanKw, rawItem.desc, tabKey)) {
+      continue;
+    }
+
+    // 동일 탭 내 중복 주제(예: 삼립호빵 44% 기사가 언론사만 달리해 3개 연속 나오는 현상, BC카드-LG전자 중복 등) 방지
+    const normKey = cleanKw.replace(/\s+/g, '').toLowerCase();
+    if (seenKeywords.has(normKey)) continue;
+
+    const coreTopicToken = (cleanKw.match(/호빵|라스트픽|쓱데이|다마고치|치이카와|대방어|구미라면|갤럭시\s*버즈\s*온|북엇국라면|헬로키티|뽀로로/) || [''])[0];
+    const topicSig = coreTopicToken
+      ? `TOPIC:${coreTopicToken.replace(/\s+/g, '')}`
+      : (meta.company.includes(',') ? `COLLAB:${meta.company}` : '');
+    if (topicSig && seenTopicSignatures.has(topicSig)) {
+      continue;
+    }
+
+    seenKeywords.add(normKey);
+    if (topicSig) seenTopicSignatures.add(topicSig);
+
+    // 설명문(desc)의 불필요한 영문 바이라인(By EBN 등) 및 이중 따옴표 정리
+    const cleanDesc = String(rawItem.desc || '')
+      .replace(/\s+By\s+[A-Za-z0-9가-힣_.\s]+(?=")/gi, '')
+      .replace(/""+/g, '"')
+      .trim();
+
+    out.push({
+      ...rawItem,
+      keyword: cleanKw,
+      company: meta.company || rawItem.company || '',
+      subKeywords: meta.subKeywords || rawItem.subKeywords || '',
+      directionHint: meta.directionHint || rawItem.directionHint || '',
+      desc: cleanDesc || rawItem.desc
+    });
+  }
+
+  return out;
 }
 
 // '이디야, 맘스터치, 메가커피 푸드 스낵 신메뉴 강화' 또는 '이디야·맘스터치·메가커피 푸드·스낵 신메뉴 강화'처럼
@@ -3325,6 +3637,9 @@ if (typeof module !== 'undefined' && module.exports) {
     recommendMkPickCategory,
     paraphraseNewsToMkFact,
     cleanTrendTopicKeyword,
+    isUnusableGossipOrBlindItem,
+    extractTrendContextMetadata,
+    sanitizeAndFilterTrendList,
     extractBrandFromTopic,
     splitKeywordIntoBrandsAndTopic,
     splitLongHeadlineToSubtitle,
@@ -3349,6 +3664,9 @@ if (typeof module !== 'undefined' && module.exports) {
     recommendMkPickCategory,
     paraphraseNewsToMkFact,
     cleanTrendTopicKeyword,
+    isUnusableGossipOrBlindItem,
+    extractTrendContextMetadata,
+    sanitizeAndFilterTrendList,
     extractBrandFromTopic,
     splitKeywordIntoBrandsAndTopic,
     splitLongHeadlineToSubtitle,
