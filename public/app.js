@@ -119,10 +119,11 @@
   const CLIENT_STORAGE_KEY = 'mk_pplx_api_key_v1';
   const CLIENT_DISCONNECTED_FLAG = 'mk_pplx_disconnected_v1';
   const CLIENT_USAGE_KEY = 'mk_pplx_usage_stats_v1';
-  const CLIENT_TREND_CACHE_KEY = 'mk_pplx_trend_cache_v7';
+  const CLIENT_TREND_CACHE_KEY = 'mk_pplx_trend_cache_v8';
   try {
     localStorage.removeItem('mk_pplx_trend_cache_v5');
     localStorage.removeItem('mk_pplx_trend_cache_v6');
+    localStorage.removeItem('mk_pplx_trend_cache_v7');
   } catch (e) {}
   const CLIENT_WORKS_STORAGE_KEY = 'mk_pplx_saved_works_v1';
   const CLIENT_HISTORY_BACKUP_KEY = 'mk_pplx_work_history_backup_v1';
@@ -660,13 +661,13 @@
         },
         body: JSON.stringify({
           model: 'sonar-pro',
-          search_recency_filter: recency || 'week',
+          search_recency_filter: recencyFilter || 'week',
           messages: [
             { role: 'system', content: systemPrompt },
             { role: 'user', content: userPrompt }
           ],
           max_tokens: maxTokensOverride || (callType === 'trend' ? 6500 : 8000),
-          temperature: 0.2
+          temperature: callType === 'trend' ? 0.35 : 0.2
         })
       }, 120000, 'Perplexity Sonar-Pro');
       if (!res.ok) {
@@ -1000,42 +1001,66 @@
     }));
   }
 
-  async function fetchClientPerplexityTrends(apiKey) {
+  async function fetchClientPerplexityTrends(apiKey, existingKeywords = []) {
     const todayStr = new Date().toISOString().slice(0, 10);
-    const sys = `당신은 매일경제 디지털뉴스룸(MK Pick) 실시간 트렌드 및 팩트체크 데스크입니다.
+    const excludeHint = Array.isArray(existingKeywords) && existingKeywords.length > 0
+      ? `\n6. [이전 화면 중복 배제 필수] 현재 화면에 이미 노출되어 있던 다음 이전 키워드들은 절대 다시 출력하지 말고, 이번 주 새롭게 보도된 다른 최신 브랜드·이슈로 완전히 교체하세요: ${existingKeywords.slice(0, 15).join(', ')}`
+      : '';
+
+    const commonSys = `당신은 매일경제 디지털뉴스룸(MK Pick) 실시간 트렌드 및 팩트체크 데스크입니다.
 철칙:
-1. [가장 중요 · 팩트 검증 및 가십/낚시 원천 배제] 오늘(${todayStr}) 기준으로 최근 7일 이내 실제 기업·브랜드가 정식 출시·발표하고 국내 주요 언론사에 보도된 **100% 팩트 검증된 실제 상품·서비스·소비 트렌드**만 선정하세요!
+1. [팩트 검증 및 가십/낚시 원천 배제] 오늘(${todayStr}) 기준으로 최근 7일 이내 실제 기업·브랜드가 정식 출시·발표하고 국내 주요 언론사에 보도된 **100% 팩트 검증된 실제 상품·서비스·소비 트렌드**만 선정하세요!
    - 절대 포함 금지: 연예인 개인 일상·다이어트·열애 가십, 단순 주가 급등락·환율·정치·군사·사건사고 뉴스, 의학/질병 공포 기사, 유튜브/SNS의 AI 합성 가상 밈.
    - 절대 포함 금지(블라인드 낚시 제목): "'이 캐릭터' 콜라보", "다이소 갔더니 품절입니다", "5000원짜리 화장품 정체", "이런 신발이 유행합니다"처럼 실제 브랜드명이나 구체적인 상품명을 숨긴 낚시성 제목은 절대 선정하지 마세요!
 2. [명사형 핵심 키워드 작성 원칙 — 서술형 문장 절대 금지!]
-   - 모든 탭(특히 shortFormTrends 유튜브 쇼츠·릴스 탭 포함)의 \`keyword\`는 절대로 "~늘었다", "~뛰었다", "~품절입니다", "~뭐길래", "~돌파하더니", "~맞손" 같은 **서술형·의문형 문장 조각으로 작성하지 마세요!**
+   - 모든 탭의 \`keyword\`는 절대로 "~늘었다", "~뛰었다", "~품절입니다", "~뭐길래", "~돌파하더니", "~맞손" 같은 **서술형·의문형 문장 조각으로 작성하지 마세요!**
    - 반드시 **\`[브랜드/채널명 + 구체적인 상품·품목명 + 핵심 현상/신상/할인]\` 형태의 명확한 명사구(2~5어절)**로 작성하세요!
-     · 나쁜 예(절대 금지): "삼립 편의점 매출 44% 늘었다", "다이소 갔더니 품절입니다", "최대 70% 세일 올리브영 라스트픽 뭐길래"
-     · 좋은 예(필수 준수): "삼립호빵 숏폼 레시피·편의점 인기 열풍", "다이소 본셉·VT 가성비 뷰티 품절대란", "올리브영 라스트픽 최대 70% 할인 오픈런"
-3. '두바이 초콜릿/쿠키', '버터떡', '우베', '탕후루', '요아정'처럼 이미 유행이 지났거나 과거에 머물러 있는 항목은 제외하고, 오늘(${todayStr}) 기준 가장 최신 보도된 신상품·프로모션·품절템·팝업스토어·MZ 소비 이슈로 구성하세요.
-4. 각 항목마다 보도한 언론사명(source), 보도일(pubDateShort, YYYY-MM-DD), 실제 뉴스 원문 URL(url), 핵심 기업·브랜드명(company), 그리고 초안 집필 시 함께 다룰 세부 팩트 키워드 2~3개(subKeywords, 쉼표 구분)를 함께 기재하세요.
-5. 5개 탭(shortFormTrends, newsletterTrends, portalRetailTrends, googleTrends, brandPromoTrends) 각각 정확히 10개씩 작성하되, 동일 브랜드·동일 품목이 중복되지 않게 순수 JSON 객체만 출력하세요.`;
+3. [브랜드 편중 절대 금지!] 한 탭 안에서 동일한 브랜드(예: GS25만 4~5개 연속, 11번가만 3개 연속)를 여러 번 반복해서 넣지 마세요! 각 항목마다 서로 다른 브랜드·기업·이슈를 고르게 선정하세요.
+4. '두바이 초콜릿/쿠키', '버터떡', '우베', '탕후루', '요아정'이나 이미 지난주에 끝난 행사('이마트 쓱데이', '한우데이', '오뚜기 북엇국라면', '갤럭시 버즈 온')는 제외하고, 오늘(${todayStr}) 기준 가장 최신 보도된 신상품·프로모션·품절템·팝업스토어로 구성하세요.
+5. 순수 JSON 객체만 출력하세요.${excludeHint}`;
 
-    const usr = `기준일: ${todayStr} (최근 7일 이내 최신 한국 뉴스 기준)
-오늘 대한민국에서 가장 화제가 되고 있는 실시간 유통·팝업·패션·라이프스타일·IT 트렌드 및 브랜드 신상품·프로모션 뉴스 키워드를 탭별로 서로 겹치지 않게 정확히 10개씩 JSON으로 작성하세요.
-- keyword는 서술형 어미(~늘었다, ~입니다, ~뭐길래)가 없는 **[브랜드/채널명 + 구체적 품목/상품명 + 핵심 트렌드/출시]** 명사구(2~5어절)로 작성하세요.
-- company는 핵심 기업·브랜드명(예: SPC삼립, 올리브영, 다이소, 오뚜기, 아모레퍼시픽 등)을 정확히 기입하세요.
-- subKeywords는 원문 기사에 등장하는 구체적인 신제품명, 수치(예: 매출 44% 증가, 최대 70% 할인), 세부 트렌드 키워드 2~3개를 쉼표로 구분해 작성하세요.
-- desc는 언론사 보도에 따른 구체적인 브랜드명·신제품명·가격·수치·프로모션 혜택을 담아 "~합니다" 체 1문장으로 작성하세요.
+    const usrGroupA = `기준일: ${todayStr} (최근 7일 이내 최신 한국 뉴스 기준)
+이번 주 대한민국에서 새로 보도된 [1] 브랜드 신상·프로모션 뉴스 10선(brandPromoTrends)과 [2] 네이버·포털 유통 화제 10선(portalRetailTrends)을 서로 겹치지 않게 JSON으로 작성하세요.
+- 반드시 각 항목마다 **서로 다른 기업·브랜드(10개 항목 = 10개 다른 브랜드)**를 선정하세요! (특정 편의점이나 주류 행사 하나로 여러 개 쪼개기 절대 금지)
+- brandPromoTrends는 [식음료·외식], [뷰티·패션], [유통·리빙], [가전·IT] 4대 업종의 이번 주 신상품 출시·콜라보·프로모션 뉴스를 고르게 담으세요.
+- keyword: 서술어가 없는 **[브랜드/채널명 + 구체적 품목/상품명 + 핵심 트렌드/출시]** 명사구 (2~5어절)
+- company: 핵심 기업·브랜드명
+- subKeywords: 구체적 신제품명, 수치/혜택 2개 (쉼표 구분)
+- desc: 언론사 보도에 따른 구체적인 브랜드명·신제품명·가격·수치·프로모션 혜택 팩트 1문장 (80자 이내, ~합니다 체)
 
 {
-  "shortFormTrends": [{"keyword": "브랜드+구체적품목+숏폼/품절/오픈런 명사형 키워드 (10개)", "company": "브랜드/기업명", "subKeywords": "세부 품목명, 핵심 수치, 연관 트렌드", "source": "보도 언론사명", "pubDateShort": "${todayStr}", "badge": "✓ 언론 보도 확인", "desc": "이번 주 화제 이유와 구체적 품목·수치 1문장 (~합니다 체)", "url": "실제 기사 URL"}],
-  "newsletterTrends": [{"keyword": "MZ 소비문화·패션·팝업 명사형 키워드 (10개)", "company": "브랜드/기업명(있을 시)", "subKeywords": "세부 키워드 2~3개", "source": "보도 언론사명", "pubDateShort": "${todayStr}", "category": "MZ·소비 이슈", "desc": "이번 주 화제 이유와 수치 1문장 (~합니다 체)", "url": "실제 기사 URL"}],
-  "portalRetailTrends": [{"keyword": "편의점·다이소·백화점·마트 신상 명사형 키워드 (10개)", "company": "유통사/브랜드명", "subKeywords": "세부 상품명, 가격/할인율", "source": "보도 언론사명", "pubDateShort": "${todayStr}", "badge": "포털·유통 신상", "desc": "최근 출시·품절·프로모션 팩트 1문장 (~합니다 체)", "url": "실제 기사 URL"}],
-  "googleTrends": [{"keyword": "오늘·이번주 급상승 명사형 키워드 (10개)", "company": "관련 기업/기관명(있을 시)", "subKeywords": "핵심 배경 키워드 2개", "source": "보도 언론사명", "pubDateShort": "실시간 급상승", "badge": "실시간 급상승", "desc": "급상승 배경 1문장 (~합니다 체)", "url": "실제 기사 URL"}],
-  "brandPromoTrends": [{"keyword": "브랜드명 + 신상품/프로모션 명사형 키워드 (10개)", "company": "브랜드/기업명", "subKeywords": "신제품 정식 명칭, 프로모션 혜택", "sector": "식음료·외식 | 뷰티·패션 | 유통·리빙 | 가전·IT 중 택1", "source": "보도 언론사명", "pubDateShort": "${todayStr}", "badge": "업종 · 신상품/프로모션", "desc": "출시 신제품 특징 및 프로모션 혜택 팩트 1문장 (~합니다 체)", "url": "실제 기사 URL"}]
+  "brandPromoTrends": [{"keyword": "브랜드명 + 신상품/프로모션 명사구 (10개 서로 다른 브랜드)", "company": "브랜드/기업명", "subKeywords": "신제품 정식 명칭, 프로모션 혜택", "sector": "식음료·외식 | 뷰티·패션 | 유통·리빙 | 가전·IT 중 택1", "source": "보도 언론사명", "pubDateShort": "${todayStr}", "badge": "업종 · 신상품/프로모션", "desc": "출시 신제품 특징 및 프로모션 혜택 팩트 1문장 (~합니다 체)", "url": "실제 기사 URL"}],
+  "portalRetailTrends": [{"keyword": "편의점·다이소·백화점·컬리·무신사·올리브영 신상 명사구 (10개 서로 다른 유통/브랜드)", "company": "유통사/브랜드명", "subKeywords": "세부 상품명, 가격/할인율", "source": "보도 언론사명", "pubDateShort": "${todayStr}", "badge": "포털·유통 신상", "desc": "최근 출시·품절·프로모션 팩트 1문장 (~합니다 체)", "url": "실제 기사 URL"}]
 }`;
-    const { parsed, searchResults } = await callPerplexityDirectFromBrowser(apiKey, sys, usr, 'week', 'trend');
+
+    const usrGroupB = `기준일: ${todayStr} (최근 7일 이내 최신 한국 뉴스 기준)
+이번 주 대한민국에서 새로 보도된 [1] 유튜브 쇼츠·릴스 화제 10선(shortFormTrends), [2] 트렌드 뉴스레터·MZ 키워드 10선(newsletterTrends), [3] 구글 트렌드 급상승 10선(googleTrends)을 서로 겹치지 않게 JSON으로 작성하세요.
+- 반드시 각 항목마다 **서로 다른 브랜드·품목·이슈**를 선정하세요! (특정 브랜드 하나를 여러 항목으로 중복 작성 절대 금지)
+- keyword: 서술어가 없는 **[브랜드/채널명 + 구체적 품목/상품명 + 핵심 트렌드/오픈런/품절]** 명사구 (2~5어절)
+- company: 핵심 기업·브랜드명
+- subKeywords: 구체적 품목명, 핵심 수치 2개 (쉼표 구분)
+- desc: 언론사 보도에 따른 구체적인 브랜드명·신제품명·수치·화제 이유 팩트 1문장 (80자 이내, ~합니다 체)
+
+{
+  "shortFormTrends": [{"keyword": "브랜드+구체적품목+숏폼/품절/오픈런 명사구 (10개)", "company": "브랜드/기업명", "subKeywords": "세부 품목명, 핵심 수치", "source": "보도 언론사명", "pubDateShort": "${todayStr}", "badge": "✓ 언론 보도 확인", "desc": "이번 주 화제 이유와 구체적 품목·수치 1문장 (~합니다 체)", "url": "실제 기사 URL"}],
+  "newsletterTrends": [{"keyword": "MZ 소비문화·패션·팝업·디저트 명사구 (10개)", "company": "브랜드/기업명(있을 시)", "subKeywords": "세부 키워드 2개", "source": "보도 언론사명", "pubDateShort": "${todayStr}", "category": "MZ·소비 이슈", "desc": "이번 주 화제 이유와 수치 1문장 (~합니다 체)", "url": "실제 기사 URL"}],
+  "googleTrends": [{"keyword": "오늘·이번주 급상승 핵심 명사구 (10개)", "company": "관련 기업/기관명(있을 시)", "subKeywords": "핵심 배경 키워드 2개", "source": "보도 언론사명", "pubDateShort": "실시간 급상승", "badge": "실시간 급상승", "desc": "급상승 배경 1문장 (~합니다 체)", "url": "실제 기사 URL"}]
+}`;
+
+    const [resA, resB] = await Promise.all([
+      callPerplexityDirectFromBrowser(apiKey, commonSys, usrGroupA, 'week', 'trend', 4500),
+      callPerplexityDirectFromBrowser(apiKey, commonSys, usrGroupB, 'week', 'trend', 5500)
+    ]);
+
+    const combinedSearchResults = [
+      ...(resA?.searchResults || []),
+      ...(resB?.searchResults || [])
+    ];
     const usedUrls = new Set();
     function enrichTrendArr(arr = [], tabKey = '') {
       if (!Array.isArray(arr)) return [];
       const mapped = arr.map(item => {
-        const matchedSr = matchBestSearchResult({ sourceTitle: item.keyword, fact: item.desc }, searchResults, usedUrls);
+        const matchedSr = matchBestSearchResult({ sourceTitle: item.keyword, fact: item.desc }, combinedSearchResults, usedUrls);
         const directUrl = isRealArticleUrl(item.url)
           ? item.url.trim()
           : (matchedSr?.url || `https://news.google.com/search?q=${encodeURIComponent(item.keyword || '')}&hl=ko&gl=KR&ceid=KR:ko`);
@@ -1051,11 +1076,11 @@
       return sanitizeAndFilterTrendList ? sanitizeAndFilterTrendList(mapped, tabKey) : mapped;
     }
     return {
-      shortFormTrends: enrichTrendArr(parsed?.shortFormTrends, 'shortform'),
-      newsletterTrends: enrichTrendArr(parsed?.newsletterTrends, 'newsletter'),
-      portalRetailTrends: enrichTrendArr(parsed?.portalRetailTrends, 'portal'),
-      googleTrends: enrichTrendArr(parsed?.googleTrends, 'google'),
-      brandPromoTrends: enrichTrendArr(parsed?.brandPromoTrends, 'brandpromo')
+      brandPromoTrends: enrichTrendArr(resA?.parsed?.brandPromoTrends, 'brandpromo'),
+      portalRetailTrends: enrichTrendArr(resA?.parsed?.portalRetailTrends, 'portal'),
+      shortFormTrends: enrichTrendArr(resB?.parsed?.shortFormTrends, 'shortform'),
+      newsletterTrends: enrichTrendArr(resB?.parsed?.newsletterTrends, 'newsletter'),
+      googleTrends: enrichTrendArr(resB?.parsed?.googleTrends, 'google')
     };
   }
 
@@ -3777,7 +3802,19 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
       };
     }
 
+    state.lastTrendRefreshError = '';
+    const prevTopKeywords = [
+      ...(state.trendRadar?.brandPromoTrends || []).slice(0, 3).map(it => it.keyword),
+      ...(state.trendRadar?.portalRetailTrends || []).slice(0, 3).map(it => it.keyword),
+      ...(state.trendRadar?.shortFormTrends || []).slice(0, 3).map(it => it.keyword),
+      ...(state.trendRadar?.newsletterTrends || []).slice(0, 3).map(it => it.keyword)
+    ].filter(Boolean);
+
     try {
+      const isStaticHost = typeof window !== 'undefined' && window.location.hostname.endsWith('.github.io');
+      if (isStaticHost) {
+        throw new Error('STATIC_HOST_USE_CLIENT_OR_SNAPSHOT');
+      }
       const url = forceRefresh ? '/api/trends?refresh=1' : '/api/trends';
       const radar = await apiFetch(url);
       if (radar.apiUsageStats) {
@@ -3858,16 +3895,23 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
       let loadedFromClientPplx = loadedFromCacheOrSnapshot;
       if ((forceRefresh || !loadedFromCacheOrSnapshot) && clientKey) {
         try {
-          const pplxTrends = await fetchClientPerplexityTrends(clientKey);
+          const pplxTrends = await fetchClientPerplexityTrends(clientKey, forceRefresh ? prevTopKeywords : []);
           const sanitizedPplx = sanitizeAllTrendRadarObj(pplxTrends);
-          const mergedRadar = {
-            googleTrends: (sanitizedPplx.googleTrends || []).slice(0, 10),
-            portalRetailTrends: (sanitizedPplx.portalRetailTrends || []).slice(0, 10),
-            shortFormTrends: (sanitizedPplx.shortFormTrends || []).slice(0, 10),
-            newsletterTrends: (sanitizedPplx.newsletterTrends || []).slice(0, 10),
-            brandPromoTrends: (sanitizedPplx.brandPromoTrends || []).slice(0, 10)
+          const mergeTabTo10 = (freshList = [], fallbackList = [], tabKey = '') => {
+            const combined = [...freshList, ...fallbackList];
+            const cleaned = typeof sanitizeAndFilterTrendList === 'function'
+              ? sanitizeAndFilterTrendList(combined, tabKey)
+              : combined;
+            return cleaned.slice(0, 10);
           };
-          const hasValidItems = mergedRadar.shortFormTrends.length > 0 || mergedRadar.brandPromoTrends.length > 0;
+          const mergedRadar = {
+            googleTrends: mergeTabTo10(sanitizedPplx.googleTrends, snapshotDataObj?.googleTrends || [], 'google'),
+            portalRetailTrends: mergeTabTo10(sanitizedPplx.portalRetailTrends, snapshotDataObj?.portalRetailTrends || [], 'portal'),
+            shortFormTrends: mergeTabTo10(sanitizedPplx.shortFormTrends, snapshotDataObj?.shortFormTrends || [], 'shortform'),
+            newsletterTrends: mergeTabTo10(sanitizedPplx.newsletterTrends, snapshotDataObj?.newsletterTrends || [], 'newsletter'),
+            brandPromoTrends: mergeTabTo10(sanitizedPplx.brandPromoTrends, snapshotDataObj?.brandPromoTrends || [], 'brandpromo')
+          };
+          const hasValidItems = (sanitizedPplx.shortFormTrends?.length || 0) > 0 || (sanitizedPplx.brandPromoTrends?.length || 0) > 0;
           if (hasValidItems) {
             state.trendRadar = mergedRadar;
             const nowTs = Date.now();
@@ -3883,7 +3927,10 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
           }
         } catch (clientErr) {
           console.warn('Client Perplexity trend fallback:', clientErr.message);
+          state.lastTrendRefreshError = clientErr.message || '실시간 트렌드 수집 중 일시적 네트워크 지연';
         }
+      } else if (forceRefresh && !clientKey) {
+        state.lastTrendRefreshError = 'Perplexity API 키가 설정되지 않았습니다';
       }
 
       // 4) 만약 API 키가 없거나 네트워크 오류 시 정적 스냅샷 또는 기본 큐레이션 폴백
@@ -4298,13 +4345,13 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
                 </div>
               </div>
               <div class="flex-row" style="gap: 6px; flex-wrap: wrap;">
-                <a href="./mk-pick-user-guide.pdf?v=81" download="MK_Pick_GEO_콘텐츠_스튜디오_사용가이드.pdf" class="btn btn-sm btn-primary" style="text-decoration: none; font-weight: 800; padding: 5px 11px;">
+                <a href="./mk-pick-user-guide.pdf?v=82" download="MK_Pick_GEO_콘텐츠_스튜디오_사용가이드.pdf" class="btn btn-sm btn-primary" style="text-decoration: none; font-weight: 800; padding: 5px 11px;">
                   📥 PDF 다운로드
                 </a>
-                <a href="./mk-pick-user-guide.pptx?v=81" download="MK_Pick_GEO_콘텐츠_스튜디오_사용가이드.pptx" class="btn btn-sm" style="text-decoration: none; font-weight: 800; padding: 5px 11px; border-color: #CBD5E1; color: var(--text-primary);">
+                <a href="./mk-pick-user-guide.pptx?v=82" download="MK_Pick_GEO_콘텐츠_스튜디오_사용가이드.pptx" class="btn btn-sm" style="text-decoration: none; font-weight: 800; padding: 5px 11px; border-color: #CBD5E1; color: var(--text-primary);">
                   📊 PPTX 다운로드
                 </a>
-                <a href="./guide.html?v=81" target="_blank" rel="noopener noreferrer" class="btn btn-sm" style="text-decoration: none; font-weight: 700; padding: 5px 11px; color: var(--text-secondary);">
+                <a href="./guide.html?v=82" target="_blank" rel="noopener noreferrer" class="btn btn-sm" style="text-decoration: none; font-weight: 700; padding: 5px 11px; color: var(--text-secondary);">
                   새 탭 열기 ↗
                 </a>
                 <button type="button" class="btn btn-sm" id="closeGuideModalBtn" style="font-weight: 800; padding: 5px 11px;">✕ 닫기</button>
@@ -4312,9 +4359,9 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
             </div>
             <div style="flex: 1; min-height: 0; margin-top: 10px; border: 1px solid #E2E8F0; border-radius: 10px; overflow: hidden; background: #F1F5F9;">
               ${activeTab === 'slides' ? `
-                <iframe src="./guide.html?embed=1&v=81" style="width: 100%; height: 100%; border: none; display: block; background: #F1F5F9;" title="MK Pick 사용 가이드 슬라이드"></iframe>
+                <iframe src="./guide.html?embed=1&v=82" style="width: 100%; height: 100%; border: none; display: block; background: #F1F5F9;" title="MK Pick 사용 가이드 슬라이드"></iframe>
               ` : `
-                <iframe src="./mk-pick-user-guide.pdf?v=81#view=FitH" style="width: 100%; height: 100%; border: none; display: block; background: #FFFFFF;" title="MK Pick 사용 가이드 PDF"></iframe>
+                <iframe src="./mk-pick-user-guide.pdf?v=82#view=FitH" style="width: 100%; height: 100%; border: none; display: block; background: #FFFFFF;" title="MK Pick 사용 가이드 PDF"></iframe>
               `}
             </div>
           </div>
@@ -6229,7 +6276,11 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
       state.isLoadingTrends = true;
       render(true);
       await loadTrends(true);
-      showToast(`✓ 5개 탭 실시간 화제 키워드 50선을 최신 상태로 업데이트했습니다! (${state.lastTrendLoadDurationSec || 0}초 소요)`);
+      if (state.lastTrendRefreshError) {
+        showToast(`⚠️ 실시간 AI 수집 지연으로 최신 스냅샷을 표시했습니다: ${state.lastTrendRefreshError}`);
+      } else {
+        showToast(`✓ 5개 탭 실시간 화제 키워드 50선을 최신 상태로 업데이트했습니다! (${state.lastTrendLoadDurationSec || 0}초 소요)`);
+      }
       render(true);
     });
 

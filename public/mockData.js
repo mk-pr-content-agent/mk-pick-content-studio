@@ -1349,16 +1349,16 @@ function isUnusableGossipOrBlindItem(rawTitle = '', fullContext = '', tabKey = '
   const combined = `${rawTitle || ''} ${fullContext || ''}`.trim();
   if (!combined) return true;
 
-  // 1) 연예인 다이어트/일상 가십, 스포츠 경기, 군사/외교, 사건사고, 의학/질병 공포 기사 원천 배제
+  // 1) 연예인 다이어트/일상 가십, 스포츠 경기, 군사/외교, 사건사고, 의학/질병 공포, B2B/정치/지역구 민원 기사 원천 배제
   if (
-    /\d+\s*kg\s*(?:빼고|감량|살\s*빼)|디저트는\s*못\s*참아|광대\s*승천|남매\s*자랑|열애설|이혼\s*고백|공항패션|포토월|무력시위|전투기에|조기경보기|공중급유기|구속|영장|재판|사망|부고|인사|동정|서킷브레이커|circuit\s*breaker|혈당\s*쓰나미|당뇨병\s*키운다|주주서한|주주환원\s*유보|AI가\s*매달\s*보고|임직원은\s*원인\s*분석|최인석\s*의장|미래\s*마케팅\s*경쟁력/i.test(combined)
+    /\d+\s*kg\s*(?:빼고|감량|살\s*빼)|디저트는\s*못\s*참아|광대\s*승천|남매\s*자랑|열애설|이혼\s*고백|이혼숙려캠프|베드신|탁재훈|공항패션|포토월|무력시위|전투기에|조기경보기|공중급유기|구속|영장|재판|사망|부고|인사|동정|서킷브레이커|circuit\s*breaker|혈당\s*쓰나미|당뇨병\s*키운다|주주서한|주주환원\s*유보|AI가\s*매달\s*보고|임직원은\s*원인\s*분석|최인석\s*의장|미래\s*마케팅\s*경쟁력|만덕다이소|민원현장|농심천심|신문\s*가판대|2분기\s*연속\s*적자|디지털\s*엑스레이|필리핀\s*세탁기|싱클리|불편한\s*편의점|EY\s*최우수|단체복\s*시장\s*진출|유니폼\s*B2B|^0\d{5}$|주간조선/i.test(combined)
   ) {
     return true;
   }
 
   // 2) 상품명·캐릭터명·브랜드명을 숨긴 수수께끼(블라인드) 클릭베이트 제목 배제
   if (
-    /['"‘“]?\s*이\s*(?:캐릭터|브랜드|화장품|제품|음료|간식|신발|가방)\s*['"’”]?|관객\s*수\s*\d+만\s*돌파하더니|이런\s*신발이\s*유행합니다|2000원짜리에\s*또\s*난리났다.*다이소\s*갔더니|^다이소\s*갔더니\s*['"‘“]?품절입니다['"’”]?$|화장품\s*정체['"’”]?\s*$/i.test(combined)
+    /['"‘“]?\s*이\s*(?:캐릭터|브랜드|화장품|제품|음료|간식|신발|가방)\s*['"’”]?|관객\s*수\s*\d+만\s*돌파하더니|이런\s*신발이\s*유행합니다|2000원짜리에\s*또\s*난리났다.*다이소\s*갔더니|^다이소\s*갔더니\s*['"‘“]?품절입니다['"’”]?$|화장품\s*정체['"’”]?\s*$|요즘\s*누가\s*빼빼로\s*주나요|지갑\s*지키러\s*누가\s*돌아왔|미미미누가\s*꼽은|1992년부터\s*2026년까지\s*뷰티\s*유행은\s*돌고/i.test(combined)
   ) {
     return true;
   }
@@ -1493,6 +1493,45 @@ function cleanTrendTopicKeyword(rawTitle = '', fullContext = '') {
   }
   if (/반값\s*한우에\s*오픈런/.test(base)) {
     return '한우데이 반값 한우 특가전 오픈런 열풍';
+  }
+  if (/무신사/.test(base) && /성수/.test(base) && /뷰티/.test(base)) {
+    return '무신사 성수동 400평 뷰티 단독 매장 오픈';
+  }
+  if (/컬리뷰티페스타|컬리\s*뷰티페스타/.test(base)) {
+    return '컬리뷰티페스타 단독 뷰티 브랜드 체험 오픈런';
+  }
+  if (/다이소/.test(base) && /미니키링북/.test(base)) {
+    return '다이소 고전 명작 미니키링북 신상 출시';
+  }
+  if (/외국인/.test(base) && /약국/.test(base) && /K뷰티|화장품/.test(base)) {
+    return '외국인 K뷰티 도심 약국 화장품 쇼핑 열풍';
+  }
+  if (/2시간\s*기다리느니|디저트\s*유행\s*바꾼\s*DIY/.test(base)) {
+    return 'MZ세대 웨이팅 대신 DIY 디저트·홈베이킹 열풍';
+  }
+  if (/몸\s*지진다/.test(base) && /2030/.test(base)) {
+    return '2030 세대 찜질방·온천 힐링 소비 열풍';
+  }
+  if (/CJ온스타일/.test(base) && /겨울\s*패션위크/.test(base)) {
+    return 'CJ온스타일 겨울 패션위크 고급 소재 아우터 기획전';
+  }
+  if (/CU/.test(base) && /eSIM/i.test(base)) {
+    return 'CU 영수증 QR 해외여행 eSIM 서비스 출시';
+  }
+  if (/롯데웰푸드/.test(base) && /가나\s*쇼콜라\s*립파이/.test(base)) {
+    return '롯데웰푸드 가나 쇼콜라 립파이 K-에디션 출시';
+  }
+  if (/대원제약|대원헬스/.test(base) && /라임꿀샷/.test(base)) {
+    return '대원제약 대원헬스 수면케어 라임꿀샷 GS25 출시';
+  }
+  if (/무신사/.test(base) && /W컨셉/.test(base) && /도쿄/.test(base)) {
+    return '무신사·W컨셉 일본 도쿄 K패션 팝업스토어 흥행';
+  }
+  if (/3시간\s*전부터\s*오픈런/.test(base) && /성수동/.test(base)) {
+    return '성수동 K-뷰티 플래그십·팝업스토어 오픈런 열풍';
+  }
+  if (/제니·장원영처럼\s*입고\s*싶어요/.test(base)) {
+    return '일본 2030 K-패션 디자이너 브랜드 쇼핑 열풍';
   }
 
   // 말줄임표(… / ...) 또는 콜론(:)으로 나뉜 문장에서 앞·뒤의 핵심 명사구를 잃지 않고 결합
@@ -1776,6 +1815,9 @@ function sanitizeAndFilterTrendList(list = [], tabKey = '') {
   const out = [];
   const seenKeywords = new Set();
   const seenTopicSignatures = new Set();
+  const brandCountMap = new Map();
+  const isBrandPromoTab = tabKey === 'brandpromo' || tabKey === 'brandPromoTrends';
+  const maxPerBrand = isBrandPromoTab ? 1 : 2;
 
   for (const rawItem of list) {
     if (!rawItem || (!rawItem.keyword && !rawItem.desc)) continue;
@@ -1789,16 +1831,26 @@ function sanitizeAndFilterTrendList(list = [], tabKey = '') {
       continue;
     }
 
-    // 동일 탭 내 중복 주제(예: 삼립호빵 44% 기사가 언론사만 달리해 3개 연속 나오는 현상, BC카드-LG전자 중복 등) 방지
+    // 동일 탭 내 중복 주제(예: 삼립호빵 44% 기사가 언론사만 달리해 3개 연속 나오는 현상, 컬리뷰티페스타 중복 등) 방지
     const normKey = cleanKw.replace(/\s+/g, '').toLowerCase();
     if (seenKeywords.has(normKey)) continue;
 
-    const coreTopicToken = (cleanKw.match(/호빵|라스트픽|쓱데이|다마고치|치이카와|대방어|구미라면|갤럭시\s*버즈\s*온|북엇국라면|헬로키티|뽀로로/) || [''])[0];
+    const coreTopicToken = (cleanKw.match(/호빵|라스트픽|쓱데이|다마고치|치이카와|대방어|구미라면|갤럭시\s*버즈\s*온|북엇국라면|헬로키티|뽀로로|컬리뷰티페스타|겨울\s*패션위크|미니키링북|가나\s*쇼콜라\s*립파이|라임꿀샷|네이비\s*짐|크림탑\s*스초생/) || [''])[0];
     const topicSig = coreTopicToken
       ? `TOPIC:${coreTopicToken.replace(/\s+/g, '')}`
       : (meta.company.includes(',') ? `COLLAB:${meta.company}` : '');
     if (topicSig && seenTopicSignatures.has(topicSig)) {
       continue;
+    }
+
+    // 동일 탭 내 특정 단일 브랜드 편중 방지 (예: GS25 와인 기사가 한 탭에 4~5개 연속 도배되는 현상 차단)
+    const primaryBrand = (meta.company || rawItem.company || '').split(',')[0].trim();
+    if (primaryBrand) {
+      const curCount = brandCountMap.get(primaryBrand) || 0;
+      if (curCount >= maxPerBrand) {
+        continue;
+      }
+      brandCountMap.set(primaryBrand, curCount + 1);
     }
 
     seenKeywords.add(normKey);
