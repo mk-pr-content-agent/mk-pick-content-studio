@@ -1351,7 +1351,7 @@ function isUnusableGossipOrBlindItem(rawTitle = '', fullContext = '', tabKey = '
 
   // 1) 연예인 다이어트/일상 가십, 스포츠 경기, 군사/외교, 사건사고, 의학/질병 공포, B2B/정치/지역구 민원 기사 원천 배제
   if (
-    /\d+\s*kg\s*(?:빼고|감량|살\s*빼)|디저트는\s*못\s*참아|광대\s*승천|남매\s*자랑|열애설|이혼\s*고백|이혼숙려캠프|베드신|탁재훈|공항패션|포토월|무력시위|전투기에|조기경보기|공중급유기|구속|영장|재판|사망|별세|타계|고검장|백악관|전수조사|부고|인사|동정|서킷브레이커|circuit\s*breaker|혈당\s*쓰나미|당뇨병\s*키운다|주주서한|주주환원\s*유보|AI가\s*매달\s*보고|임직원은\s*원인\s*분석|최인석\s*의장|미래\s*마케팅\s*경쟁력|만덕다이소|민원현장|농심천심|신문\s*가판대|2분기\s*연속\s*적자|디지털\s*엑스레이|필리핀\s*세탁기|싱클리|불편한\s*편의점|EY\s*최우수|단체복\s*시장\s*진출|유니폼\s*B2B|^0\d{5}$|주간조선/i.test(combined)
+    /\d+\s*kg\s*(?:빼고|감량|살\s*빼)|디저트는\s*못\s*참아|광대\s*승천|남매\s*자랑|열애설|이혼\s*고백|이혼숙려캠프|베드신|탁재훈|공항패션|포토월|무력시위|전투기에|조기경보기|공중급유기|구속|영장|재판|사망|별세|타계|고검장|백악관|전수조사|부고|인사|동정|서킷브레이커|circuit\s*breaker|혈당\s*쓰나미|당뇨병\s*키운다|주주서한|주주환원\s*유보|AI가\s*매달\s*보고|임직원은\s*원인\s*분석|최인석\s*의장|미래\s*마케팅\s*경쟁력|만덕다이소|민원현장|농심천심|신문\s*가판대|신문\s*구해요|우승\s*소식.*편의점|2분기\s*연속\s*적자|디지털\s*엑스레이|필리핀\s*세탁기|싱클리|불편한\s*편의점|EY\s*최우수|단체복\s*시장\s*진출|유니폼\s*B2B|^0\d{5}$|주간조선/i.test(combined)
   ) {
     return true;
   }
@@ -1394,11 +1394,20 @@ function cleanTrendTopicKeyword(rawTitle = '', fullContext = '') {
   let base = String(rawTitle || '').trim();
   const origHeadline = extractOriginalHeadlineFromDesc(fullContext);
 
-  // 만약 기존 키워드가 서술형 어미(~늘었다, ~입니다, ~뭐길래, ~보는, ~맞손, ~탈락, ~몰렸다 등)로 끝나거나 잘린 문장일 때,
+  // 만약 기존 키워드가 서술형 어미(~늘었다, ~입니다, ~뭐길래, ~내놓은, ~부른 등)로 끝나거나 30자 제한으로 뒷부분 명사가 잘린 문장일 때,
   // 원문 전체 제목(origHeadline)이 있으면 원문 전체 제목에서 핵심 명사들을 재조합
+  const normBaseAlnum = base.replace(/[^가-힣A-Za-z0-9]/g, '');
+  const normOrigAlnum = origHeadline ? origHeadline.replace(/[^가-힣A-Za-z0-9]/g, '') : '';
+  const isTruncatedSliceOfOrig =
+    Boolean(origHeadline) &&
+    normOrigAlnum.length > normBaseAlnum.length &&
+    normBaseAlnum.length >= 6 &&
+    normOrigAlnum.includes(normBaseAlnum.slice(0, Math.min(10, normBaseAlnum.length)));
+
   const looksLikeSentenceOrTruncated =
-    /(?:늘었다|뛰었다|몰렸다|입니다|뭐길래|맞손|탈락|선봬|보는|가볼까|결합이|담은|써도|하더니|정체|간다|웃는|유행합니다|푸드위크서|스타일링\s*라인.*\s올리브영$|\s-\s[가-힣A-Za-z0-9]+$)/.test(base) ||
-    (origHeadline && origHeadline.length > base.length && /(?:호빵|크림\s*미스트|콜라보|에디션|신제품|출시|방어회)/.test(origHeadline) && !/(?:호빵|크림\s*미스트|콜라보|에디션|신제품|출시|방어회)/.test(base));
+    isTruncatedSliceOfOrig ||
+    /(?:늘었다|뛰었다|몰렸다|입니다|뭐길래|맞손|탈락|선봬|보는|가볼까|결합이|담은|써도|하더니|정체|간다|웃는|유행합니다|푸드위크서|내놓은|부른|찾아|모두\s*한국|\d+곳$|스타일링\s*라인.*\s올리브영$|\s-\s[가-힣A-Za-z0-9]+$)/.test(base) ||
+    (origHeadline && origHeadline.length > base.length && /(?:호빵|크림\s*미스트|콜라보|에디션|신제품|출시|방어회|디저트|편의점|브랜드)/.test(origHeadline) && !/(?:호빵|크림\s*미스트|콜라보|에디션|신제품|출시|방어회|디저트|편의점|브랜드)/.test(base));
 
   if (origHeadline && looksLikeSentenceOrTruncated) {
     base = origHeadline;
@@ -1534,17 +1543,28 @@ function cleanTrendTopicKeyword(rawTitle = '', fullContext = '') {
     return '일본 2030 K-패션 디자이너 브랜드 쇼핑 열풍';
   }
 
-  // 말줄임표(… / ...) 또는 콜론(:)으로 나뉜 문장에서 앞·뒤의 핵심 명사구를 잃지 않고 결합
-  const parts = base.split(/\s*[…⋯:]\s*|\s*\.\.\.\s*|\s*‥\s*/).map(p => p.trim()).filter(Boolean);
-  if (parts.length >= 2) {
-    let p1 = parts[0].replace(/^[“"‘'](.+)[”"’'][?!.]?$/, '$1').trim();
-    let p2 = parts[1].replace(/^[“"‘'](.+)[”"’'][?!.]?$/, '$1').trim();
+  // 말줄임표(… / ...) 또는 물음표(?...) 또는 콜론(:)으로 나뉜 문장에서 핵심 명사구를 보존
+  const rawParts = base.split(/\s*[…⋯:]\s*|\s*\.\.\.\s*|\s*‥\s*/).map(p => p.trim()).filter(Boolean);
+  if (rawParts.length >= 2) {
+    const rawP1 = rawParts[0];
+    let p1 = rawP1.replace(/^[“"‘'](.+)[”"’'][?!.]?$/, '$1').trim();
+    let p2 = rawParts[1].replace(/^[“"‘'](.+)[”"’'][?!.]?$/, '$1').trim();
 
-    // p1이 순수 감탄/도입 수식어("보이면 일단 사야한다", "한강라면 맛보러 코엑스 가볼까", "여행비 부담 확 낮춘다")면 p2 우선,
-    // 반대로 p1에 핵심 상품/주제가 있고 p2가 매출/결과 서술("편의점 매출 44% 늘었다")이면 두 부분을 자연스럽게 결합
-    const p1IsPureHook = /(?:사야\s*한다|가볼까|낮춘다|난리났다|돌파하더니|길래|일상이\s*된|놀이터된)/.test(p1) && !/(?:호빵|콜라보|팝업|라스트픽|쓱데이|페스타)/.test(p1);
-    if (p1IsPureHook && p2.length >= 6) {
+    // p1이 의문문("빼빼로데이는 빼빼로를 준다?"), 직접 인용 감탄사("신문 구해요", "보이면 일단 사야한다"),
+    // 혹은 p1+p2 합산 길이가 너무 길어 뒤쪽 핵심 명사가 잘릴 위험이 있을 때는 핵심 명사가 들어 있는 절을 우선 선택
+    const p1HasQuestion = /\?/.test(rawP1) || /(?:준다|주나요|할까|볼까|길래|무슨|왜)/.test(p1);
+    const p1IsPureHook =
+      p1HasQuestion ||
+      /(?:사야\s*한다|가볼까|낮춘다|난리났다|돌파하더니|길래|일상이\s*된|놀이터된|구해요|누가\s*돌아왔)/.test(p1);
+
+    if (p1IsPureHook && p2.length >= 8) {
       base = p2;
+    } else if ((p1 + ' ' + p2).length > 28 && p2.length >= 12) {
+      // p1이 예시 나열("산리오, 포켓몬, 호빵맨")이거나 수식절("숏폼 영상 휩쓴 'K뷰티'")이고 p2가 본 주제인 경우
+      // p1 안의 따옴표 핵심 명사('K뷰티' 등) 또는 첫 대표 명사를 p2 앞에 붙여 뒤쪽 명사가 절대 잘리지 않게 함
+      const quotedInP1 = (rawP1.match(/['‘“]([^'’”]{2,12})['’”]/) || [])[1] || '';
+      const firstTokenP1 = quotedInP1 || (p1.split(/[,·\s]+/)[0] || '');
+      base = firstTokenP1 && !p2.includes(firstTokenP1) ? `${firstTokenP1} ${p2}` : p2;
     } else {
       base = `${p1} ${p2}`;
     }
@@ -1565,6 +1585,10 @@ function cleanTrendTopicKeyword(rawTitle = '', fullContext = '') {
     .replace(/대구\s*더현대에?/g, '더현대 대구')
     .replace(/더현대에(\s|$)/g, '더현대$1')
     .replace(/올기\s*찹쌀떡/g, '생과일 딸기 찹쌀떡')
+    // 도치형 관형절("세트 내놓은 편의점들", "품절사태 부른 초콜릿 디저트")을 자연스러운 명사구로 정규화
+    .replace(/(.+?)\s+내놓은\s+편의점들?/g, '편의점 $1 출시')
+    .replace(/품절사태\s*부른\s+(.+)/g, '$1 품절 대란')
+    .replace(/오픈런\s*부른\s+(.+)/g, '$1 오픈런 열풍')
     // 서술형 뉴스 제목 어미 -> 명사형 키워드로 자동 정규화
     .replace(/매출\s*\d+(?:\.\d+)?%\s*(?:늘었다|뛰었다|급증했다|상승했다|증가했다)/g, '인기 열풍')
     .replace(/\d+(?:,\d+)?명\s*몰렸다/g, '방문 열풍')
@@ -1605,19 +1629,20 @@ function cleanTrendTopicKeyword(rawTitle = '', fullContext = '') {
     .replace(/\s+/g, ' ')
     .trim();
 
-  // 문장 끝에 남은 불완전 조사·관형형 어미 제거
-  s = s.replace(/\s+(?:에서|으로|에게|에는|까지|부터|보는|담은|쓴|써도|메고|앞|통해|맞아|겨냥|위한|따른|가볼까|할까|결합이|푸드위크서)$/, '').trim();
+  // 문장 끝에 남은 불완전 조사·관형형 어미 제거 (내놓은, 부른, 찾아 등 미완성 수식어로 끝나는 현상 방지)
+  s = s.replace(/\s+(?:에서|으로|에게|에는|까지|부터|보는|담은|쓴|써도|메고|앞|통해|맞아|겨냥|위한|따른|가볼까|할까|결합이|푸드위크서|내놓은|부른|찾아|선보인|출시한)$/, '').trim();
 
   if (!s) return String(rawTitle || '').trim();
-  if (s.length <= 30) return s;
+  // 한국어 제목은 핵심 명사가 맨 뒤에 오므로 30자에서 뒷단어를 자르지 않고 38자까지 온전히 보존
+  if (s.length <= 38) return s;
   const words = s.split(' ');
   let acc = '';
   for (const w of words) {
-    if ((acc + ' ' + w).trim().length > 30) break;
+    if ((acc + ' ' + w).trim().length > 38) break;
     acc = (acc + ' ' + w).trim();
   }
-  acc = acc.replace(/\s+(?:에서|으로|에게|에는|까지|부터|보는|담은|쓴|써도|메고|앞|통해|맞아|겨냥|위한|따른)$/, '').trim();
-  return acc || s.slice(0, 30);
+  acc = acc.replace(/\s+(?:에서|으로|에게|에는|까지|부터|보는|담은|쓴|써도|메고|앞|통해|맞아|겨냥|위한|따른|내놓은|부른|찾아|선보인|출시한)$/, '').trim();
+  return acc || s.slice(0, 38);
 }
 
 // 키워드·설명에서 핵심 기업/브랜드명을 자동 추출하는 헬퍼 (복수 브랜드 키워드 시 모든 브랜드 추출!)

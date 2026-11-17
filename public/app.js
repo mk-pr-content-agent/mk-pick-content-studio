@@ -4625,13 +4625,13 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
                 </div>
               </div>
               <div class="flex-row" style="gap: 6px; flex-wrap: wrap;">
-                <a href="./mk-pick-user-guide.pdf?v=85" download="MK_Pick_GEO_콘텐츠_스튜디오_사용가이드.pdf" class="btn btn-sm btn-primary" style="text-decoration: none; font-weight: 800; padding: 5px 11px;">
+                <a href="./mk-pick-user-guide.pdf?v=86" download="MK_Pick_GEO_콘텐츠_스튜디오_사용가이드.pdf" class="btn btn-sm btn-primary" style="text-decoration: none; font-weight: 800; padding: 5px 11px;">
                   📥 PDF 다운로드
                 </a>
-                <a href="./mk-pick-user-guide.pptx?v=85" download="MK_Pick_GEO_콘텐츠_스튜디오_사용가이드.pptx" class="btn btn-sm" style="text-decoration: none; font-weight: 800; padding: 5px 11px; border-color: #CBD5E1; color: var(--text-primary);">
+                <a href="./mk-pick-user-guide.pptx?v=86" download="MK_Pick_GEO_콘텐츠_스튜디오_사용가이드.pptx" class="btn btn-sm" style="text-decoration: none; font-weight: 800; padding: 5px 11px; border-color: #CBD5E1; color: var(--text-primary);">
                   📊 PPTX 다운로드
                 </a>
-                <a href="./guide.html?v=85" target="_blank" rel="noopener noreferrer" class="btn btn-sm" style="text-decoration: none; font-weight: 700; padding: 5px 11px; color: var(--text-secondary);">
+                <a href="./guide.html?v=86" target="_blank" rel="noopener noreferrer" class="btn btn-sm" style="text-decoration: none; font-weight: 700; padding: 5px 11px; color: var(--text-secondary);">
                   새 탭 열기 ↗
                 </a>
                 <button type="button" class="btn btn-sm" id="closeGuideModalBtn" style="font-weight: 800; padding: 5px 11px;">✕ 닫기</button>
@@ -4639,9 +4639,9 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
             </div>
             <div style="flex: 1; min-height: 0; margin-top: 10px; border: 1px solid #E2E8F0; border-radius: 10px; overflow: hidden; background: #F1F5F9;">
               ${activeTab === 'slides' ? `
-                <iframe src="./guide.html?embed=1&v=85" style="width: 100%; height: 100%; border: none; display: block; background: #F1F5F9;" title="MK Pick 사용 가이드 슬라이드"></iframe>
+                <iframe src="./guide.html?embed=1&v=86" style="width: 100%; height: 100%; border: none; display: block; background: #F1F5F9;" title="MK Pick 사용 가이드 슬라이드"></iframe>
               ` : `
-                <iframe src="./mk-pick-user-guide.pdf?v=85#view=FitH" style="width: 100%; height: 100%; border: none; display: block; background: #FFFFFF;" title="MK Pick 사용 가이드 PDF"></iframe>
+                <iframe src="./mk-pick-user-guide.pdf?v=86#view=FitH" style="width: 100%; height: 100%; border: none; display: block; background: #FFFFFF;" title="MK Pick 사용 가이드 PDF"></iframe>
               `}
             </div>
           </div>
