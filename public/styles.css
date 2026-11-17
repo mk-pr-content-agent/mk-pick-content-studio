@@ -285,21 +285,20 @@ body {
 
 .home-type-card {
   border: 1px solid #E5E7EB;
-  border-radius: 10px;
-  background-color: #FAFAFA;
-  padding: 13px 14px;
+  border-radius: 8px;
+  background-color: #FFFFFF;
+  padding: 12px 14px;
   cursor: pointer;
   display: flex;
   flex-direction: column;
-  justify-content: flex-start;
-  transition: all 0.14s ease;
+  justify-content: center;
+  transition: border-color 0.14s ease, background-color 0.14s ease, box-shadow 0.14s ease;
   position: relative;
 }
 
 .home-type-card:hover {
   border-color: #CBD5E1;
-  background-color: var(--white);
-  transform: translateY(-1px);
+  background-color: #F8FAFC;
 }
 
 .home-type-card.selected {
@@ -308,8 +307,8 @@ body {
 }
 
 .home-type-card.auto-matched {
-  border: 1.5px solid #2563EB;
-  background-color: #F0F7FF;
+  border: 1.5px solid var(--mk-orange);
+  background-color: #FFF9F5;
 }
 
 /* 홈 화면 하단 소재 발굴 · 작업함 3탭 네비게이션 */
@@ -962,7 +961,10 @@ table.mk-table th {
 .mt-16 { margin-top: 16px; }
 .mb-6 { margin-bottom: 6px; }
 .mb-8 { margin-bottom: 8px; }
+.mb-10 { margin-bottom: 10px; }
 .mb-12 { margin-bottom: 12px; }
+.mb-14 { margin-bottom: 14px; }
+.mb-16 { margin-bottom: 16px; }
 .text-muted { color: var(--text-muted); font-size: 12px; }
 
 /* 토스트 알림 */

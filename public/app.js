@@ -4625,13 +4625,13 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
                 </div>
               </div>
               <div class="flex-row" style="gap: 6px; flex-wrap: wrap;">
-                <a href="./mk-pick-user-guide.pdf?v=86" download="MK_Pick_GEO_콘텐츠_스튜디오_사용가이드.pdf" class="btn btn-sm btn-primary" style="text-decoration: none; font-weight: 800; padding: 5px 11px;">
+                <a href="./mk-pick-user-guide.pdf?v=87" download="MK_Pick_GEO_콘텐츠_스튜디오_사용가이드.pdf" class="btn btn-sm btn-primary" style="text-decoration: none; font-weight: 800; padding: 5px 11px;">
                   📥 PDF 다운로드
                 </a>
-                <a href="./mk-pick-user-guide.pptx?v=86" download="MK_Pick_GEO_콘텐츠_스튜디오_사용가이드.pptx" class="btn btn-sm" style="text-decoration: none; font-weight: 800; padding: 5px 11px; border-color: #CBD5E1; color: var(--text-primary);">
+                <a href="./mk-pick-user-guide.pptx?v=87" download="MK_Pick_GEO_콘텐츠_스튜디오_사용가이드.pptx" class="btn btn-sm" style="text-decoration: none; font-weight: 800; padding: 5px 11px; border-color: #CBD5E1; color: var(--text-primary);">
                   📊 PPTX 다운로드
                 </a>
-                <a href="./guide.html?v=86" target="_blank" rel="noopener noreferrer" class="btn btn-sm" style="text-decoration: none; font-weight: 700; padding: 5px 11px; color: var(--text-secondary);">
+                <a href="./guide.html?v=87" target="_blank" rel="noopener noreferrer" class="btn btn-sm" style="text-decoration: none; font-weight: 700; padding: 5px 11px; color: var(--text-secondary);">
                   새 탭 열기 ↗
                 </a>
                 <button type="button" class="btn btn-sm" id="closeGuideModalBtn" style="font-weight: 800; padding: 5px 11px;">✕ 닫기</button>
@@ -4639,9 +4639,9 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
             </div>
             <div style="flex: 1; min-height: 0; margin-top: 10px; border: 1px solid #E2E8F0; border-radius: 10px; overflow: hidden; background: #F1F5F9;">
               ${activeTab === 'slides' ? `
-                <iframe src="./guide.html?embed=1&v=86" style="width: 100%; height: 100%; border: none; display: block; background: #F1F5F9;" title="MK Pick 사용 가이드 슬라이드"></iframe>
+                <iframe src="./guide.html?embed=1&v=87" style="width: 100%; height: 100%; border: none; display: block; background: #F1F5F9;" title="MK Pick 사용 가이드 슬라이드"></iframe>
               ` : `
-                <iframe src="./mk-pick-user-guide.pdf?v=86#view=FitH" style="width: 100%; height: 100%; border: none; display: block; background: #FFFFFF;" title="MK Pick 사용 가이드 PDF"></iframe>
+                <iframe src="./mk-pick-user-guide.pdf?v=87#view=FitH" style="width: 100%; height: 100%; border: none; display: block; background: #FFFFFF;" title="MK Pick 사용 가이드 PDF"></iframe>
               `}
             </div>
           </div>
@@ -5545,15 +5545,15 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
       );
       if (hi.typeMode !== 'manual' && !hasInputNow) {
         return `
-          <span style="color: var(--text-muted); font-size: 12px;">키워드를 입력하면 가장 알맞은 유형(01~05)과 카테고리가 자동 추천됩니다</span>
+          <span style="color: var(--text-muted); font-size: 12px;">키워드 입력 시 최적 유형 자동 매칭 · 직접 클릭하여 변경 가능</span>
         `;
       }
       const curTypeInfo = CONTENT_TYPES[hi.typeId] || CONTENT_TYPES[3];
       const curCat = recommendMkPickCategory(hi.keyword || curTypeInfo.name, hi.typeId, hi.company);
       return `
         <span style="font-size: 12px; color: var(--text-secondary);">
-          ${hi.typeMode !== 'manual' ? '✨ AI 추천:' : '✓ 선택됨:'}
-          <strong style="color: ${hi.typeMode !== 'manual' ? '#1D4ED8' : 'var(--mk-orange)'};">유형 0${curTypeInfo.id} · ${escapeHtml(curTypeInfo.uiTitle || curTypeInfo.name)}</strong>
+          ${hi.typeMode !== 'manual' ? '자동 매칭:' : '선택됨:'}
+          <strong style="color: var(--mk-orange);">유형 0${curTypeInfo.id} · ${escapeHtml(curTypeInfo.uiTitle || curTypeInfo.name)}</strong>
           <span style="color: #CBD5E1; margin: 0 5px;">|</span>
           카테고리 <strong style="color: var(--text-primary);">${escapeHtml(curCat.recommendedCategory)}</strong>
         </span>
@@ -5567,34 +5567,51 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
         (hi.subKeywords || '').trim() ||
         (hi.direction || '').trim()
       );
+      const compactDescMap = {
+        1: '파트너사별 특징·혜택 비교',
+        2: '시즌 일정·할인 프로모션',
+        3: '화제 배경·소비자 반응 분석',
+        4: '출시 스펙·가격·인기 요인',
+        5: '핵심 기술·차별화 서비스'
+      };
+      const compactTitleMap = {
+        1: '다자간 브랜드·서비스 비교',
+        2: '시즌·이벤트·혜택 총정리',
+        3: '트렌드·소비심리 심층분석',
+        4: '신제품·신메뉴 라인업 비교',
+        5: '단일 기업·성공사례 조명'
+      };
       return Object.values(CONTENT_TYPES).map(t => {
         const isManualSelected = hi.typeMode === 'manual' && Number(hi.typeId) === t.id;
         const isAutoMatched = hi.typeMode !== 'manual' && hasInputNow && Number(hi.typeId) === t.id;
+        const isActive = isManualSelected || isAutoMatched;
         const cardClass = isManualSelected ? 'selected' : (isAutoMatched ? 'auto-matched' : '');
-        const accentColor = isManualSelected ? 'var(--mk-orange)' : (isAutoMatched ? '#1D4ED8' : 'var(--text-primary)');
-        const subMetaColor = isManualSelected ? 'var(--mk-orange)' : (isAutoMatched ? '#1D4ED8' : 'var(--text-muted)');
+        const accentColor = isActive ? 'var(--mk-orange)' : 'var(--text-primary)';
+        const subMetaColor = isActive ? 'var(--mk-orange)' : 'var(--text-muted)';
         const cleanCat = String(t.defaultCategory || '').replace(/\([^)]*\)/g, '').trim();
+        const shortTitle = compactTitleMap[t.id] || t.uiTitle || t.name;
+        const shortDesc = compactDescMap[t.id] || t.desc;
         return `
-          <div class="home-type-card ${cardClass}" data-select-home-type="${t.id}" title="클릭하여 '${escapeHtml(t.uiTitle || t.name)}' 관점으로 직접 지정 (다시 클릭 시 AI 자동 맞춤)">
-            <div class="flex-between mb-6" style="gap: 4px;">
-              <span style="font-size: 11px; font-weight: 700; color: ${subMetaColor};">
+          <div class="home-type-card ${cardClass}" data-select-home-type="${t.id}" title="클릭하여 '${escapeHtml(shortTitle)}' 관점으로 지정 (다시 클릭 시 자동 추천)">
+            <div class="flex-between" style="gap: 4px; margin-bottom: 4px;">
+              <span style="font-size: 11px; font-weight: 700; color: ${subMetaColor}; letter-spacing: -0.1px;">
                 0${t.id} · ${escapeHtml(cleanCat)}
               </span>
               ${isManualSelected ? `
-                <span style="font-size: 10px; font-weight: 800; color: #FFFFFF; background-color: var(--mk-orange); padding: 1px 6px; border-radius: 99px;">
-                  선택됨
+                <span style="font-size: 10px; font-weight: 800; color: #FFFFFF; background-color: var(--mk-orange); padding: 1px 6px; border-radius: 4px;">
+                  선택
                 </span>
               ` : isAutoMatched ? `
-                <span style="font-size: 10px; font-weight: 800; color: #FFFFFF; background-color: #2563EB; padding: 1px 6px; border-radius: 99px;">
-                  AI 추천
+                <span style="font-size: 10px; font-weight: 800; color: var(--mk-orange); background-color: #FFFFFF; border: 1px solid var(--mk-orange-border); padding: 0.5px 6px; border-radius: 4px;">
+                  추천
                 </span>
               ` : ''}
             </div>
-            <div style="font-size: 13.5px; font-weight: 800; color: ${accentColor}; margin-bottom: 5px; line-height: 1.32; letter-spacing: -0.2px;">
-              ${t.icon ? `${t.icon} ` : ''}${escapeHtml(t.uiTitle || t.name)}
+            <div style="font-size: 13.5px; font-weight: 800; color: ${accentColor}; margin-bottom: 3px; line-height: 1.3; letter-spacing: -0.3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+              ${escapeHtml(shortTitle)}
             </div>
-            <div style="font-size: 11.5px; color: var(--text-secondary); line-height: 1.45;">
-              ${escapeHtml(t.desc)}
+            <div style="font-size: 11.5px; color: var(--text-muted); line-height: 1.35; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+              ${escapeHtml(shortDesc)}
             </div>
           </div>
         `;
@@ -5719,19 +5736,20 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
           </div>
         ` : ''}
 
-        <!-- STEP 2: 기사 전개 관점 선택 (AI 자동 맞춤 기본 작동 + 심플한 5대 에디토리얼 관점 카드) -->
+        <!-- STEP 2: 기사 전개 관점 선택 (자동 매칭 기본 작동 + 심플한 5대 에디토리얼 관점 카드) -->
         <div style="padding-top: 16px; border-top: 1px solid #F1F5F9;">
-          <div class="flex-between mb-10" style="flex-wrap: wrap; gap: 8px;">
+          <div class="flex-between" style="flex-wrap: wrap; gap: 8px; margin-bottom: 12px;">
             <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 8px;">
               <span style="background-color: #334155; color: #FFFFFF; font-size: 10px; font-weight: 800; padding: 1px 6px; border-radius: 4px;">STEP 2</span>
               <span style="font-size: 12.5px; font-weight: 700; color: var(--text-primary);">기사 전개 관점</span>
               <button
                 type="button"
                 id="homeAutoTypeModeBtn"
-                style="display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; border-radius: 99px; font-size: 11.5px; font-weight: 700; cursor: pointer; font-family: inherit; transition: all 0.12s ease; border: 1px solid ${hi.typeMode !== 'manual' ? '#2563EB' : '#CBD5E1'}; background-color: ${hi.typeMode !== 'manual' ? '#EFF6FF' : '#FFFFFF'}; color: ${hi.typeMode !== 'manual' ? '#1D4ED8' : 'var(--text-secondary)'};"
-                title="키워드와 최신 뉴스 성격에 맞춰 AI가 최적의 기사 관점을 자동 적용합니다"
+                style="display: inline-flex; align-items: center; gap: 5px; padding: 2.5px 9px; border-radius: 6px; font-size: 11px; font-weight: 700; cursor: pointer; font-family: inherit; transition: all 0.12s ease; border: 1px solid ${hi.typeMode !== 'manual' ? 'var(--mk-orange-border)' : '#E2E8F0'}; background-color: ${hi.typeMode !== 'manual' ? '#FFF8F3' : '#F8FAFC'}; color: ${hi.typeMode !== 'manual' ? 'var(--mk-orange)' : 'var(--text-secondary)'};"
+                title="키워드와 최신 뉴스 성격에 맞춰 최적의 기사 관점을 자동 적용합니다"
               >
-                ✨ AI 자동 맞춤 ${hi.typeMode !== 'manual' ? 'ON' : '켜기'}
+                <span style="width: 6px; height: 6px; border-radius: 50%; background-color: ${hi.typeMode !== 'manual' ? 'var(--mk-orange)' : '#94A3B8'}; display: inline-block;"></span>
+                <span>자동 맞춤 ${hi.typeMode !== 'manual' ? 'ON' : '켜기'}</span>
               </button>
             </div>
             <div id="homeTypePreviewMetaBox" style="display: flex; align-items: center; flex-wrap: wrap; gap: 6px;">
