@@ -118,9 +118,10 @@
   // ==========================================================================
   const CLIENT_STORAGE_KEY = 'mk_pplx_api_key_v1';
   const CLIENT_DISCONNECTED_FLAG = 'mk_pplx_disconnected_v1';
-  const CLIENT_USAGE_KEY = 'mk_pplx_usage_stats_v1';
+  const CLIENT_USAGE_KEY = 'mk_pplx_usage_stats_v2';
   const CLIENT_TREND_CACHE_KEY = 'mk_pplx_trend_cache_v9';
   try {
+    localStorage.removeItem('mk_pplx_usage_stats_v1');
     localStorage.removeItem('mk_pplx_trend_cache_v5');
     localStorage.removeItem('mk_pplx_trend_cache_v6');
     localStorage.removeItem('mk_pplx_trend_cache_v7');
@@ -289,22 +290,22 @@
     const activeModel = getSelectedWriterModel();
     const defaultStats = {
       model: activeModel,
-      totalCalls: 4,
-      trendCalls: 4,
+      totalCalls: 0,
+      trendCalls: 0,
       draftCalls: 0,
-      promptTokens: 21331,
-      completionTokens: 18308,
-      totalTokens: 39639,
-      estimatedCostUsd: 0.22575,
-      estimatedCostKrw: 312,
-      lastCalledAt: '2026-10-28 09:01:16',
-      cacheHitsOnRefresh: 1
+      promptTokens: 0,
+      completionTokens: 0,
+      totalTokens: 0,
+      estimatedCostUsd: 0,
+      estimatedCostKrw: 0,
+      lastCalledAt: '-',
+      cacheHitsOnRefresh: 0
     };
     try {
       const raw = localStorage.getItem(CLIENT_USAGE_KEY);
       if (!raw) return defaultStats;
       const parsed = JSON.parse(raw);
-      if (!parsed || Number(parsed.totalCalls || 0) < defaultStats.totalCalls) {
+      if (!parsed || typeof parsed !== 'object') {
         return defaultStats;
       }
       return { ...defaultStats, ...parsed, model: activeModel };
@@ -3972,13 +3973,6 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
         const snapRes = await fetch(`./live-trends.json?t=${Date.now()}`);
         if (snapRes.ok) {
           const snapData = await snapRes.json();
-          if (snapData && snapData.apiUsageStats) {
-            const localStats = getClientUsageStats();
-            const mergedStats = (snapData.apiUsageStats.totalCalls >= (localStats.totalCalls || 0))
-              ? snapData.apiUsageStats
-              : localStats;
-            saveClientUsageStats(mergedStats);
-          }
           if (snapData && Array.isArray(snapData.shortFormTrends) && snapData.shortFormTrends.length > 0) {
             snapshotDataObj = sanitizeAllTrendRadarObj(snapData);
             const parsedSnapTs = snapData.updatedAt ? Date.parse(snapData.updatedAt) : 0;
@@ -4003,6 +3997,9 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
           state.trendUpdatedAt = formatTrendTimestamp(cacheTs);
           state.trendSourceLabel = '최근 수집 캐시 (접속 과금 0원)';
           loadedFromCacheOrSnapshot = true;
+          const curStats = getClientUsageStats();
+          curStats.cacheHitsOnRefresh = (curStats.cacheHitsOnRefresh || 0) + 1;
+          saveClientUsageStats(curStats);
         } else if (snapshotDataObj) {
           state.trendRadar = snapshotDataObj;
           state.trendUpdatedAt = formatTrendTimestamp(snapshotTs || Date.now());
@@ -4014,6 +4011,9 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
             }));
           } catch (err) {}
           loadedFromCacheOrSnapshot = true;
+          const curStats = getClientUsageStats();
+          curStats.cacheHitsOnRefresh = (curStats.cacheHitsOnRefresh || 0) + 1;
+          saveClientUsageStats(curStats);
         }
       }
 
@@ -4482,13 +4482,13 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
                 </div>
               </div>
               <div class="flex-row" style="gap: 6px; flex-wrap: wrap;">
-                <a href="./mk-pick-user-guide.pdf?v=83" download="MK_Pick_GEO_콘텐츠_스튜디오_사용가이드.pdf" class="btn btn-sm btn-primary" style="text-decoration: none; font-weight: 800; padding: 5px 11px;">
+                <a href="./mk-pick-user-guide.pdf?v=84" download="MK_Pick_GEO_콘텐츠_스튜디오_사용가이드.pdf" class="btn btn-sm btn-primary" style="text-decoration: none; font-weight: 800; padding: 5px 11px;">
                   📥 PDF 다운로드
                 </a>
-                <a href="./mk-pick-user-guide.pptx?v=83" download="MK_Pick_GEO_콘텐츠_스튜디오_사용가이드.pptx" class="btn btn-sm" style="text-decoration: none; font-weight: 800; padding: 5px 11px; border-color: #CBD5E1; color: var(--text-primary);">
+                <a href="./mk-pick-user-guide.pptx?v=84" download="MK_Pick_GEO_콘텐츠_스튜디오_사용가이드.pptx" class="btn btn-sm" style="text-decoration: none; font-weight: 800; padding: 5px 11px; border-color: #CBD5E1; color: var(--text-primary);">
                   📊 PPTX 다운로드
                 </a>
-                <a href="./guide.html?v=83" target="_blank" rel="noopener noreferrer" class="btn btn-sm" style="text-decoration: none; font-weight: 700; padding: 5px 11px; color: var(--text-secondary);">
+                <a href="./guide.html?v=84" target="_blank" rel="noopener noreferrer" class="btn btn-sm" style="text-decoration: none; font-weight: 700; padding: 5px 11px; color: var(--text-secondary);">
                   새 탭 열기 ↗
                 </a>
                 <button type="button" class="btn btn-sm" id="closeGuideModalBtn" style="font-weight: 800; padding: 5px 11px;">✕ 닫기</button>
@@ -4496,9 +4496,9 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
             </div>
             <div style="flex: 1; min-height: 0; margin-top: 10px; border: 1px solid #E2E8F0; border-radius: 10px; overflow: hidden; background: #F1F5F9;">
               ${activeTab === 'slides' ? `
-                <iframe src="./guide.html?embed=1&v=83" style="width: 100%; height: 100%; border: none; display: block; background: #F1F5F9;" title="MK Pick 사용 가이드 슬라이드"></iframe>
+                <iframe src="./guide.html?embed=1&v=84" style="width: 100%; height: 100%; border: none; display: block; background: #F1F5F9;" title="MK Pick 사용 가이드 슬라이드"></iframe>
               ` : `
-                <iframe src="./mk-pick-user-guide.pdf?v=83#view=FitH" style="width: 100%; height: 100%; border: none; display: block; background: #FFFFFF;" title="MK Pick 사용 가이드 PDF"></iframe>
+                <iframe src="./mk-pick-user-guide.pdf?v=84#view=FitH" style="width: 100%; height: 100%; border: none; display: block; background: #FFFFFF;" title="MK Pick 사용 가이드 PDF"></iframe>
               `}
             </div>
           </div>
@@ -4564,18 +4564,21 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
 
           <!-- 실시간 API 사용량 & 예상 비용 대시보드 -->
           <div style="padding: 12px 14px; background-color: var(--bg-subtle); border: var(--border-thin); border-radius: var(--radius-general); margin-bottom: 14px;">
-            <div class="flex-between mb-6">
-              <strong style="font-size: 12.5px; color: var(--text-primary);">📊 누적 API 호출 및 실제 과금(버닝) 현황</strong>
-              <span style="font-size: 11.5px; color: var(--mk-orange); font-weight: 700;">하이브리드: Perplexity 검색 + ${escapeHtml(getWriterModelShortLabel())}</span>
+            <div class="flex-between mb-6" style="gap: 8px; flex-wrap: wrap;">
+              <strong style="font-size: 12.5px; color: var(--text-primary);">📊 내 브라우저 누적 API 호출 및 예상 소진액</strong>
+              <div class="flex-row" style="gap: 8px;">
+                <span style="font-size: 11px; color: var(--mk-orange); font-weight: 700;">Perplexity 검색 + ${escapeHtml(getWriterModelShortLabel())}</span>
+                <button type="button" class="text-action" id="resetUsageStatsBtn" style="font-size: 11px; color: var(--text-muted);" title="현재 브라우저의 호출 기록을 0으로 초기화합니다">↺ 기록 초기화</button>
+              </div>
             </div>
             <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; text-align: center;">
               <div style="padding: 8px; background: var(--white); border: var(--border-thin); border-radius: 6px;">
-                <div style="font-size: 11px; color: var(--text-muted);">누적 API 호출</div>
+                <div style="font-size: 11px; color: var(--text-muted);">내 브라우저 호출</div>
                 <div style="font-size: 15px; font-weight: 800; color: var(--text-primary);">${stats.totalCalls}회</div>
                 <div style="font-size: 10.5px; color: var(--text-secondary);">트렌드 ${stats.trendCalls} · 초안 ${stats.draftCalls}</div>
               </div>
               <div style="padding: 8px; background: var(--white); border: var(--border-thin); border-radius: 6px;">
-                <div style="font-size: 11px; color: var(--text-muted);">누적 예상 소진액</div>
+                <div style="font-size: 11px; color: var(--text-muted);">내 브라우저 예상액</div>
                 <div style="font-size: 15px; font-weight: 800; color: var(--mk-orange);">약 ${stats.estimatedCostKrw}원</div>
                 <div style="font-size: 10.5px; color: var(--text-secondary);">$${stats.estimatedCostUsd} (${stats.totalTokens.toLocaleString()} 토큰)</div>
               </div>
@@ -4584,6 +4587,9 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
                 <div style="font-size: 15px; font-weight: 800; color: var(--status-green);">${stats.cacheHitsOnRefresh}회 절약</div>
                 <div style="font-size: 10.5px; color: var(--text-secondary);">F5 접속 시 0원</div>
               </div>
+            </div>
+            <div style="margin-top: 8px; font-size: 11px; color: var(--text-muted); line-height: 1.45;">
+              ※ 위 수치는 현재 접속 중인 내 브라우저 기준 누적 추정치입니다. (팀 전체 총 결제·차감액은 Perplexity 관리자 대시보드에서 확인 가능)
             </div>
           </div>
 
@@ -4626,6 +4632,16 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
     document.getElementById('cancelApiModalBtn')?.addEventListener('click', closeModal);
 
     document.getElementById('copyTeamShareUrlBtn')?.addEventListener('click', copyShareableTeamUrl);
+
+    document.getElementById('resetUsageStatsBtn')?.addEventListener('click', () => {
+      try {
+        localStorage.removeItem(CLIENT_USAGE_KEY);
+      } catch (e) {}
+      state.apiUsageStats = getClientUsageStats();
+      showToast('↺ 내 브라우저의 API 호출 기록이 0으로 초기화되었습니다.');
+      openApiKeyModal();
+      render(true);
+    });
 
     document.getElementById('removeApiKeyBtn')?.addEventListener('click', async () => {
       try {
@@ -4742,10 +4758,10 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
           class="btn btn-sm"
           id="openApiKeyModalBtn"
           style="padding: 5px 10px; font-size: 12px; font-weight: 600; border-color: ${state.hasPerplexityKey ? '#E5E7EB' : 'var(--mk-orange)'}; color: ${state.hasPerplexityKey ? '#374151' : 'var(--mk-orange)'}; background-color: ${state.hasPerplexityKey ? '#F9FAFB' : 'var(--mk-orange-light)'}; display: inline-flex; align-items: center; gap: 6px;"
-          title="Perplexity 실시간 검색 + ${escapeHtml(activeWriterLabel)} 하이브리드 연동 설정 및 사용량 확인"
+          title="Perplexity 실시간 검색 + ${escapeHtml(activeWriterLabel)} 하이브리드 연동 설정 및 내 브라우저 사용량 확인"
         >
           <span style="width: 7px; height: 7px; border-radius: 50%; background-color: ${state.hasPerplexityKey ? '#10B981' : '#F37021'}; display: inline-block; flex-shrink: 0;"></span>
-          <span>${state.hasPerplexityKey ? `API 연결됨 · ${calls}회 (${krw}원)` : 'API 키 설정'}</span>
+          <span>${state.hasPerplexityKey ? 'API 연결됨' : 'API 키 설정'}</span>
         </button>
       </div>
     `;
