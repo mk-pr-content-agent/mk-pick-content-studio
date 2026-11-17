@@ -1285,7 +1285,7 @@ function paraphraseNewsToMkFact(rawTitle = '', keyword = '', sourceName = '', id
 
   // 원문 기사의 실제 팩트가 왜곡되지 않도록 원문 핵심 내용을 보존하여 매경 문체("~합니다")로 정리
   let paraphrasedSentence = '';
-  const cleanOriginal = String(rawTitle || '')
+  const cleanOriginal = decodeHtmlEntitiesText(rawTitle || '')
     .replace(/#[a-zA-Z0-9가-힣_]+/g, '')
     .replace(/\[[^\]]*\]/g, '')
     .replace(/ - [^-]+$/g, '')
@@ -1351,7 +1351,7 @@ function isUnusableGossipOrBlindItem(rawTitle = '', fullContext = '', tabKey = '
 
   // 1) 연예인 다이어트/일상 가십, 스포츠 경기, 군사/외교, 사건사고, 의학/질병 공포, B2B/정치/지역구 민원 기사 원천 배제
   if (
-    /\d+\s*kg\s*(?:빼고|감량|살\s*빼)|디저트는\s*못\s*참아|광대\s*승천|남매\s*자랑|열애설|이혼\s*고백|이혼숙려캠프|베드신|탁재훈|공항패션|포토월|무력시위|전투기에|조기경보기|공중급유기|구속|영장|재판|사망|별세|타계|고검장|백악관|전수조사|부고|인사|동정|서킷브레이커|circuit\s*breaker|혈당\s*쓰나미|당뇨병\s*키운다|주주서한|주주환원\s*유보|AI가\s*매달\s*보고|임직원은\s*원인\s*분석|최인석\s*의장|미래\s*마케팅\s*경쟁력|만덕다이소|민원현장|농심천심|신문\s*가판대|신문\s*구해요|우승\s*소식.*편의점|2분기\s*연속\s*적자|디지털\s*엑스레이|필리핀\s*세탁기|싱클리|불편한\s*편의점|EY\s*최우수|단체복\s*시장\s*진출|유니폼\s*B2B|^0\d{5}$|주간조선/i.test(combined)
+    /\d+\s*kg\s*(?:빼고|감량|살\s*빼)|디저트는\s*못\s*참아|광대\s*승천|남매\s*자랑|열애설|이혼\s*고백|이혼숙려캠프|베드신|탁재훈|공항패션|포토월|무력시위|전투기에|조기경보기|공중급유기|구속|영장|재판|사망|별세|타계|고검장|백악관|전수조사|부고|인사|동정|서킷브레이커|circuit\s*breaker|혈당\s*쓰나미|당뇨병\s*키운다|주주서한|주주환원\s*유보|AI가\s*매달\s*보고|임직원은\s*원인\s*분석|최인석\s*의장|미래\s*마케팅\s*경쟁력|만덕다이소|민원현장|농심천심|라임꿀샷|신문\s*가판대|신문\s*구해요|우승\s*소식.*편의점|2분기\s*연속\s*적자|디지털\s*엑스레이|필리핀\s*세탁기|싱클리|불편한\s*편의점|EY\s*최우수|단체복\s*시장\s*진출|유니폼\s*B2B|^0\d{5}$|주간조선/i.test(combined)
   ) {
     return true;
   }
@@ -1373,9 +1373,22 @@ function isUnusableGossipOrBlindItem(rawTitle = '', fullContext = '', tabKey = '
   return false;
 }
 
+// RSS/웹 수집 과정에서 남은 HTML 엔티티(&amp;, &amp, &quot;, &#39; 등)를 깨끗한 기호로 복원하는 헬퍼
+function decodeHtmlEntitiesText(str = '') {
+  return String(str || '')
+    .replace(/&amp;amp;/gi, '&')
+    .replace(/&amp;/gi, '&')
+    .replace(/&amp(?=\s|[가-힣A-Za-z0-9]|$)/gi, '&')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#0*39;|&apos;/gi, "'")
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&nbsp;/gi, ' ');
+}
+
 // 설명문(desc)에서 언론사 원문 기사 제목("..." 구간)을 추출하는 헬퍼
 function extractOriginalHeadlineFromDesc(fullContext = '') {
-  const ctx = String(fullContext || '').trim();
+  const ctx = decodeHtmlEntitiesText(fullContext).trim();
   if (!ctx) return '';
   const pressMatch = ctx.match(/보도에\s*따르면,\s*"(.+?)"\s*소식이\s*전해지며/);
   if (pressMatch && pressMatch[1]) {
@@ -1391,7 +1404,7 @@ function extractOriginalHeadlineFromDesc(fullContext = '') {
 // 유튜브 쇼츠·SNS·뉴스 제목에서 유튜버 감탄사·수식어·서술형 어미·낚시성 문구를 제거하고
 // '[브랜드/채널] + [핵심 품목/이슈] + [트렌드/신상]' 형태의 명확한 명사형 키워드로 정제하는 함수
 function cleanTrendTopicKeyword(rawTitle = '', fullContext = '') {
-  let base = String(rawTitle || '').trim();
+  let base = decodeHtmlEntitiesText(rawTitle).trim();
   const origHeadline = extractOriginalHeadlineFromDesc(fullContext);
 
   // 만약 기존 키워드가 서술형 어미(~늘었다, ~입니다, ~뭐길래, ~내놓은, ~부른 등)로 끝나거나 30자 제한으로 뒷부분 명사가 잘린 문장일 때,
@@ -1886,8 +1899,8 @@ function sanitizeAndFilterTrendList(list = [], tabKey = '') {
     seenKeywords.add(normKey);
     if (topicSig) seenTopicSignatures.add(topicSig);
 
-    // 설명문(desc)의 불필요한 영문 바이라인(By EBN 등) 및 이중 따옴표 정리
-    const cleanDesc = String(rawItem.desc || '')
+    // 설명문(desc)의 HTML 엔티티(&amp; 등), 불필요한 영문 바이라인(By EBN 등) 및 이중 따옴표 정리
+    const cleanDesc = decodeHtmlEntitiesText(rawItem.desc || '')
       .replace(/\s+By\s+[A-Za-z0-9가-힣_.\s]+(?=")/gi, '')
       .replace(/""+/g, '"')
       .trim();
@@ -1898,11 +1911,55 @@ function sanitizeAndFilterTrendList(list = [], tabKey = '') {
       company: meta.company || rawItem.company || '',
       subKeywords: meta.subKeywords || rawItem.subKeywords || '',
       directionHint: meta.directionHint || rawItem.directionHint || '',
-      desc: cleanDesc || rawItem.desc
+      desc: cleanDesc || decodeHtmlEntitiesText(rawItem.desc || '')
     });
   }
 
-  return out;
+  // [순위(1~10위) 산정 기준]
+  // 1) 구글 트렌드 탭: 실시간 검색량 규모(5만+ > 2만+ > 1만+ > 5000+ > 1000+ > ...) + 최신 보도일 순
+  // 2) 나머지 4개 탭: ① 보도 최신일(pubDateShort 최신 날짜순) + ② 주요 경제·일간지 공신력 + ③ 대중 화제성(완판·품절·오픈런·단독·수치) 합산 점수순 정렬
+  function computeTrendRankScore(item, idx) {
+    let score = 0;
+    const badgeAndDate = `${item.badge || ''} ${item.pubDateShort || ''} ${item.desc || ''}`;
+
+    // 구글 검색량 점수
+    const manMatch = badgeAndDate.match(/(\d+)\s*만\+/);
+    const numMatch = badgeAndDate.match(/검색량\s*(\d+)\+/);
+    if (manMatch) {
+      score += Number(manMatch[1]) * 10000;
+    } else if (numMatch) {
+      score += Number(numMatch[1]);
+    }
+
+    // 보도일 최신성 점수 (YYYY-MM-DD -> 하루 차이당 15점 가산)
+    const dateMatch = String(item.pubDateShort || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (dateMatch) {
+      const daysVal = Number(dateMatch[1]) * 365 + Number(dateMatch[2]) * 31 + Number(dateMatch[3]);
+      score += Math.max(0, daysVal - 739800) * 15;
+    }
+
+    // 매체 공신력 가중치 (주요 경제지·종합일간지·통신사 우대, 의학/특수 전문지 단신은 후순위)
+    const src = String(item.source || '');
+    if (/매일경제|한국경제|서울경제|머니투데이|조선비즈|이데일리|아시아경제|헤럴드경제|파이낸셜뉴스|연합뉴스|뉴시스|뉴스1|조선일보|동아일보|중앙일보|한겨레|경향신문|SBS|KBS|MBC|JTBC|YTN/.test(src)) {
+      score += 18;
+    } else if (/의학신문|약업닷컴|메디파나|치의신보|농민신문/.test(src)) {
+      score -= 45;
+    }
+
+    // 대중 소비 파급력·화제성 지표 가중치
+    const text = `${item.keyword || ''} ${item.desc || ''}`;
+    if (/완판|품절|오픈런|1위|단독|한정판|콜라보|대란|\d+%/.test(text)) {
+      score += 12;
+    }
+
+    // 동점 시 원래 순서 유지
+    return score - idx * 0.1;
+  }
+
+  return out
+    .map((item, idx) => ({ item, rankScore: computeTrendRankScore(item, idx) }))
+    .sort((a, b) => b.rankScore - a.rankScore)
+    .map(entry => entry.item);
 }
 
 // '이디야, 맘스터치, 메가커피 푸드 스낵 신메뉴 강화' 또는 '이디야·맘스터치·메가커피 푸드·스낵 신메뉴 강화'처럼
