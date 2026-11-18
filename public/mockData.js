@@ -1255,18 +1255,21 @@ const CURATED_TREND_TOPICS = {
 
 // 타 언론사 기사 제목/문장이나 쇼츠 제목이 그대로 들어가지 않도록 핵심 팩트 요소(수치, 주체, 현상)만 추출해 매경 MK Pick 자체 문장("~합니다")으로 재가공하는 함수
 function paraphraseNewsToMkFact(rawTitle = '', keyword = '', sourceName = '', idx = 0) {
-  // 1) 대괄호 코너명([가보니], [갓신상] 등), 해시태그(#shorts 등), 언론사명, 특수기호 제거
-  let cleaned = String(rawTitle)
+  // 1) HTML 엔티티 복원 및 대괄호 코너명([가보니], [갓신상] 등), 해시태그, 섹션 꼬리표(: 테크/과학 등) 제거
+  let cleaned = decodeHtmlEntitiesText(rawTitle)
     .replace(/#[a-zA-Z0-9가-힣_]+/g, '')
     .replace(/\[[^\]]*\]/g, '')
     .replace(/\([^)]*맛집[^)]*\)/g, '')
+    .replace(/\s+:\s+[가-힣A-Za-z/·\s]+$/g, '')
+    .replace(/\s*[｜|]\s*.+$/g, '')
     .replace(/ - [^-]+$/g, '')
     .replace(/[“”"']/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 
-  // 2) 수치·단위 추출 (예: 150개, 1시간, 8종, 3800원, 50% 등)
-  const numbers = cleaned.match(/\d+(?:,\d+)?\s*(?:개|시간|분|종|곳|명|원|만\s*원|억|%|배|회|일|월)/g) || [];
+  // 2) 수치·단위 추출 (연도나 '2026 개막' 같은 오매칭 및 '11월 11일' 날짜는 제외하고 실제 수치만 추출)
+  const rawNums = cleaned.match(/\d+(?:,\d+)?(?:\.\d+)?\s*(?:개|시간|종|곳|명|원|만\s*원|억|%|배|회)(?![가-힣A-Za-z0-9])/g) || [];
+  const numbers = rawNums.filter(n => !/^202\d\s*개$/.test(n.trim()));
   const numText = numbers.length > 0 ? `${numbers.slice(0, 2).join('·')} 등 구체적 지표를 기록하며 ` : '';
 
   // 3) 핵심 고유명사(키워드 외 단어들 중 조사·어미·불용어 제외한 핵심 어구) 추출
@@ -1288,6 +1291,8 @@ function paraphraseNewsToMkFact(rawTitle = '', keyword = '', sourceName = '', id
   const cleanOriginal = decodeHtmlEntitiesText(rawTitle || '')
     .replace(/#[a-zA-Z0-9가-힣_]+/g, '')
     .replace(/\[[^\]]*\]/g, '')
+    .replace(/\s+:\s+[가-힣A-Za-z/·\s]+$/g, '')
+    .replace(/\s*[｜|]\s*.+$/g, '')
     .replace(/ - [^-]+$/g, '')
     .replace(/\s+/g, ' ')
     .trim();
@@ -1351,14 +1356,14 @@ function isUnusableGossipOrBlindItem(rawTitle = '', fullContext = '', tabKey = '
 
   // 1) 연예인 다이어트/일상 가십, 스포츠 경기, 군사/외교, 사건사고, 의학/질병 공포, B2B/정치/지역구 민원 기사 원천 배제
   if (
-    /\d+\s*kg\s*(?:빼고|감량|살\s*빼)|디저트는\s*못\s*참아|광대\s*승천|남매\s*자랑|열애설|이혼\s*고백|이혼숙려캠프|베드신|탁재훈|공항패션|포토월|무력시위|전투기에|조기경보기|공중급유기|구속|영장|재판|사망|별세|타계|고검장|백악관|전수조사|부고|인사|동정|서킷브레이커|circuit\s*breaker|혈당\s*쓰나미|당뇨병\s*키운다|주주서한|주주환원\s*유보|AI가\s*매달\s*보고|임직원은\s*원인\s*분석|최인석\s*의장|미래\s*마케팅\s*경쟁력|만덕다이소|민원현장|농심천심|라임꿀샷|신문\s*가판대|신문\s*구해요|우승\s*소식.*편의점|2분기\s*연속\s*적자|디지털\s*엑스레이|필리핀\s*세탁기|싱클리|불편한\s*편의점|EY\s*최우수|단체복\s*시장\s*진출|유니폼\s*B2B|^0\d{5}$|주간조선/i.test(combined)
+    /\d+\s*kg\s*(?:빼고|감량|살\s*빼)|디저트는\s*못\s*참아|광대\s*승천|남매\s*자랑|열애설|이혼\s*고백|이혼숙려캠프|베드신|탁재훈|공항패션|포토월|무력시위|전투기에|조기경보기|공중급유기|구속|영장|재판|사망|별세|타계|고검장|백악관|전수조사|부고|인사|동정|서킷브레이커|circuit\s*breaker|혈당\s*쓰나미|당뇨병\s*키운다|주주서한|주주환원\s*유보|AI가\s*매달\s*보고|임직원은\s*원인\s*분석|최인석\s*의장|미래\s*마케팅\s*경쟁력|만덕다이소|민원현장|농심천심|라임꿀샷|신문\s*가판대|신문\s*구해요|우승\s*소식.*편의점|2분기\s*연속\s*적자|디지털\s*엑스레이|필리핀\s*세탁기|싱클리|불편한\s*편의점|EY\s*최우수|단체복\s*(?:시장|비즈니스)|무신사\s*유니폼|상업용\s*디스플레이\s*관리|유니폼\s*B2B|대륙\s*흔드는\s*열풍.*롤모델|LNG선\s*배상|등기부\s*열람료|이창호\s*9단|^[①②③④⑤⑥⑦⑧⑨⑩]|^0\d{5}$|주간조선/i.test(combined)
   ) {
     return true;
   }
 
   // 2) 상품명·캐릭터명·브랜드명을 숨긴 수수께끼(블라인드) 클릭베이트 제목 배제
   if (
-    /['"‘“]?\s*이\s*(?:캐릭터|브랜드|화장품|제품|음료|간식|신발|가방)\s*['"’”]?|관객\s*수\s*\d+만\s*돌파하더니|이런\s*신발이\s*유행합니다|2000원짜리에\s*또\s*난리났다.*다이소\s*갔더니|^다이소\s*갔더니\s*['"‘“]?품절입니다['"’”]?$|화장품\s*정체['"’”]?\s*$|요즘\s*누가\s*빼빼로\s*주나요|지갑\s*지키러\s*누가\s*돌아왔|미미미누가\s*꼽은|1992년부터\s*2026년까지\s*뷰티\s*유행은\s*돌고/i.test(combined)
+    /['"‘“]?\s*이\s*(?:캐릭터|브랜드|화장품|제품|음료|간식|신발|가방)\s*['"’”]?|관객\s*수\s*\d+만\s*돌파하더니|이런\s*신발이\s*유행합니다|2000원짜리에\s*또\s*난리났다.*다이소\s*갔더니|^다이소\s*갔더니\s*['"‘“]?품절입니다['"’”]?$|화장품\s*정체['"’”]?\s*$|요즘\s*누가\s*빼빼로\s*주나요|지갑\s*지키러\s*누가\s*돌아왔|미미미누가\s*꼽은|1992년부터\s*2026년까지\s*뷰티\s*유행은\s*돌고|정작\s*돈\s*버는\s*회사는\s*따로|더\s*얼큰하게\s*해달라.*오뚜기\s*신제품/i.test(combined)
   ) {
     return true;
   }
@@ -1440,8 +1445,11 @@ function cleanTrendTopicKeyword(rawTitle = '', fullContext = '') {
     }
   }
 
-  // 언론사 꼬리표 및 불필요 태그 제거
+  // 언론사 꼬리표, 섹션 분류(: 테크/과학 등), 파이프 부제(｜...), 불필요 태그 제거
   base = base
+    .replace(/^[①②③④⑤⑥⑦⑧⑨⑩]\s*/g, '')
+    .replace(/\s+:\s+[가-힣A-Za-z/·\s]+$/g, '')
+    .replace(/\s*[｜|]\s*.+$/g, '')
     .replace(/\s+-\s+[가-힣A-Za-z0-9.\s]+$/, '')
     .replace(/\s+By\s+[A-Za-z0-9가-힣_.\s]+$/i, '')
     .replace(/#[a-zA-Z0-9가-힣_]+/g, ' ')
@@ -1519,7 +1527,7 @@ function cleanTrendTopicKeyword(rawTitle = '', fullContext = '') {
   if (/무신사/.test(base) && /성수/.test(base) && /뷰티/.test(base)) {
     return '무신사 성수동 400평 뷰티 단독 매장 오픈';
   }
-  if (/컬리뷰티페스타|컬리\s*뷰티페스타/.test(base)) {
+  if (/컬리뷰티페스타|컬리\s*뷰티페스타|뷰티페스타\s*2026/.test(base)) {
     return '컬리뷰티페스타 단독 뷰티 브랜드 체험 오픈런';
   }
   if (/다이소/.test(base) && /미니키링북/.test(base)) {
@@ -1552,31 +1560,108 @@ function cleanTrendTopicKeyword(rawTitle = '', fullContext = '') {
   if (/3시간\s*전부터\s*오픈런/.test(base) && /성수동/.test(base)) {
     return '성수동 K-뷰티 플래그십·팝업스토어 오픈런 열풍';
   }
-  if (/제니·장원영처럼\s*입고\s*싶어요/.test(base)) {
-    return '일본 2030 K-패션 디자이너 브랜드 쇼핑 열풍';
+  if (/제니·장원영처럼\s*입고\s*싶어요|제니\s*장원영\s*패션템/.test(base)) {
+    return '제니·장원영 스타일 일본 2030 K-패션 쇼핑 열풍';
+  }
+  if (/왁뿌\s*열풍/.test(base) && /디저트/.test(base)) {
+    return '숏폼 왁뿌 열풍 깨먹는 이색 디저트 출시';
+  }
+  if (/삼성전자/.test(base) && /젠틀몬스터/.test(base)) {
+    return '삼성전자 AI 스마트 안경·젠틀몬스터 16종 출시';
+  }
+  if (/신라면/.test(base) && /문화유산/.test(base)) {
+    return '농심 신라면 40주년 한정판 문화유산 패키지 출시';
+  }
+  if (/신라면/.test(base) && /해물.*어묵/.test(base)) {
+    return '농심 에드워드 리 협업 신라면 해물&어묵 출시';
+  }
+  if (/과일\s*찹쌀떡\s*다음은\s*모찌\s*치즈케이크|도레도레.*오픈런/.test(base)) {
+    return '도레도레 모찌 치즈케이크 디저트 오픈런 열풍';
+  }
+  if (/먹는\s*화장품\s*전성시대|코스맥스\s*먹는\s*뷰티/.test(base)) {
+    return '코스맥스 먹는 화장품 이너뷰티 ODM 확대';
+  }
+  if (/동성로\s*MZ\s*디저트\s*집결/.test(base)) {
+    return '대구 동성로 MZ세대 인기 디저트 상권 부상';
+  }
+  if (/승마\s*부츠\s*겨울\s*패션/.test(base)) {
+    return '올겨울 클래식 승마 부츠 패션 스타일링 유행';
+  }
+  if (/홈메이드\s*디저트\s*DIY/.test(base)) {
+    return 'MZ세대 웨이팅 대신 홈메이드 DIY 디저트 열풍';
+  }
+  if (/2030\s*건강관리\s*소비/.test(base)) {
+    return '2030 세대 찜질방·건강관리 힐링 소비 열풍';
+  }
+  if (/서울\s*뷰티\s*약국\s*소비/.test(base)) {
+    return '외국인 K뷰티 서울 도심 뷰티 약국 쇼핑 열풍';
+  }
+  if (/조선미녀\s*중소뷰티\s*숏폼/.test(base)) {
+    return '조선미녀 등 인디 K뷰티 글로벌 숏폼 흥행';
+  }
+  if (/다이소\s*생활용품\s*품절/.test(base)) {
+    return '다이소 2000원대 가성비 생활용품 품절 열풍';
+  }
+  if (/츄러스\s*빼빼로데이\s*품절/.test(base)) {
+    return '11월 11일 수제 츄러스·이색 디저트 품절 열풍';
+  }
+  if (/올리비아로렌\s*릴스\s*매출/.test(base)) {
+    return '올리비아로렌 유튜브·릴스 효과 온라인 매출 급증';
+  }
+  if (/성수동\s*K뷰티\s*오픈런/.test(base)) {
+    return '성수동 K-뷰티 플래그십·팝업스토어 오픈런 열풍';
+  }
+  if (/T1\s*팝업스토어\s*오픈런/.test(base)) {
+    return 'T1 월즈 우승 기념 팝업스토어 팬덤 오픈런 열풍';
+  }
+  if (/CJ온스타일\s*겨울\s*소재\s*패션/.test(base)) {
+    return 'CJ온스타일 겨울 캐시미어·울 고급 소재 패션 인기';
+  }
+  if (/라보에이치\s*GLP-1\s*탈모관리/.test(base)) {
+    return '아모레퍼시픽 라보에이치 GLP-1 다이어트 탈모 케어 부상';
+  }
+  if (/올리브영\s*미국\s*쇼핑몰\s*입점/.test(base)) {
+    return '올리브영 미국 사이먼 쇼핑몰 입점·북미 K뷰티 확장';
+  }
+  if (/배드민턴\s*서승재\s*김원호/.test(base)) {
+    return '배드민턴 서승재·김원호 조 국제대회 급상승 화제';
+  }
+  if (/삼성\s*이재용\s*회장\s*디저트/.test(base)) {
+    return '이재용 삼성 회장 현장 간식·디저트 먹방 화제';
+  }
+  if (/네이버\s*AI\s*에이전트\s*투자/.test(base)) {
+    return '네이버 AI 에이전트 브리핑 도입·2조 투자 발표';
+  }
+  if (/테슬라\s*사이버캡\s*로보택시/.test(base)) {
+    return '테슬라 무인 로보택시 사이버캡 국내 첫 공개';
+  }
+  if (/문화누리카드\s*사용\s*혜택/.test(base)) {
+    return '연말 문화누리카드 잔액 소진 사용처·혜택 검색 급증';
   }
 
   // 말줄임표(… / ...) 또는 물음표(?...) 또는 콜론(:)으로 나뉜 문장에서 핵심 명사구를 보존
   const rawParts = base.split(/\s*[…⋯:]\s*|\s*\.\.\.\s*|\s*‥\s*/).map(p => p.trim()).filter(Boolean);
   if (rawParts.length >= 2) {
     const rawP1 = rawParts[0];
-    let p1 = rawP1.replace(/^[“"‘'](.+)[”"’'][?!.]?$/, '$1').trim();
-    let p2 = rawParts[1].replace(/^[“"‘'](.+)[”"’'][?!.]?$/, '$1').trim();
+    const rawP2 = rawParts[1];
+    let p1 = rawP1.replace(/^[“"‘’'](.+)[”"’'‘][?!.]?$/, '$1').trim();
+    let p2 = rawP2.replace(/^[“"‘’'](.+)[”"’'‘][?!.]?$/, '$1').trim();
 
-    // p1이 의문문("빼빼로데이는 빼빼로를 준다?"), 직접 인용 감탄사("신문 구해요", "보이면 일단 사야한다"),
-    // 혹은 p1+p2 합산 길이가 너무 길어 뒤쪽 핵심 명사가 잘릴 위험이 있을 때는 핵심 명사가 들어 있는 절을 우선 선택
     const p1HasQuestion = /\?/.test(rawP1) || /(?:준다|주나요|할까|볼까|길래|무슨|왜)/.test(p1);
     const p1IsPureHook =
       p1HasQuestion ||
-      /(?:사야\s*한다|가볼까|낮춘다|난리났다|돌파하더니|길래|일상이\s*된|놀이터된|구해요|누가\s*돌아왔)/.test(p1);
+      /(?:사야\s*한다|가볼까|낮춘다|난리났다|돌파하더니|길래|일상이\s*된|놀이터된|구해요|누가\s*돌아왔|아침부터\s*밤까지)/.test(p1);
+    const p2IsPureQuoteOrHook =
+      /^[“"‘].+[”"’”]$/.test(rawP2) ||
+      /(?:부숴야\s*제맛|못\s*참아|비결은|이유는|가보니|먹어보니|써보니|힘줬다|체험부터\s*할인까지\s*풍성)/.test(p2);
 
     if (p1IsPureHook && p2.length >= 8) {
       base = p2;
-    } else if ((p1 + ' ' + p2).length > 28 && p2.length >= 12) {
-      // p1이 예시 나열("산리오, 포켓몬, 호빵맨")이거나 수식절("숏폼 영상 휩쓴 'K뷰티'")이고 p2가 본 주제인 경우
-      // p1 안의 따옴표 핵심 명사('K뷰티' 등) 또는 첫 대표 명사를 p2 앞에 붙여 뒤쪽 명사가 절대 잘리지 않게 함
-      const quotedInP1 = (rawP1.match(/['‘“]([^'’”]{2,12})['’”]/) || [])[1] || '';
-      const firstTokenP1 = quotedInP1 || (p1.split(/[,·\s]+/)[0] || '');
+    } else if (p2IsPureQuoteOrHook && p1.length >= 8) {
+      base = p1;
+    } else if ((p1 + ' ' + p2).length > 35 && p2.length >= 12) {
+      const quotedInP1 = (rawP1.match(/['‘’“]([^'’”]{2,14})['’”]/) || [])[1] || '';
+      const firstTokenP1 = quotedInP1 || (p1.split(/[,·\s]+/).find(w => w.length >= 2) || '');
       base = firstTokenP1 && !p2.includes(firstTokenP1) ? `${firstTokenP1} ${p2}` : p2;
     } else {
       base = `${p1} ${p2}`;
@@ -1932,14 +2017,15 @@ function sanitizeAndFilterTrendList(list = [], tabKey = '') {
     }
 
     // 보도일 최신성 점수 (YYYY-MM-DD -> 하루 차이당 15점 가산)
-    const dateMatch = String(item.pubDateShort || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    const rawDateStr = String(item.pubDateShort || item.pubDate || '').slice(0, 10);
+    const dateMatch = rawDateStr.match(/^(\d{4})-(\d{2})-(\d{2})$/);
     if (dateMatch) {
       const daysVal = Number(dateMatch[1]) * 365 + Number(dateMatch[2]) * 31 + Number(dateMatch[3]);
       score += Math.max(0, daysVal - 739800) * 15;
     }
 
     // 매체 공신력 가중치 (주요 경제지·종합일간지·통신사 우대, 의학/특수 전문지 단신은 후순위)
-    const src = String(item.source || '');
+    const src = String(item.source || item.pressName || '');
     if (/매일경제|한국경제|서울경제|머니투데이|조선비즈|이데일리|아시아경제|헤럴드경제|파이낸셜뉴스|연합뉴스|뉴시스|뉴스1|조선일보|동아일보|중앙일보|한겨레|경향신문|SBS|KBS|MBC|JTBC|YTN/.test(src)) {
       score += 18;
     } else if (/의학신문|약업닷컴|메디파나|치의신보|농민신문/.test(src)) {
@@ -1959,7 +2045,10 @@ function sanitizeAndFilterTrendList(list = [], tabKey = '') {
   return out
     .map((item, idx) => ({ item, rankScore: computeTrendRankScore(item, idx) }))
     .sort((a, b) => b.rankScore - a.rankScore)
-    .map(entry => entry.item);
+    .map((entry, idx) => ({
+      ...entry.item,
+      rank: idx + 1
+    }));
 }
 
 // '이디야, 맘스터치, 메가커피 푸드 스낵 신메뉴 강화' 또는 '이디야·맘스터치·메가커피 푸드·스낵 신메뉴 강화'처럼

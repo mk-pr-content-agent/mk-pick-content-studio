@@ -1,5 +1,5 @@
 {
-  "updatedAt": "2026-11-17T09:01:43.373Z",
+  "updatedAt": "2026-11-18T01:18:09.039Z",
   "apiUsageStats": {
     "model": "google/gemini-4-argon",
     "totalCalls": 4,
@@ -24,7 +24,8 @@
       "verifiedPress": true,
       "desc": "[구글 실시간 검색량 5만+ · 매일경제] 대학수학능력시험 종료와 함께 수험생 대상 영화관·테마파크·백화점·외식 프랜차이즈의 수험표 할인 프로모션 검색량이 급증하고 있습니다.",
       "url": "https://news.google.com/search?q=%EC%88%98%EB%8A%A5%20%EC%88%98%ED%97%98%ED%91%9C%20%ED%95%A0%EC%9D%B8%20%ED%98%9C%ED%83%9D%20%EC%B4%9D%EC%A0%95%EB%A6%AC&hl=ko&gl=KR&ceid=KR:ko",
-      "directionHint": "최근 보도된 \"대학수학능력시험 종료와 함께 수험생 대상 영화관·테마파크·백화점·외식 프랜차이즈의 수험표 할인 프로모션 검색량이 급증하고 있습니다.\" 이슈의 핵심 배경·수치와 주요 제품·브랜드 특징, 소비자 체크포인트를 구체적으로 분석"
+      "directionHint": "최근 보도된 \"대학수학능력시험 종료와 함께 수험생 대상 영화관·테마파크·백화점·외식 프랜차이즈의 수험표 할인 프로모션 검색량이 급증하고 있습니다.\" 이슈의 핵심 배경·수치와 주요 제품·브랜드 특징, 소비자 체크포인트를 구체적으로 분석",
+      "rank": 1
     },
     {
       "keyword": "절임배추·포장김치 대형마트 김장대전 사전예약 특가",
@@ -36,10 +37,62 @@
       "verifiedPress": true,
       "desc": "[구글 실시간 검색량 2만+ · 연합뉴스] 본격적인 김장철을 맞아 대형마트와 농협의 해남 절임배추·천일염·굴·수육용 돼지고기 할인 행사에 소비자 검색이 몰리고 있습니다.",
       "url": "https://news.google.com/search?q=%EB%8C%80%ED%98%95%EB%A7%88%ED%8A%B8%20%EA%B9%80%EC%9E%A5%EB%8C%80%EC%A0%84%20%EC%A0%88%EC%9E%84%EB%B0%B0%EC%B6%94%20%ED%95%A0%EC%9D%B8&hl=ko&gl=KR&ceid=KR:ko",
-      "directionHint": "최근 보도된 \"본격적인 김장철을 맞아 대형마트와 농협의 해남 절임배추·천일염·굴·수육용 돼지고기 할인 행사에 소비자 검색이 몰리고 있습니다.\" 이슈의 핵심 배경·수치와 주요 제품·브랜드 특징, 소비자 체크포인트를 구체적으로 분석"
+      "directionHint": "최근 보도된 \"본격적인 김장철을 맞아 대형마트와 농협의 해남 절임배추·천일염·굴·수육용 돼지고기 할인 행사에 소비자 검색이 몰리고 있습니다.\" 이슈의 핵심 배경·수치와 주요 제품·브랜드 특징, 소비자 체크포인트를 구체적으로 분석",
+      "rank": 2
     },
     {
-      "keyword": "배드민턴 서승재 김원호",
+      "rank": 3,
+      "keyword": "스타벅스 겨울 프리퀀시 다이어리·플래너 예약 오픈런",
+      "searchKeyword": "스타벅스 겨울 e-프리퀀시 플래너",
+      "company": "스타벅스",
+      "typeId": 2,
+      "category": "기업뉴스",
+      "badge": "구글 실시간 검색량 1만+",
+      "source": "매일경제",
+      "pressName": "매일경제",
+      "sourceUrl": "https://news.google.com/rss/search?q=%EC%8A%A4%ED%83%80%EB%B2%85%EC%8A%A4%20%EA%B2%A8%EC%9A%B8%20%ED%94%84%EB%A6%AC%ED%80%80%EC%8B%9C%20%ED%94%8C%EB%9E%98%EB%84%88&hl=ko&gl=KR&ceid=KR:ko",
+      "verifiedNews": true,
+      "pubDateShort": "2026-11-18",
+      "desc": "[구글 실시간 검색량 1만+ · 매일경제] 스타벅스 겨울 e-프리퀀시 시작과 함께 2027 플래너·캘린더·포터블 램프 증정품 예약 방법에 소비자 검색이 집중되고 있습니다.",
+      "subKeywords": "",
+      "directionHint": "최근 보도된 \"스타벅스 겨울 e-프리퀀시 시작과 함께 2027 플래너·캘린더·포터블 램프 증정품 예약 방법에 소비자 검색이 집중되고 있습니다.\" 이슈의 핵심 배경·수치와 주요 제품·브랜드 특징, 소비자 체크포인트를 구체적으로 분석"
+    },
+    {
+      "rank": 4,
+      "keyword": "다이소 김장매트·김장봉투 2000원대 김장용품 매출 급증",
+      "searchKeyword": "다이소 김장매트 김장용품",
+      "company": "다이소",
+      "typeId": 4,
+      "category": "제품·기술",
+      "badge": "구글 실시간 검색량 1만+",
+      "source": "한국경제",
+      "pressName": "한국경제",
+      "sourceUrl": "https://news.google.com/rss/search?q=%EB%8B%A4%EC%9D%B4%EC%86%8C%20%EA%B9%80%EC%9E%A5%EB%A7%A4%ED%8A%B8%20%EA%B9%80%EC%9E%A5%EC%9A%A9%ED%92%88&hl=ko&gl=KR&ceid=KR:ko",
+      "verifiedNews": true,
+      "pubDateShort": "2026-11-18",
+      "desc": "[구글 실시간 검색량 1만+ · 한국경제] 본격적인 김장철을 맞아 다이소의 2000~5000원대 김장매트·김장봉투·채칼 등 가성비 김장용품 검색량과 매출이 동반 급증하고 있습니다.",
+      "subKeywords": "5000원",
+      "directionHint": "최근 보도된 \"본격적인 김장철을 맞아 다이소의 2000~5000원대 김장매트·김장봉투·채칼 등 가성비 김장용품 검색량과 매출이 동반 급증하고 있습니다.\" 이슈의 핵심 배경·수치와 주요 제품·브랜드 특징, 소비자 체크포인트를 구체적으로 분석"
+    },
+    {
+      "rank": 5,
+      "keyword": "올리브영 블랙프라이데이·연말 결산 세일 추천템 검색 급증",
+      "searchKeyword": "올리브영 블랙프라이데이 연말 세일",
+      "company": "올리브영",
+      "typeId": 2,
+      "category": "기업뉴스",
+      "badge": "구글 실시간 검색량 5000+",
+      "source": "서울경제",
+      "pressName": "서울경제",
+      "sourceUrl": "https://news.google.com/rss/search?q=%EC%98%AC%EB%A6%AC%EB%B8%8C%EC%98%81%20%EB%B8%94%EB%9E%99%ED%94%84%EB%9D%BC%EC%9D%B4%EB%8D%B0%EC%9D%B4%20%EC%84%B8%EC%9D%BC&hl=ko&gl=KR&ceid=KR:ko",
+      "verifiedNews": true,
+      "pubDateShort": "2026-11-17",
+      "desc": "[구글 실시간 검색량 5000+ · 서울경제] 연말 쇼핑 시즌을 맞아 올리브영 온·오프라인 특가 기획전과 베스트셀러 스킨케어·쿠션 할인 정보 검색이 급상승했습니다.",
+      "subKeywords": "",
+      "directionHint": "최근 보도된 \"연말 쇼핑 시즌을 맞아 올리브영 온·오프라인 특가 기획전과 베스트셀러 스킨케어·쿠션 할인 정보 검색이 급상승했습니다.\" 이슈의 핵심 배경·수치와 주요 제품·브랜드 특징, 소비자 체크포인트를 구체적으로 분석"
+    },
+    {
+      "keyword": "배드민턴 서승재·김원호 조 국제대회 급상승 화제",
       "company": "대한배드민턴협회",
       "subKeywords": "세계 1위, 신생 조",
       "source": "KBS 뉴스",
@@ -48,22 +101,11 @@
       "badge": "검색량 5000+",
       "desc": "세계 1위 서승재·김원호 조가 한국 신생 조에 패한 소식으로 배드민턴 검색량이 급상승했습니다.",
       "url": "https://news.kbs.co.kr/news/view.do?ncd=8711219",
-      "directionHint": ""
+      "directionHint": "",
+      "rank": 6
     },
     {
-      "keyword": "SK해운 LNG선 배상",
-      "company": "SK해운",
-      "subKeywords": "국산 LNG선, 2685억원",
-      "source": "조선일보",
-      "pubDateShort": "검색량 1000+",
-      "verifiedPress": true,
-      "badge": "검색량 1000+",
-      "desc": "국산 LNG선 결함 사건에서 가스공사 배상액이 2685억원으로 늘어난 판결이 검색 관심을 모았습니다.",
-      "url": "https://www.chosun.com/economy/economy_general/2026/11/13/MGW2ELZPSVG6DFFWJELTEZSFKI/",
-      "directionHint": ""
-    },
-    {
-      "keyword": "삼성 이재용 회장 디저트",
+      "keyword": "이재용 삼성 회장 현장 간식·디저트 먹방 화제",
       "company": "삼성전자",
       "subKeywords": "회심의 디저트, 현장 반응",
       "source": "동아일보",
@@ -72,10 +114,11 @@
       "badge": "실시간 급상승 · 동아일보",
       "desc": "이재용 회장이 준비한 디저트를 두고 현장에서 보인 반응이 화제가 되며 관련 검색 관심을 끌었습니다.",
       "url": "https://news.google.com/rss/articles/CBMidkFVX3lxTE5Ya00wUWgxbm4wdjZTUnRFMUJhazdOZ2VTbmtSd0RORzNYY0NRbzkxNi1LRlowWmtlekJrdWxtcnNMb0h3NGtTVms2SHhQVk1DamZYTVZQRVduamFSZFpBMFdnYzRTTXR3aWRKNUV4MXhadTNxeGfSAWZBVV95cUxObmpqWm91UjlXY0NoQmIxRkNXV3B5VWM1bVdOR2YtUWltYlJWajNZYUpVdFZ3cVNVSmxBMTlsNzFMektOanhybDZReDdJNmVsMmFOckUzeVUxcGtkejdYQ0o4eEZMaGc?oc=5",
-      "directionHint": ""
+      "directionHint": "",
+      "rank": 7
     },
     {
-      "keyword": "네이버 AI 에이전트 투자",
+      "keyword": "네이버 AI 에이전트 브리핑 도입·2조 투자 발표",
       "company": "네이버",
       "subKeywords": "영업이익 감소, 2조원 거래",
       "source": "머니투데이",
@@ -84,22 +127,11 @@
       "badge": "검색량 200+",
       "desc": "네이버의 3분기 영업이익 감소와 2조원 규모 투자·AI 에이전트 전략이 검색 관심을 끌었습니다.",
       "url": "https://www.mt.co.kr/en/tech/2026/11/12/2026111215474393674",
-      "directionHint": ""
+      "directionHint": "",
+      "rank": 8
     },
     {
-      "keyword": "공인중개사 등기부 열람료",
-      "company": "공인중개사협회",
-      "subKeywords": "열람료 인상, 1100원",
-      "source": "Chosunbiz",
-      "pubDateShort": "검색량 200+",
-      "verifiedPress": true,
-      "badge": "검색량 200+",
-      "desc": "등기부 열람료가 700원에서 1100원으로 오르는 방안을 두고 공인중개사들의 철회 요구가 이어집니다.",
-      "url": "https://biz.chosun.com/real_estate/real_estate_general/2026/11/13/73ITORNBEVDAXPOPULZKAL64CA/",
-      "directionHint": ""
-    },
-    {
-      "keyword": "테슬라 사이버캡 로보택시",
+      "keyword": "테슬라 무인 로보택시 사이버캡 국내 첫 공개",
       "company": "테슬라",
       "subKeywords": "무인 운전, 국내 공개",
       "source": "MBC 뉴스",
@@ -108,10 +140,11 @@
       "badge": "검색량 100+",
       "desc": "운전대와 페달이 없는 테슬라 사이버캡의 국내 첫 공개로 로보택시 검색이 급상승했습니다.",
       "url": "https://imnews.imbc.com/replay/2026/nwdesk/article/6865258_37004.html",
-      "directionHint": ""
+      "directionHint": "",
+      "rank": 9
     },
     {
-      "keyword": "문화누리카드 사용 혜택",
+      "keyword": "연말 문화누리카드 잔액 소진 사용처·혜택 검색 급증",
       "company": "문화체육관광부",
       "subKeywords": "문화 지원, 카드 이용",
       "source": "구글 트렌드",
@@ -120,19 +153,8 @@
       "badge": "검색량 100+",
       "desc": "문화누리카드 관련 관심이 구글 트렌드에 나타나며 문화 지원 혜택과 사용 정보가 주목받습니다.",
       "url": "https://news.google.com/search?q=%EB%AC%B8%ED%99%94%EB%88%84%EB%A6%AC%EC%B9%B4%EB%93%9C%20%EC%82%AC%EC%9A%A9%20%ED%98%9C%ED%83%9D&hl=ko&gl=KR&ceid=KR:ko",
-      "directionHint": ""
-    },
-    {
-      "keyword": "이창호 9단 대국",
-      "company": "이창호",
-      "subKeywords": "바둑 대국, 양보 발언",
-      "source": "사이버오로",
-      "pubDateShort": "검색량 100+",
-      "verifiedPress": true,
-      "badge": "검색량 100+",
-      "desc": "이창호 9단과의 대국을 둘러싼 발언이 화제가 되며 관련 검색량이 상승했습니다.",
-      "url": "https://www.cyberoro.com/news/news_view.oro?num=532945",
-      "directionHint": ""
+      "directionHint": "",
+      "rank": 10
     }
   ],
   "portalRetailTrends": [
@@ -146,7 +168,8 @@
       "badge": "뉴시스 · 2026-11-12",
       "desc": "롯데백화점 창원점은 오늘은 수트 콘셉트의 정장 13종을 선보입니다.",
       "url": "https://news.google.com/rss/articles/CBMieEFVX3lxTFBFWDNZZWlQSWowRzhQa04tYWlMS1NGdGN3dHlSMWpFTWpTMUloSnBHQWt6RHM1YnBjX2dSd0NoQXQtRjRBNjZURU5PdjE5Vi02aEVLR0s5elBTMGxNTldIaTZIVUNsa0U4cnFPNm4yck8wOEk1d2lJX9IBeEFVX3lxTFBFWDNZZWlQSWowRzhQa04tYWlMS1NGdGN3dHlSMWpFTWpTMUloSnBHQWt6RHM1YnBjX2dSd0NoQXQtRjRBNjZURU5PdjE5Vi02aEVLR0s5elBTMGxNTldIaTZIVUNsa0U4cnFPNm4yck8wOEk1d2lJXw?oc=5",
-      "directionHint": ""
+      "directionHint": "",
+      "rank": 1
     },
     {
       "keyword": "이마트24 문학 책갈피빵 신상",
@@ -158,7 +181,8 @@
       "badge": "연합뉴스 · 2026-11-12",
       "desc": "이마트24는 고전 문학 작품 책갈피를 넣은 빵 상품을 출시합니다.",
       "url": "https://news.google.com/rss/articles/CBMiW0FVX3lxTFAwSC1pdDhKVmR1VXpFc3gtckEtc3lHbzBlajk4YTZtUUJRVm5HYW9GWTBESzJRSVNzSVpER1RNSnBCem5EcUZkTTBnWmxFTjZZZVJ3NUgyNHBrWknSAWBBVV95cUxONEtXYVdYVEZfN1k0S3Bsd3BzempGZEVaa2NCb1hWUFNUUThwbmd1SXVzdDhmeEp2TXpNcFNuckh0a1k2THk1MTRYZkYwSnl1bndmY2E0QnZWSW5FM1hzTDg?oc=5",
-      "directionHint": ""
+      "directionHint": "",
+      "rank": 2
     },
     {
       "keyword": "컬리뷰티페스타 단독 뷰티 브랜드 체험 오픈런",
@@ -170,7 +194,8 @@
       "badge": "글로벌이코노믹 · 2026-11-12",
       "desc": "컬리는 컬리 단독 뷰티 제품을 소개하는 컬리뷰티페스타를 개최합니다.",
       "url": "https://news.google.com/rss/articles/CBMiiwFBVV95cUxNbU1ST0RPZ0RpTERXTWN3c190blJUUm5oallCckJnclBKTlExZjFkTmhTU1VkQWpYMkZQcWx5N2t6V2o5cFhNR2VFcThPakpYQXFMYWtZaEQ4NGVjb3ZRV1Nsbm5ncWlMS1FDNkZ5RDRTNS1XME1Lbm10SGxvNGVzd0JCQzRocmd3NldZ?oc=5",
-      "directionHint": ""
+      "directionHint": "",
+      "rank": 3
     },
     {
       "keyword": "무신사·W컨셉 일본 도쿄 K패션 팝업스토어 흥행",
@@ -182,7 +207,8 @@
       "badge": "서울경제 · 2026-11-11",
       "desc": "무신사와 W컨셉은 도쿄에서 잇달아 팝업스토어를 열고 K패션을 선보입니다.",
       "url": "https://news.google.com/rss/articles/CBMiUkFVX3lxTE16YThYd2VaRUUxblVzYkxKUzB4NE8wbnpRVlNRY0szb2pwNW94SEVoV1FmVkVBR3R4TFJtWk5vRExEU3ZGTnYyVUZiZGNrNDdOTmfSAVNBVV95cUxNQzcxSFd5YkJzQzFScHFOVnJFaXQ1bzNJZVRGUTNPdHRoelJudGtzdENGUC1fUjJMNWpwM1RiX0pfdXBmYUVQby1JRzB4MnNDN0lMRQ?oc=5",
-      "directionHint": ""
+      "directionHint": "",
+      "rank": 4
     },
     {
       "keyword": "무신사 성수동 400평 뷰티 단독 매장 오픈",
@@ -194,7 +220,8 @@
       "badge": "동아일보 · 2026-11-10",
       "desc": "무신사는 성수동에 400평 규모의 두 번째 뷰티 단독 매장을 엽니다.",
       "url": "https://news.google.com/rss/articles/CBMidkFVX3lxTFBlWVk4R2IyLUZya2RGamRrZF9ITmpHWVU4bHZ6dHI3OE1KTDI5Uk1CY2s4bTRoUEREZnEzWk4xRkY4NzNjbVFQZENIVWxrLU1iNkJwX05pQzFSWDFtQTZtWk9TcDNHM21mR3UxcTdqRmpCTlZpWkHSAWZBVV95cUxQWkhDeVV1c0p2b0FwTHZtVzdrMk9jaVFMY0JOSURZRmJhME1ZMmpMejhlSHRJaHZ1a1NITzVkR2JBX3llWUdGOVp0cFgybHpoMlBQZThsUkd0RzF3c1FaYWM2dmVtTmc?oc=5",
-      "directionHint": ""
+      "directionHint": "",
+      "rank": 5
     },
     {
       "keyword": "유통업계 연말 반값 기획전",
@@ -206,7 +233,8 @@
       "badge": "한국경제 · 2026-11-10",
       "desc": "유통업계는 연말을 앞두고 9900원부터 1498만원까지 다양한 상품을 대상으로 반값 할인전을 진행합니다.",
       "url": "https://news.google.com/rss/articles/CBMiWkFVX3lxTE5oR0tCNG9DS0tOY1pJOU1lNjZIM3VxbTJKNVU1WEQyODhIZ3RJUFBDY1JadHpLSlJYaXQ0M3FsemQ3Rm0yVmpaSXZJUTRpYXJWYXZCYmJPX2ZFQQ?oc=5",
-      "directionHint": ""
+      "directionHint": "",
+      "rank": 6
     },
     {
       "keyword": "백화점 3사 겨울 정기세일 기획전",
@@ -218,7 +246,8 @@
       "badge": "연합뉴스 · 2026-11-09",
       "desc": "백화점 3사는 한파에 대비한 외투와 겨울 신상품을 할인 판매하는 정기세일을 진행합니다.",
       "url": "https://news.google.com/rss/articles/CBMiW0FVX3lxTE9WNnduSXNfTFhDSXdhMUx5R29aOGVkdmZPcDJYTFhRS2w2OEt0Qk9sMFUtX2ttb29CbGIwWHBiRnp4RnRvbWNKZG1NejVtYjg3VHBGS1FZZi1XTGfSAWBBVV95cUxNY2x5REc1QXR6bEszODZ0WDRWZkJEUjNHVXBMMGlGZ2h5clpGUmEzRVpmWWc3MlRqcVJxQTAtNWQ2T2FORmJVYTdlLTdhQmpNOHBKYzlEOS1OQjBjejFnQkc?oc=5",
-      "directionHint": ""
+      "directionHint": "",
+      "rank": 7
     },
     {
       "keyword": "컬리 뷰티PB 해외 유통 진출",
@@ -230,7 +259,8 @@
       "badge": "서울경제 · 2026-11-08",
       "desc": "컬리는 자체 뷰티 브랜드를 아마존과 틱톡샵을 통해 해외에 판매합니다.",
       "url": "https://news.google.com/rss/articles/CBMiUkFVX3lxTE8tVUdzcXJudlB2Sk1vd3dnRW9CTDUyQTNrWFpuS0ZNNE4tT1AzM1pNNUJWbjNHUTBxQlhoemU3OUpVR3Baa2hNV1FDOG5IelF6WXfSAVNBVV95cUxQazY3bGd0YWRGQmZYRUVrVnJsTVZ4UE5SNm53djVkMzNnV3NkR2hhZEdjTFVWTnVxLTR3UFBrcjYzUGhWaW1RWnZNWkpOc1F4V09ERQ?oc=5",
-      "directionHint": ""
+      "directionHint": "",
+      "rank": 8
     },
     {
       "keyword": "다이소 고전 명작 미니키링북 신상 출시",
@@ -242,7 +272,8 @@
       "badge": "한국경제 · 2026-11-07",
       "desc": "다이소는 고전 명작 표지를 활용한 미니키링북을 출시합니다.",
       "url": "https://news.google.com/rss/articles/CBMiWkFVX3lxTE04TFA0UHYxRXM5WFpBcVFwMUFreEpXTlFyZ3lkZy1HQ1BOOEhKX0hIZExMdkhoRG9fQ1NjQzYtckhXbXpYRUhORGk3dnJDb2lVNGdiWnBLQmdYUQ?oc=5",
-      "directionHint": ""
+      "directionHint": "",
+      "rank": 9
     },
     {
       "keyword": "신세계 에이티즈 단독 팝업",
@@ -254,12 +285,13 @@
       "badge": "연합인포맥스 · 2026-11-07",
       "desc": "신세계는 에이티즈를 주제로 한 단독 팝업을 백화점에서 운영합니다.",
       "url": "https://news.google.com/rss/articles/CBMicEFVX3lxTFBETHhtc2lHWHB3S3R1WWJZb3RoR3RMSUtHc0pzOVJNMGV4VlhtQ3czZGtBTzdicVlQOEdRVHZVOGhnOGs4eDJHWDQzTWptVWRhdEVCMkpFMEctX05wQXF3UUwwOUJxbVZ2bFBWWVRBQnM?oc=5",
-      "directionHint": ""
+      "directionHint": "",
+      "rank": 10
     }
   ],
   "shortFormTrends": [
     {
-      "keyword": "성수동 K뷰티 오픈런",
+      "keyword": "성수동 K-뷰티 플래그십·팝업스토어 오픈런 열풍",
       "company": "K뷰티",
       "subKeywords": "성수동 팝업, 3시간 대기",
       "source": "MBC 뉴스",
@@ -268,7 +300,8 @@
       "badge": "✓ 언론 보도 확인 · MBC 뉴스",
       "desc": "성수동 K뷰티 현장에 개장 3시간 전부터 방문객이 몰리며 오픈런 화제가 확산합니다.",
       "url": "https://news.google.com/rss/articles/CBMieEFVX3lxTE1BblphcjlVTm01aUpBaTZDaUUtWEJMLUl0MERnZjNlVE5Md2RrMkVVRlpHYndjZmxkN1RhcXJqeHFJTEYzSnkwZ3k4MU5jLWxPWHV2dURTYmJHclJOal9pS1VfLW00NThneVJxQWxLOGRrZDltcjBaZtIBeEFVX3lxTE4zN0Y4ekZVUTVzMEFDcjBiY3ZndlQtVi1fanNrYnBYUHI0ZG1iLVRQWWhvMklGaXh1RGJqLTZaMC1MYk9SQWVCeWxBcmZzUU9IT0d2LXRzZDA5eVZ2SFRsUGc2RVZHT1c2NFBUUFZjSVBDb1dHRjFBdQ?oc=5",
-      "directionHint": ""
+      "directionHint": "",
+      "rank": 1
     },
     {
       "keyword": "컬리뷰티페스타 단독 뷰티 브랜드 체험 오픈런",
@@ -280,10 +313,11 @@
       "badge": "✓ 언론 보도 확인 · 뉴스핌",
       "desc": "제3회 컬리뷰티페스타가 개장 전부터 방문객이 몰리는 오픈런과 체험 중심 행사로 화제입니다.",
       "url": "https://news.google.com/rss/articles/CBMiXEFVX3lxTE5yd3A5bEMtc05ITmEwNkFBM3Fnc3RYQkVmbk9IRVpiR0MzVUxESHp0SUZvYThtS0E0WUFmWmJHaTRXc2drWVI1eWg1SU1iSlo0MzBUTEhBbW9qZVBp?oc=5",
-      "directionHint": ""
+      "directionHint": "",
+      "rank": 2
     },
     {
-      "keyword": "조선미녀 중소뷰티 숏폼",
+      "keyword": "조선미녀 등 인디 K뷰티 글로벌 숏폼 흥행",
       "company": "조선미녀",
       "subKeywords": "중소뷰티, 해외 인지도",
       "source": "SBS Biz",
@@ -292,10 +326,11 @@
       "badge": "✓ 언론 보도 확인 · SBS Biz",
       "desc": "조선미녀를 비롯한 중소뷰티 브랜드가 숏폼과 해외 소비자 관심을 바탕으로 존재감을 키웁니다.",
       "url": "https://news.google.com/rss/articles/CBMiU0FVX3lxTE0zYlBTWm9tRkxSRC1FUzVGLUpRbG1OM3V2azZWSU9RekxnTG80M0JMWHBqR2M5aV9VbUE0ZlRRblpQNElMeGFPVDFaWDhoTmViXzU40gFYQVVfeXFMTjh4dlZ5Qm1ZY2U4TDU0ZFNuVW9FT1VjMEc5UGVVTjNzMFhrY0tEeGd6VUpPb3AxSThXU0xrTVB6YmY3bnl4Y3R4NnRVTnpvRGYxd0xZa0NhRA?oc=5",
-      "directionHint": ""
+      "directionHint": "",
+      "rank": 3
     },
     {
-      "keyword": "츄러스 빼빼로데이 품절",
+      "keyword": "11월 11일 수제 츄러스·이색 디저트 품절 열풍",
       "company": "츄러스",
       "subKeywords": "11월 11일, 굿즈 수요",
       "source": "세계일보",
@@ -304,7 +339,8 @@
       "badge": "✓ 언론 보도 확인 · 세계일보",
       "desc": "11월 11일 소비가 빼빼로 대신 츄러스로 이동하며 관련 상품과 굿즈 품절 현상이 나타났습니다.",
       "url": "https://news.google.com/rss/articles/CBMiUEFVX3lxTE5tSFFHNDVfZHVEdDN5RHNFdkl0ZE9nNHBaMEhEVmZLSlFENG04S1VEUnVIV1BzRXJMZGFsWHg0VVVNb3gzYWFoMlVmNmpLWnlZ0gFUQVVfeXFMTUlfR0NXemU3THFXWnAxRUc0WFJGY25iOW8yNTJhT3pwTUZnSmpDdDBnQnZ3bFNpZ0J4VTI5N0g4X2FjODZpZkg5TnRfTmlvdFlRZUJW?oc=5",
-      "directionHint": ""
+      "directionHint": "",
+      "rank": 4
     },
     {
       "keyword": "CU 편의점 반값 닭강정 숏폼 신상 화제",
@@ -316,7 +352,8 @@
       "badge": "✓ 언론 보도 확인 · 서울경제",
       "desc": "서울경제 보도에 따르면 고물가 속 1만 원 미만에 즐길 수 있는 CU 편의점 대용량 닭강정 신상품이 유튜브 쇼츠·릴스 먹방 언박싱 후기로 인기를 끌고 있습니다.",
       "url": "https://news.google.com/search?q=CU%20%ED%8E%B8%EC%9D%98%EC%A0%90%20%EB%8B%AD%EA%B0%95%EC%A0%95%20%EC%8B%A0%EC%83%81%20%EC%96%B8%EB%B0%95%EC%8B%B1&hl=ko&gl=KR&ceid=KR:ko",
-      "directionHint": ""
+      "directionHint": "",
+      "rank": 5
     },
     {
       "keyword": "올리브영 성수 대형 플래그십 외국인 필수 관광 코스",
@@ -328,10 +365,11 @@
       "badge": "✓ 언론 보도 확인 · 녹색경제신문",
       "desc": "녹색경제신문 보도에 따르면 성수동과 명동 일대 올리브영 대형 특화 매장이 방한 외국인 관광객의 필수 쇼핑 코스로 자리잡으며 K뷰티 인디 브랜드 매출을 견인하고 있습니다.",
       "url": "https://news.google.com/search?q=%EC%98%AC%EB%A6%AC%EB%B8%8C%EC%98%81%20%EC%84%B1%EC%88%98%20%EC%99%B8%EA%B5%AD%EC%9D%B8%20%ED%95%84%EC%88%98%EC%BD%94%EC%8A%A4&hl=ko&gl=KR&ceid=KR:ko",
-      "directionHint": ""
+      "directionHint": "",
+      "rank": 6
     },
     {
-      "keyword": "도레도레 모찌 치즈케이크 오픈런",
+      "keyword": "도레도레 모찌 치즈케이크 디저트 오픈런 열풍",
       "company": "도레도레",
       "subKeywords": "모찌 치즈케이크, 디저트 대기",
       "source": "인천투데이",
@@ -340,10 +378,11 @@
       "badge": "✓ 언론 보도 확인 · 인천투데이",
       "desc": "도레도레의 모찌 치즈케이크가 새로운 디저트로 주목받으며 매장 오픈런을 이끌고 있습니다.",
       "url": "https://news.google.com/rss/articles/CBMicEFVX3lxTE5GeksycEtIRGRLem1TdU56MWtvQTFHd1FERDJHbWVBSDlsTzYxMDNmR01kemtlNTRPNnUwLUFaQTBHdjdwNTVHR21TOTJWMjcyUVNNSDM3ZDFFYV9oRzYyUlJWWExzTENqUm15eTlkN1o?oc=5",
-      "directionHint": ""
+      "directionHint": "",
+      "rank": 7
     },
     {
-      "keyword": "T1 팝업스토어 오픈런",
+      "keyword": "T1 월즈 우승 기념 팝업스토어 팬덤 오픈런 열풍",
       "company": "T1",
       "subKeywords": "e스포츠 굿즈, 방문객 대기",
       "source": "스카이데일리",
@@ -352,10 +391,11 @@
       "badge": "✓ 언론 보도 확인 · 스카이데일리",
       "desc": "T1 팝업스토어가 e스포츠 팬들의 방문을 이끌며 오픈런 명소로 주목받습니다.",
       "url": "https://news.google.com/rss/articles/CBMifkFVX3lxTFBtbnhPX2VZcFlnMjZ4V2RxbS1VejF5MFdjNVB3WFo4Wm9yU2FYZ2dnUWJrVW1MZkF1WkhXbU56OFhoV1BmRmZsUkNtcWZMZXlPVnJkT2g3YVUyaF9tck5XdGxEVmVvaW5UVHlXNnRBOGJsb25OQUdDN2dvckFJZw?oc=5",
-      "directionHint": ""
+      "directionHint": "",
+      "rank": 8
     },
     {
-      "keyword": "다이소 생활용품 품절",
+      "keyword": "다이소 2000원대 가성비 생활용품 품절 열풍",
       "company": "다이소",
       "subKeywords": "2000원 상품, 매대 소진",
       "source": "아시아경제",
@@ -364,10 +404,11 @@
       "badge": "✓ 언론 보도 확인 · 아시아경제",
       "desc": "다이소의 2000원대 생활용품이 저렴한 가격으로 주목받으며 매대 품절 현상을 보입니다.",
       "url": "https://news.google.com/rss/articles/CBMiYEFVX3lxTE9CU2RmVWlFcmctdDlwa09vRzQ2QW15dWFWMmxvZ243bUtlN1JtbmZ1ZHJKM3gxaFAycUZaX0k5QVhoUUtiVFFVRzNBaGp0dnlwdWZ4NUkyS3ZlMU1UdjRhMw?oc=5",
-      "directionHint": ""
+      "directionHint": "",
+      "rank": 9
     },
     {
-      "keyword": "올리비아로렌 릴스 매출",
+      "keyword": "올리비아로렌 유튜브·릴스 효과 온라인 매출 급증",
       "company": "올리비아로렌",
       "subKeywords": "온라인 매출, 160% 증가",
       "source": "이뉴스투데이",
@@ -376,12 +417,13 @@
       "badge": "✓ 언론 보도 확인 · 이뉴스투데이",
       "desc": "올리비아로렌이 유튜브와 릴스 콘텐츠 효과로 온라인 매출 160% 증가를 기록했습니다.",
       "url": "https://news.google.com/rss/articles/CBMicEFVX3lxTE0yQTFNYmNHVkRFa3BvNEgzdG9tX01Vb3NMNEpwLTR4elFHTUJBNXlhM1FoS2RmQWg3QVhIM0w0cHFfbXZwSjlCZGpReXdEd001Qks2dFU0SHlpQUljQng2TXFDZVRGV3k1bHMwd1p6QU3SAXRBVV95cUxQMWF0RkZpTHhuN3dXd3kwT2lidG1DaEhyZjVEVEx6blJobkNvZ2I0cHE1ckVMQjFwaGFhOE5ueUdlLXljdzRuaDlTQWNDdUU3Q1JRWkh5blBMeVdpMHM2UzZ2aGRJRlh0bWVlVUtLOFE2VURIbg?oc=5",
-      "directionHint": ""
+      "directionHint": "",
+      "rank": 10
     }
   ],
   "newsletterTrends": [
     {
-      "keyword": "동성로 MZ 디저트 집결",
+      "keyword": "대구 동성로 MZ세대 인기 디저트 상권 부상",
       "company": "동성로",
       "subKeywords": "MZ세대, 인기 디저트",
       "source": "대구신문",
@@ -391,10 +433,11 @@
       "category": "대구신문 · 2026-11-12",
       "desc": "대구 동성로에 MZ세대가 선호하는 인기 디저트 매장이 모이며 디저트 상권이 주목받습니다.",
       "url": "https://news.google.com/rss/articles/CBMia0FVX3lxTFBIcW1YZmR0V0cwMDAxUmFWRzlzbDlHeWVTbGN6YVE5V0Vsd1VjaHBVRG9IbThJYnVlQTQtMjVXbUthcDdjNlZQZzY4czU2TEpNeXNBWnNrSHRmMkx6MDZQWklMbURvcDVydVJZ?oc=5",
-      "directionHint": ""
+      "directionHint": "",
+      "rank": 1
     },
     {
-      "keyword": "승마 부츠 겨울 패션",
+      "keyword": "올겨울 클래식 승마 부츠 패션 스타일링 유행",
       "company": "패션 브랜드",
       "subKeywords": "겨울 부츠, 스타일링",
       "source": "Vogue korea",
@@ -404,10 +447,11 @@
       "category": "Vogue korea · 2026-11-11",
       "desc": "승마 부츠가 올겨울 주요 패션 아이템으로 떠오르며 다양한 스타일링이 제안됩니다.",
       "url": "https://news.google.com/rss/articles/CBMi0AJBVV95cUxPejViSEpzUEtBR0JrLUhoRktFQWFNVzFkR29ZdXBMQlNnSklsZnNXN0JTRnh3UHRPUWY5cExmLUFURl9wd2FWYkcyTmp4ZGtiY1NIZTJkZGdnREVoVlc5dFlJaWtIX2ZhMDE1a0x1YVJNTFdUY3YtWnRaaEx1bFhIT2ROYUQxM21KckpmblFaclV1U0pGbFpBZzZjX2RJdW0zd2RRc3Z1ZjFYZHNmQ0lXZ25WSXpfUDR3S0N6V0NMVWZPelR0WmVzVHpKTXY4TzhWQlpLR1RBdk9JSlg4ZFRRQUViY2UwMnBiZGVwQ3pPTEkzSGtiS3pMaGg1UzE5OFRFNDBFWkVrTTBTdVgya0dxYWI5SFkwLVEzQ28xc21zaGswVmdfUm1ad1JoQVd3U3BIZzluX0Z1U1FxenRlN1o5TmpDRXZoN0Y4RU9yeXdzOWQ?oc=5",
-      "directionHint": ""
+      "directionHint": "",
+      "rank": 2
     },
     {
-      "keyword": "제니 장원영 패션템",
+      "keyword": "제니·장원영 스타일 일본 2030 K-패션 쇼핑 열풍",
       "company": "제니, 장원영",
       "subKeywords": "일본 2030, 아이돌 스타일",
       "source": "한국경제",
@@ -417,10 +461,11 @@
       "category": "한국경제 · 2026-11-09",
       "desc": "제니와 장원영의 스타일을 따라 하려는 일본 2030세대가 관련 패션 아이템을 적극 구매합니다.",
       "url": "https://news.google.com/rss/articles/CBMiWkFVX3lxTE5vRTBCYW16c29IOHdEYWNwU0tKQ2JXV0hjSUpPWTVTTGVwX29LZFdMOVBlZlBhVzQ1UTFJdUo3SFoySk96bHNxVXd6ZlhHUVpMcUZKMFhDaGpuZw?oc=5",
-      "directionHint": ""
+      "directionHint": "",
+      "rank": 3
     },
     {
-      "keyword": "코스맥스 먹는 뷰티",
+      "keyword": "코스맥스 먹는 화장품 이너뷰티 ODM 확대",
       "company": "코스맥스",
       "subKeywords": "이너뷰티, ODM 확산",
       "source": "아시아타임즈",
@@ -430,10 +475,11 @@
       "category": "아시아타임즈 · 2026-11-10",
       "desc": "이너뷰티 열풍이 먹는 화장품으로 확산하면서 제조업계의 ODM 사업 확대가 이어집니다.",
       "url": "https://news.google.com/rss/articles/CBMiXkFVX3lxTE04ZjZ4MnFibGpoTmxicy1Haktadm4xTm9CV0JOeGdOTllFaDdQcHoxVThTR2NRRk1NUDBwV1BPcWpsSEZLRVh5Y1p1alVna0Fjdy1ka0treDJ4N1lQRnc?oc=5",
-      "directionHint": ""
+      "directionHint": "",
+      "rank": 4
     },
     {
-      "keyword": "CJ온스타일 겨울 소재 패션",
+      "keyword": "CJ온스타일 겨울 캐시미어·울 고급 소재 패션 인기",
       "company": "CJ온스타일",
       "subKeywords": "고급 소재, 겨울 패션위크",
       "source": "연합뉴스",
@@ -443,10 +489,11 @@
       "category": "연합뉴스 · 2026-11-08",
       "desc": "CJ온스타일은 겨울 패션에서 유행보다 보온성과 고급 소재를 중시하는 소비 흐름을 제안합니다.",
       "url": "https://news.google.com/rss/articles/CBMiW0FVX3lxTE1KNGpENzA2UjdRYmVwWTZvU2x5V3ZPaHRQd2o1SzV3TVJ3UHJFSXljV0MtS2xBTTB4bklpTUVpWXVhRW9XeDkwZUpESGdIR2dNdDZwN3pCUUZzNWfSAWBBVV95cUxQbHFfTzhScGJ5M2E2TzlwSkdVSWFEcUpPaVVQNzFwcm1zT0pCRFpsdTc0QS1DcVdjWm1JcVJ3T05femNfR1AwbVJJcWtPbnN5M0JTc29ZWDNGU09Jd2lFTGo?oc=5",
-      "directionHint": ""
+      "directionHint": "",
+      "rank": 5
     },
     {
-      "keyword": "홈메이드 디저트 DIY",
+      "keyword": "MZ세대 웨이팅 대신 홈메이드 DIY 디저트 열풍",
       "company": "DIY 소비",
       "subKeywords": "직접 만들기, 디저트 대기 회피",
       "source": "Chosunbiz",
@@ -456,11 +503,12 @@
       "category": "Chosunbiz · 2026-11-09",
       "desc": "소비자들이 인기 디저트를 오래 기다리는 대신 직접 만드는 DIY 소비로 이동합니다.",
       "url": "https://news.google.com/rss/articles/CBMiigFBVV95cUxQeWRGNnd3M2FFdzRNWm81UFBVYThvSkhuV3dlUnBtekJURldsMXY2VmUzQWFJaVVfTm4yNnlIOFhBQVI0RVB0RDJtYXJUeXBrWXowTzJBZWlrbzRyd3hBV0Q5RWsxc1dVOG5oVG5wR1pCNUNMcmxza2RnMEV1d3JIUlEwMzRDZjlselHSAZ4BQVVfeXFMUHRDY1dvME5rdnhmT3Q1cnFteElHekVCMEVTRWoyTUI4ME0wMGE4MmhNSFpvVExMZkhTcUVranVnYTFQb1N6SHNEblVYeEZEbnFuVmZnUVhGODBndXFpdjRRWXlfeVl6N0hjX2lpYXh5WEZldWdtWlJvYjBPblZpRTJTVGZhM0Y4OHo5Wnhjczk5N3pQTzk1VnotX2E3RHc?oc=5",
-      "directionHint": ""
+      "directionHint": "",
+      "rank": 6
     },
     {
-      "keyword": "라보에이치 GLP-1 탈모관리",
-      "company": "라보에이치",
+      "keyword": "아모레퍼시픽 라보에이치 GLP-1 다이어트 탈모 케어 부상",
+      "company": "라보에이치, 아모레퍼시픽",
       "subKeywords": "GLP-1 열풍, 탈모 관리",
       "source": "저스트 이코노믹스",
       "pubDateShort": "2026-11-09",
@@ -469,10 +517,11 @@
       "category": "저스트 이코노믹스 · 2026-11-09",
       "desc": "GLP-1 열풍과 함께 체중 감량 과정에서 나타날 수 있는 모발 관리 수요가 뷰티 관심사로 부상합니다.",
       "url": "https://news.google.com/rss/articles/CBMiX0FVX3lxTE5CV1ZIa2E3Y19QVFlBSTBKTW12NG5feFZiWkdkbC1naHhqMzhtSEZYeThadXVST01NaHNaaDdGaXpJOElWN0pXVjRrZUE1NjFrZ0pNU0I4NzRvSHJWUXVr?oc=5",
-      "directionHint": ""
+      "directionHint": "",
+      "rank": 7
     },
     {
-      "keyword": "올리브영 미국 쇼핑몰 입점",
+      "keyword": "올리브영 미국 사이먼 쇼핑몰 입점·북미 K뷰티 확장",
       "company": "올리브영",
       "subKeywords": "미국 진출, K뷰티 주류화",
       "source": "메트로신문",
@@ -482,10 +531,11 @@
       "category": "메트로신문 · 2026-11-09",
       "desc": "올리브영이 미국 사이먼 쇼핑몰에 대거 입점하며 K뷰티의 현지 유통망 확대를 추진합니다.",
       "url": "https://news.google.com/rss/articles/CBMiYEFVX3lxTFA1cjRISWxDcVhFc19WYkVxek82WHloNFREWHZ2eTRtem5KTVZBZUNuWGxEZmFhVEdINmEzbW12YWk1VERNTnNXdElTVzBTNXBuZHZqV0NBN2FsTkFEajdNMw?oc=5",
-      "directionHint": ""
+      "directionHint": "",
+      "rank": 8
     },
     {
-      "keyword": "2030 건강관리 소비",
+      "keyword": "2030 세대 찜질방·건강관리 힐링 소비 열풍",
       "company": "2030 소비자",
       "subKeywords": "카드 소비, 건강관리",
       "source": "메트로신문",
@@ -495,10 +545,11 @@
       "category": "메트로신문 · 2026-11-08",
       "desc": "2030세대의 카드 소비에서 몸 관리와 건강 관련 지출이 새로운 유행으로 나타납니다.",
       "url": "https://news.google.com/rss/articles/CBMiYEFVX3lxTFBqMEo0QTNIUkQweGE4TnhYenpPc3l0X1JzZlZ2TGRDa2J4OVNfQk9DYm0wOWczd1JTSmdfSHUtb2ZiYWROMTgtS2EwX1pqN2s0LVpFc3FGZWFHSGFGam5SZw?oc=5",
-      "directionHint": ""
+      "directionHint": "",
+      "rank": 9
     },
     {
-      "keyword": "서울 뷰티 약국 소비",
+      "keyword": "외국인 K뷰티 도심 약국 화장품 쇼핑 열풍",
       "company": "서울 도심 약국",
       "subKeywords": "외국인 소비, 소비액 3배",
       "source": "전자신문",
@@ -508,7 +559,8 @@
       "category": "전자신문 · 2026-11-07",
       "desc": "K뷰티 열풍으로 외국인의 약국 화장품 소비액이 3배 늘고 서울 도심에 뷰티 약국이 확산합니다.",
       "url": "https://news.google.com/rss/articles/CBMiTkFVX3lxTE85NmFFVWx3b0o3WTJJU09INUU0enhRT2pLWTJXblRsVnRKTVRDWjdfMVgtNzN1cUFFWnRFT29CUXF2VmV3UmtRS3NrYWsxUQ?oc=5",
-      "directionHint": ""
+      "directionHint": "",
+      "rank": 10
     }
   ],
   "brandPromoTrends": [
@@ -523,7 +575,8 @@
       "badge": "식음료·외식 · 머니투데이",
       "desc": "머니투데이 보도에 따르면, \"소비자가 뽑은 '에드워드 리 라면'…농심, '신라면 해물&어묵' 출시\" 소식이 전해지며 소비자와 업계의 관심을 모으고 있습니다.",
       "url": "https://news.google.com/search?q=%EB%86%8D%EC%8B%AC%20%EC%97%90%EB%93%9C%EC%9B%8C%EB%93%9C%20%EB%A6%AC%20%EC%8B%A0%EB%9D%BC%EB%A9%B4%20%ED%95%B4%EB%AC%BC%20%EC%96%B4%EB%AC%B5&hl=ko&gl=KR&ceid=KR:ko",
-      "directionHint": "최근 보도된 \"소비자가 뽑은 '에드워드 리 라면'…농심, '신라면 해물&어묵' 출시\" 이슈의 핵심 배경·수치와 주요 제품·브랜드 특징, 소비자 체크포인트를 구체적으로 분석"
+      "directionHint": "최근 보도된 \"소비자가 뽑은 '에드워드 리 라면'…농심, '신라면 해물&어묵' 출시\" 이슈의 핵심 배경·수치와 주요 제품·브랜드 특징, 소비자 체크포인트를 구체적으로 분석",
+      "rank": 1
     },
     {
       "keyword": "아모레퍼시픽 설화수 연말 홀리데이 리미티드 컬렉션 출시",
@@ -536,7 +589,8 @@
       "badge": "뷰티·패션 · 서울경제",
       "desc": "서울경제 보도에 따르면, 아모레퍼시픽 설화수가 연말 선물 수요를 겨냥해 한국 전통 미감을 담은 홀리데이 리미티드 에디션 기획세트를 출시했습니다.",
       "url": "https://news.google.com/search?q=%EC%95%84%EB%AA%A8%EB%A0%88%ED%8D%BC%EC%8B%9C%ED%94%BD%20%EC%84%A4%ED%99%94%EC%88%98%20%ED%99%80%EB%A6%AC%EB%8D%B0%EC%9D%B4%20%EC%BB%AC%EB%A0%89%EC%85%98%20%EC%B6%9C%EC%8B%9C&hl=ko&gl=KR&ceid=KR:ko",
-      "directionHint": ""
+      "directionHint": "",
+      "rank": 2
     },
     {
       "keyword": "롯데웰푸드 가나 립파이 K에디션 출시",
@@ -549,7 +603,8 @@
       "badge": "식음료·외식 · 매일경제 마켓",
       "desc": "롯데웰푸드는 외국인 관광객을 겨냥한 프리미엄 가나 쇼콜라 립파이 K-에디션을 출시합니다.",
       "url": "https://news.google.com/rss/articles/CBMiUkFVX3lxTE1pMXZ2T1djazFneWR3ckxLdGNON0ZpSWhUSENhZEt4M1E1MmZsbV84WTE2cm1RTWg1U1dPN2VBWTA3OGF3RVY3cXB6cXFjNEdkWHc?oc=5",
-      "directionHint": ""
+      "directionHint": "",
+      "rank": 3
     },
     {
       "keyword": "배스킨라빈스 겨울 시즌 해피홀리데이 아이스크림 케이크",
@@ -562,7 +617,8 @@
       "badge": "식음료·외식 · 이데일리",
       "desc": "이데일리 보도에 따르면 배스킨라빈스가 연말 시즌을 앞두고 트리·오너먼트 디자인을 적용한 홀리데이 아이스크림 케이크 라인업과 사전예약 할인 프로모션을 선보였습니다.",
       "url": "https://news.google.com/search?q=%EB%B0%B0%EC%8A%A4%ED%82%A8%EB%9D%BC%EB%B9%88%EC%8A%A4%20%ED%99%80%EB%A6%AC%EB%8D%B0%EC%9D%B4%20%EC%95%84%EC%9D%B4%EC%8A%A4%ED%81%AC%EB%A6%BC%20%EC%BC%80%EC%9D%B4%ED%81%AC%20%EC%B6%9C%EC%8B%9C&hl=ko&gl=KR&ceid=KR:ko",
-      "directionHint": ""
+      "directionHint": "",
+      "rank": 4
     },
     {
       "keyword": "가민 페이 티머니 국내 출시",
@@ -575,7 +631,8 @@
       "badge": "가전·IT · 뉴시스",
       "desc": "가민은 가민워치로 지하철과 편의점에서 결제할 수 있는 가민 페이 티머니를 국내 출시합니다.",
       "url": "https://news.google.com/rss/articles/CBMieEFVX3lxTE5JSHF2QnFBT1JpTDNvRDZoMngzSjdpbGZ3ZHZJUDFZZEFBTzlWX3JKbFJ0TDZoXy1icHQtWTJ0bThDYm51dEx0NWRldkhXQnplWXdEUHdtQWZEcDFqWVNqajM2dk5uRXBNUjB0OWcwUHJtcTBGTmhBRNIBeEFVX3lxTE5JSHF2QnFBT1JpTDNvRDZoMngzSjdpbGZ3ZHZJUDFZZEFBTzlWX3JKbFJ0TDZoXy1icHQtWTJ0bThDYm51dEx0NWRldkhXQnplWXdEUHdtQWZEcDFqWVNqajM2dk5uRXBNUjB0OWcwUHJtcTBGTmhBRA?oc=5",
-      "directionHint": ""
+      "directionHint": "",
+      "rank": 5
     },
     {
       "keyword": "CU 영수증 QR 해외여행 eSIM 서비스 출시",
@@ -588,7 +645,8 @@
       "badge": "가전·IT · 전자신문",
       "desc": "CU는 영수증 QR을 활용해 간편하게 구매하는 해외여행 eSIM 서비스를 출시합니다.",
       "url": "https://news.google.com/rss/articles/CBMiTkFVX3lxTE1obVB6dGlYMGpHVy14V1VXempWNjB6VTdKSjl3N0RsQzBQRnR3WGtZNDhvYzZUYWxwN2hxeG5JZU1DRDJ3NlluUU52ZjZlQQ?oc=5",
-      "directionHint": ""
+      "directionHint": "",
+      "rank": 6
     },
     {
       "keyword": "투썸플레이스 크림탑 스초생 출시",
@@ -601,7 +659,8 @@
       "badge": "식음료·외식 · 비욘드포스트",
       "desc": "투썸플레이스는 겨울 시즌 신제품 크림탑 스초생을 출시합니다.",
       "url": "https://news.google.com/rss/articles/CBMie0FVX3lxTE8ydGVhcjVMdDc0TDdRNGVmUmxyLV9nSXRGRFIwZW9sdkZQVTFNc2s2RUR1ZFdyVWRrRUFLd2pTMkFwcEw3LUVtZ0piREtPUmpGdDRPUlFwNktBYWpDSEdHRTNrTVhEc3VhRWlISkM3XzFlVFR3MHA1MzNfSQ?oc=5",
-      "directionHint": ""
+      "directionHint": "",
+      "rank": 7
     },
     {
       "keyword": "오뚜기 슈퍼레드 케챂 출시",
@@ -614,7 +673,8 @@
       "badge": "식음료·외식 · 주간한국",
       "desc": "오뚜기는 라이코펜 함량을 높인 슈퍼레드 케챂을 출시합니다.",
       "url": "https://news.google.com/rss/articles/CBMidEFVX3lxTE1JVTdEX2hwLWhuTVBDeFg2ZFFaTi1DQ1pDVGU4WjdfVk4weHNlMldweG9NU2tLaUVDN1ZwMmM0dEdxNkNfdnhiZUhGd2t5UDc0M3UzZVB2cy0tb2RnWkhaMlF2eFo2bHZnS1p3SHl1R1FIQlFH0gF0QVVfeXFMTUlVN0RfaHAtaG5NUEN4WDZkUVpOLUNDWkNUZThaN19WTjB4c2UyV3B4b01Ta0tpRUM3VnAyYzR0R3E2Q192eGJlSEZ3a3lQNzQzdTNlUHZzLS1vZGdaSFoyUXZ4WjZsdmdLWndIeXVHUUhCUUc?oc=5",
-      "directionHint": ""
+      "directionHint": "",
+      "rank": 8
     },
     {
       "keyword": "GS25 네이비 짐 컬렉션 출시",
@@ -627,7 +687,8 @@
       "badge": "유통·리빙 · 연합뉴스",
       "desc": "GS25는 무신사와 해군이 협업한 네이비 짐 컬렉션을 출시합니다.",
       "url": "https://news.google.com/rss/articles/CBMiW0FVX3lxTE1FUEJvTmYwb0tBMm9xQXJfazloempFaHU2R180cXd6TjdBZzFZTWJlbUMtaDEtX3l3SG9jUG8zQzNPeU5nMUJEYzc1eVZuS010bVhGUDVHUEhldknSAWBBVV95cUxQOXRSUWJtY2tlMmZyUzJNeVppTlJWYXFrYkkyZmszbTdfOVdmV3h5dFo5djBwLUhxU3hoMmthazQzT1EyV0VvU0xWMnc0a1p0cDBTLThWM0JKWmkzMjE2amM?oc=5",
-      "directionHint": ""
+      "directionHint": "",
+      "rank": 9
     },
     {
       "keyword": "파리바게뜨 초코 디저트 신제품 출시",
@@ -640,7 +701,8 @@
       "badge": "식음료·외식 · 신아일보",
       "desc": "파리바게뜨는 초코 디저트 30종과 츄러스·케이크 신제품을 선보입니다.",
       "url": "https://news.google.com/rss/articles/CBMicEFVX3lxTE9BNWo5RGJwSk9fZE03aWtKQzh2S3pzLW5ZcHhQcW44OTFZVVg0a21vdTByR0hyM245cV95M0xoZWVTSWI2ZTZjNF9DUjI0b2hGRzg0QkpOMmg0Rkg2U25tNEQ3ek1rMm5wQk1tN1FrYWU?oc=5",
-      "directionHint": ""
+      "directionHint": "",
+      "rank": 10
     }
   ],
   "usedPerplexity": true

@@ -119,7 +119,7 @@
   const CLIENT_STORAGE_KEY = 'mk_pplx_api_key_v1';
   const CLIENT_DISCONNECTED_FLAG = 'mk_pplx_disconnected_v1';
   const CLIENT_USAGE_KEY = 'mk_pplx_usage_stats_v2';
-  const CLIENT_TREND_CACHE_KEY = 'mk_pplx_trend_cache_v10';
+  const CLIENT_TREND_CACHE_KEY = 'mk_pplx_trend_cache_v11';
   try {
     localStorage.removeItem('mk_pplx_usage_stats_v1');
     localStorage.removeItem('mk_pplx_trend_cache_v5');
@@ -127,6 +127,7 @@
     localStorage.removeItem('mk_pplx_trend_cache_v7');
     localStorage.removeItem('mk_pplx_trend_cache_v8');
     localStorage.removeItem('mk_pplx_trend_cache_v9');
+    localStorage.removeItem('mk_pplx_trend_cache_v10');
   } catch (e) {}
   const CLIENT_WORKS_STORAGE_KEY = 'mk_pplx_saved_works_v1';
   const CLIENT_HISTORY_BACKUP_KEY = 'mk_pplx_work_history_backup_v1';
@@ -1190,61 +1191,75 @@
       googleTrends: '(할인 OR 특가 OR 사전예약 OR 페스타 OR 팝업 OR 신제품) (백화점 OR 대형마트 OR 편의점 OR 뷰티 OR 가전) when:7d'
     };
 
-    async function fetchCategoryRss(q, tabKey) {
-      try {
-        const rssUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(q)}&hl=ko&gl=KR&ceid=KR:ko`;
-        const apiUrl = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(rssUrl)}`;
-        const res = await fetchWithTimeout(apiUrl, { method: 'GET' }, 8000, '실시간 뉴스 RSS');
-        if (!res.ok) return [];
-        const data = await res.json();
-        const items = Array.isArray(data?.items) ? data.items : [];
-        const mapped = [];
-        for (const it of items) {
-          let rawTitle = String(it.title || '').trim();
-          let source = String(it.author || '').trim();
-          const dashMatch = rawTitle.match(/\s+-\s+([^-]+)$/);
-          if (dashMatch) {
-            if (!source) source = dashMatch[1].trim();
-            rawTitle = rawTitle.replace(/\s+-\s+[^-]+$/, '').trim();
-          }
-          if (!rawTitle || /부고|인사|동정|주가|코스피|사망|사고|구속|재판|영업이익|적자/.test(rawTitle)) continue;
-          if (isUnusableGossipOrBlindItem && isUnusableGossipOrBlindItem(rawTitle, '', tabKey)) continue;
-          const kw = cleanTrendTopicKeyword ? cleanTrendTopicKeyword(rawTitle) : rawTitle;
-          if (!kw) continue;
-          const normKw = kw.replace(/\s+/g, '').toLowerCase();
-          const isPrevTop = excludeSet.has(normKw);
-          const pubDateShort = it.pubDate ? String(it.pubDate).slice(0, 10) : todayStr;
-          const comp = extractBrandFromTopic ? extractBrandFromTopic(`${kw} ${rawTitle}`) : '';
-          const desc = paraphraseNewsToMkFact
-            ? paraphraseNewsToMkFact(rawTitle, kw, source || '언론 보도').paraphrasedSentence
-            : `${source || '언론'} 보도에 따르면 "${rawTitle}" 소식이 전해지며 소비자 관심을 모으고 있습니다.`;
-          mapped.push({
-            keyword: kw,
-            company: comp,
-            source: source || '언론 보도',
-            pubDateShort,
-            verifiedPress: true,
-            badge: tabKey === 'shortFormTrends'
-              ? `✓ 언론 보도 확인 · ${source || '최신'}`
-              : tabKey === 'googleTrends'
-                ? `실시간 급상승 · ${source || '최신'}`
-                : `${source || '언론 보도'} · ${pubDateShort}`,
-            ...(tabKey === 'newsletterTrends' ? { category: `${source || 'MZ 트렌드'} · ${pubDateShort}` } : {}),
-            desc,
-            url: it.link || `https://news.google.com/search?q=${encodeURIComponent(kw)}&hl=ko&gl=KR&ceid=KR:ko`,
-            _isPrevTop: isPrevTop
-          });
-        }
-        // 이전에 상단에 없던 새로운 기사를 먼저 배치
-        mapped.sort((a, b) => (a._isPrevTop === b._isPrevTop ? 0 : a._isPrevTop ? 1 : -1));
-        return sanitizeAndFilterTrendList ? sanitizeAndFilterTrendList(mapped, tabKey) : mapped;
-      } catch (e) {
-        return [];
+    async function fetchCategoryRss(q, tabKey, delayMs = 0) {
+      if (delayMs > 0) {
+        await new Promise(r => setTimeout(r, delayMs));
       }
+      const rssUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(q)}&hl=ko&gl=KR&ceid=KR:ko`;
+      const apiUrl = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(rssUrl)}`;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          if (attempt > 0) {
+            await new Promise(r => setTimeout(r, 450));
+          }
+          const res = await fetchWithTimeout(apiUrl, { method: 'GET' }, 8000, '실시간 뉴스 RSS');
+          if (!res.ok) continue;
+          const data = await res.json();
+          const items = Array.isArray(data?.items) ? data.items : [];
+          if (items.length === 0) continue;
+          const mapped = [];
+          for (const it of items) {
+            let rawTitle = String(it.title || '')
+              .replace(/&amp;amp;/gi, '&')
+              .replace(/&amp;/gi, '&')
+              .replace(/&quot;/gi, '"')
+              .replace(/&#0*39;|&apos;/gi, "'")
+              .trim();
+            let source = String(it.author || '').trim();
+            const dashMatch = rawTitle.match(/\s+-\s+([^-]+)$/);
+            if (dashMatch) {
+              if (!source) source = dashMatch[1].trim();
+              rawTitle = rawTitle.replace(/\s+-\s+[^-]+$/, '').trim();
+            }
+            if (!rawTitle || /부고|인사|동정|주가|코스피|사망|별세|사고|구속|재판|영업이익|적자/.test(rawTitle)) continue;
+            if (isUnusableGossipOrBlindItem && isUnusableGossipOrBlindItem(rawTitle, '', tabKey)) continue;
+            const kw = cleanTrendTopicKeyword ? cleanTrendTopicKeyword(rawTitle) : rawTitle;
+            if (!kw) continue;
+            const normKw = kw.replace(/\s+/g, '').toLowerCase();
+            const isPrevTop = excludeSet.has(normKw);
+            const pubDateShort = it.pubDate ? String(it.pubDate).slice(0, 10) : todayStr;
+            const comp = extractBrandFromTopic ? extractBrandFromTopic(`${kw} ${rawTitle}`) : '';
+            const desc = paraphraseNewsToMkFact
+              ? paraphraseNewsToMkFact(rawTitle, kw, source || '언론 보도').paraphrasedSentence
+              : `${source || '언론'} 보도에 따르면 "${rawTitle}" 소식이 전해지며 소비자 관심을 모으고 있습니다.`;
+            mapped.push({
+              keyword: kw,
+              company: comp,
+              source: source || '언론 보도',
+              pubDateShort,
+              verifiedPress: true,
+              badge: tabKey === 'shortFormTrends'
+                ? `✓ 언론 보도 확인 · ${source || '최신'}`
+                : tabKey === 'googleTrends'
+                  ? `실시간 급상승 · ${source || '최신'}`
+                  : `${source || '언론 보도'} · ${pubDateShort}`,
+              ...(tabKey === 'newsletterTrends' ? { category: `${source || 'MZ 트렌드'} · ${pubDateShort}` } : {}),
+              desc,
+              url: it.link || `https://news.google.com/search?q=${encodeURIComponent(kw)}&hl=ko&gl=KR&ceid=KR:ko`,
+              _isPrevTop: isPrevTop
+            });
+          }
+          mapped.sort((a, b) => (a._isPrevTop === b._isPrevTop ? 0 : a._isPrevTop ? 1 : -1));
+          return sanitizeAndFilterTrendList ? sanitizeAndFilterTrendList(mapped, tabKey) : mapped;
+        } catch (e) {
+          // retry once
+        }
+      }
+      return [];
     }
 
     const keys = Object.keys(queries);
-    const results = await Promise.all(keys.map(k => fetchCategoryRss(queries[k], k)));
+    const results = await Promise.all(keys.map((k, idx) => fetchCategoryRss(queries[k], k, idx * 240)));
     const out = {};
     keys.forEach((k, idx) => {
       out[k] = results[idx] || [];
