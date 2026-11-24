@@ -121,7 +121,7 @@
   const CLIENT_STORAGE_KEY = 'mk_pplx_api_key_v1';
   const CLIENT_DISCONNECTED_FLAG = 'mk_pplx_disconnected_v1';
   const CLIENT_USAGE_KEY = 'mk_pplx_usage_stats_v2';
-  const CLIENT_TREND_CACHE_KEY = 'mk_pplx_trend_cache_v14';
+  const CLIENT_TREND_CACHE_KEY = 'mk_pplx_trend_cache_v15';
   try {
     localStorage.removeItem('mk_pplx_usage_stats_v1');
     localStorage.removeItem('mk_pplx_trend_cache_v5');
@@ -133,6 +133,7 @@
     localStorage.removeItem('mk_pplx_trend_cache_v11');
     localStorage.removeItem('mk_pplx_trend_cache_v12');
     localStorage.removeItem('mk_pplx_trend_cache_v13');
+    localStorage.removeItem('mk_pplx_trend_cache_v14');
   } catch (e) {}
   const CLIENT_WORKS_STORAGE_KEY = 'mk_pplx_saved_works_v1';
   const CLIENT_HISTORY_BACKUP_KEY = 'mk_pplx_work_history_backup_v1';

@@ -1957,12 +1957,18 @@ function sanitizeAndFilterTrendList(list = [], tabKey = '') {
   const brandCountMap = new Map();
   const isBrandPromoTab = tabKey === 'brandpromo' || tabKey === 'brandPromoTrends';
   const maxPerBrand = isBrandPromoTab ? 1 : 2;
-  const blockedUrlRegex = /tistory\.com|blog\.naver\.com|post\.naver\.com|cafe\.naver\.com|brunch\.co\.kr|velog\.io|aeobot\.ai|howbuzzy\.com|seoulstart\.com|syioknya|mognavi|excite\.co\.jp|lawson\.co\.jp|koreancenter\.or\.kr|dcinside\.com|fmkorea\.com|theqoo\.net|instiz\.net|namu\.wiki|\/archive\/|\/popups\/|\/category\/|\/tag\/|[?&]page=\d+$/i;
+  const blockedUrlRegex = /tistory\.com|blog\.naver\.com|post\.naver\.com|cafe\.naver\.com|brunch\.co\.kr|velog\.io|aeobot\.ai|howbuzzy\.com|seoulstart\.com|syioknya|mognavi|excite\.co\.jp|lawson\.co\.jp|koreancenter\.or\.kr|dcinside\.com|fmkorea\.com|theqoo\.net|instiz\.net|namu\.wiki|\/archive\/|\/popups\/|\/category\/|\/tag\/|[?&]page=\d+$|02302566645649000|02309126645649000|20261124023003830|20261124n18181|4326178|1444008|202611230921442020103/i;
+  const trustedPressRegex = /^(?:매일경제|한국경제|서울경제|서울경제TV|머니투데이|아시아경제|헤럴드경제|파이낸셜뉴스|이데일리|조선비즈|Chosunbiz|이투데이|아주경제|연합뉴스|연합뉴스TV|뉴시스|뉴스1|조선일보|중앙일보|동아일보|한겨레|경향신문|국민일보|세계일보|서울신문|문화일보|한국일보|부산일보|매일신문|국제신문|강원일보|KBS|MBC|SBS|SBS\s*Biz|JTBC|YTN|MBN|채널A|TV조선|전자신문|디지털타임스|지디넷코리아|ZDNet\s*Korea|아이뉴스24|블로터|더벨|비즈니스포스트|딜사이트|뉴스핌|뉴스웨이|데일리안|쿠키뉴스|노컷뉴스|시사저널|일요신문|주간동아|한경비즈니스|매경이코노미|이코노미스트|포브스코리아|패션비즈|어패럴뉴스|뷰티누리|식품저널|더구루|뉴스토마토|브릿지경제|대한경제|에너지경제|메트로신문)$/i;
 
   for (const rawItem of list) {
     if (!rawItem || (!rawItem.keyword && !rawItem.desc)) continue;
     const itemUrl = String(rawItem.url || rawItem.sourceUrl || '').trim();
+    const itemSource = String(rawItem.source || rawItem.pressName || '').trim();
     if (itemUrl && blockedUrlRegex.test(itemUrl)) {
+      continue;
+    }
+    // 출처명(source)에 언론사가 아닌 기업명(쿠팡, 롯데쇼핑, 홈플러스, G마켓 등)이나 비공식 사이트가 들어간 항목 원천 배제
+    if (itemSource && !trustedPressRegex.test(itemSource)) {
       continue;
     }
     if (itemUrl && !itemUrl.includes('news.google.com/search') && seenArticleUrls.has(itemUrl)) {
