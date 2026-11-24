@@ -1953,19 +1953,28 @@ function sanitizeAndFilterTrendList(list = [], tabKey = '') {
   const out = [];
   const seenKeywords = new Set();
   const seenTopicSignatures = new Set();
+  const seenArticleUrls = new Set();
   const brandCountMap = new Map();
   const isBrandPromoTab = tabKey === 'brandpromo' || tabKey === 'brandPromoTrends';
   const maxPerBrand = isBrandPromoTab ? 1 : 2;
+  const blockedUrlRegex = /tistory\.com|blog\.naver\.com|post\.naver\.com|cafe\.naver\.com|brunch\.co\.kr|velog\.io|aeobot\.ai|howbuzzy\.com|seoulstart\.com|syioknya|mognavi|excite\.co\.jp|lawson\.co\.jp|koreancenter\.or\.kr|dcinside\.com|fmkorea\.com|theqoo\.net|instiz\.net|namu\.wiki|\/archive\/|\/popups\/|\/category\/|\/tag\/|[?&]page=\d+$/i;
 
   for (const rawItem of list) {
     if (!rawItem || (!rawItem.keyword && !rawItem.desc)) continue;
-    if (isUnusableGossipOrBlindItem(rawItem.keyword, rawItem.desc, tabKey)) {
+    const itemUrl = String(rawItem.url || rawItem.sourceUrl || '').trim();
+    if (itemUrl && blockedUrlRegex.test(itemUrl)) {
+      continue;
+    }
+    if (itemUrl && !itemUrl.includes('news.google.com/search') && seenArticleUrls.has(itemUrl)) {
+      continue;
+    }
+    if (isUnusableGossipOrBlindItem(rawItem.keyword, `${rawItem.desc || ''} ${itemUrl} ${rawItem.source || ''}`, tabKey)) {
       continue;
     }
     const meta = extractTrendContextMetadata(rawItem);
     const cleanKw = meta.keyword;
     if (!cleanKw || cleanKw.length < 2) continue;
-    if (isUnusableGossipOrBlindItem(cleanKw, rawItem.desc, tabKey)) {
+    if (isUnusableGossipOrBlindItem(cleanKw, `${rawItem.desc || ''} ${itemUrl} ${rawItem.source || ''}`, tabKey)) {
       continue;
     }
 
@@ -1993,6 +2002,7 @@ function sanitizeAndFilterTrendList(list = [], tabKey = '') {
 
     seenKeywords.add(normKey);
     if (topicSig) seenTopicSignatures.add(topicSig);
+    if (itemUrl) seenArticleUrls.add(itemUrl);
 
     // 설명문(desc)의 HTML 엔티티(&amp; 등), 불필요한 영문 바이라인(By EBN 등) 및 이중 따옴표 정리
     const cleanDesc = decodeHtmlEntitiesText(rawItem.desc || '')
