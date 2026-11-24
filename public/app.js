@@ -1241,10 +1241,12 @@
     }
 
     async function fetchRawRssItems(q) {
-      const rssUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(q)}&hl=ko&gl=KR&ceid=KR:ko`;
+      // rss2json 서버 캐시 고착을 방지하기 위해 분 단위·회차별 캐시 버스터 파라미터 추가
+      const cacheBuster = `${Math.floor(Date.now() / 60000)}_${cycleIdx}`;
+      const rssUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(q)}&hl=ko&gl=KR&ceid=KR:ko&_cb=${cacheBuster}`;
       const apiUrl = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(rssUrl)}`;
       try {
-        const res = await fetchWithTimeout(apiUrl, { method: 'GET' }, 6500, '실시간 뉴스 RSS');
+        const res = await fetchWithTimeout(apiUrl, { method: 'GET' }, 6000, '실시간 뉴스 RSS');
         if (res.ok) {
           const data = await res.json();
           if (Array.isArray(data?.items) && data.items.length > 0) {
@@ -1252,16 +1254,26 @@
           }
         }
       } catch (e) {}
-      // rss2json 호출 제한(429) 또는 빈 배열 시 allorigins XML 프록시로 즉시 무중단 폴백 (최대 25개 기사 확보)
+      // 2차 백업: allorigins XML 프록시 (최대 25개 기사 확보)
       try {
         const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(rssUrl)}`;
-        const xmlRes = await fetchWithTimeout(proxyUrl, { method: 'GET' }, 7000, '실시간 뉴스 XML 백업');
+        const xmlRes = await fetchWithTimeout(proxyUrl, { method: 'GET' }, 6500, '실시간 뉴스 XML 백업 1');
         if (xmlRes.ok) {
           const xmlText = await xmlRes.text();
           const parsed = parseXmlRssItems(xmlText);
           if (parsed.length > 0) return parsed;
         }
       } catch (e2) {}
+      // 3차 백업: corsproxy XML 프록시
+      try {
+        const proxyUrl2 = `https://corsproxy.io/?url=${encodeURIComponent(rssUrl)}`;
+        const xmlRes2 = await fetchWithTimeout(proxyUrl2, { method: 'GET' }, 6500, '실시간 뉴스 XML 백업 2');
+        if (xmlRes2.ok) {
+          const xmlText2 = await xmlRes2.text();
+          const parsed2 = parseXmlRssItems(xmlText2);
+          if (parsed2.length > 0) return parsed2;
+        }
+      } catch (e3) {}
       return [];
     }
 
@@ -4221,38 +4233,55 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
 
     state.lastTrendRefreshError = '';
     const todayStr = new Date().toISOString().slice(0, 10);
-    if (forceRefresh) {
+
+    // 브라우저 새로고침(F5) 감지: 홈 트렌드 화면에서 F5를 눌렀을 때도 최신 이슈로 즉시 새로 수집
+    let isBrowserReloadOnTrends = false;
+    try {
+      const navEntry = (typeof performance !== 'undefined' && performance.getEntriesByType)
+        ? performance.getEntriesByType('navigation')[0]
+        : null;
+      if (navEntry && navEntry.type === 'reload' && !window.__mkReloadHandledOnce && state.screen === 'home' && state.homeDiscoveryTab === 'trends') {
+        window.__mkReloadHandledOnce = true;
+        isBrowserReloadOnTrends = true;
+      }
+    } catch (e) {}
+
+    let isLiveRefresh = Boolean(forceRefresh || isBrowserReloadOnTrends);
+    if (isLiveRefresh) {
       state.trendRefreshCycle = (state.trendRefreshCycle || 0) + 1;
     }
-    const prevByTab = {
-      brandPromoTrends: (state.trendRadar?.brandPromoTrends || []).map(it => it.keyword).filter(Boolean),
-      portalRetailTrends: (state.trendRadar?.portalRetailTrends || []).map(it => it.keyword).filter(Boolean),
-      shortFormTrends: (state.trendRadar?.shortFormTrends || []).map(it => it.keyword).filter(Boolean),
-      newsletterTrends: (state.trendRadar?.newsletterTrends || []).map(it => it.keyword).filter(Boolean),
-      googleTrends: (state.trendRadar?.googleTrends || []).map(it => it.keyword).filter(Boolean)
-    };
-    const prevTopKeywords = [
-      ...prevByTab.brandPromoTrends,
-      ...prevByTab.portalRetailTrends,
-      ...prevByTab.shortFormTrends,
-      ...prevByTab.newsletterTrends,
-      ...prevByTab.googleTrends
-    ];
-    if (forceRefresh && prevTopKeywords.length > 0) {
-      state.seenTrendKeywordsHistory = [...prevTopKeywords, ...(state.seenTrendKeywordsHistory || [])].slice(0, 50);
-    }
-    const excludeKeywordsPool = forceRefresh
-      ? Array.from(new Set([...prevTopKeywords, ...(state.seenTrendKeywordsHistory || []).slice(0, 50)]))
-      : [];
-    const prevTopNormSet = new Set(excludeKeywordsPool.map(k => String(k || '').replace(/\s+/g, '').toLowerCase()).filter(Boolean));
 
-    const mergeTabTo10 = (freshList = [], fallbackList = [], tabKey = '') => {
+    const captureCurrentKeywordsByTab = (srcObj = state.trendRadar) => ({
+      brandPromoTrends: (srcObj?.brandPromoTrends || []).map(it => it.keyword).filter(Boolean),
+      portalRetailTrends: (srcObj?.portalRetailTrends || []).map(it => it.keyword).filter(Boolean),
+      shortFormTrends: (srcObj?.shortFormTrends || []).map(it => it.keyword).filter(Boolean),
+      newsletterTrends: (srcObj?.newsletterTrends || []).map(it => it.keyword).filter(Boolean),
+      googleTrends: (srcObj?.googleTrends || []).map(it => it.keyword).filter(Boolean)
+    });
+
+    let prevByTab = captureCurrentKeywordsByTab(state.trendRadar);
+    let prevTopKeywords = Object.values(prevByTab).flat();
+
+    // 5일 이상 지난 오래된 스냅샷 항목은 새로고침 시 병합 대상에서 제외하여 지난주 이슈 재노출 원천 차단
+    function isWithinRecentDays(pubDateStr = '', maxDays = 5) {
+      const m = String(pubDateStr || '').slice(0, 10).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      if (!m) return true;
+      const itemTime = Date.parse(`${m[1]}-${m[2]}-${m[3]}T00:00:00Z`);
+      const todayTime = Date.parse(`${todayStr}T00:00:00Z`);
+      if (Number.isNaN(itemTime) || Number.isNaN(todayTime)) return true;
+      return (todayTime - itemTime) <= maxDays * 24 * 60 * 60 * 1000;
+    }
+
+    const mergeTabTo10 = (freshList = [], fallbackList = [], tabKey = '', excludeNormSet = new Set()) => {
       const cleanFresh = typeof sanitizeAndFilterTrendList === 'function'
         ? sanitizeAndFilterTrendList(freshList, tabKey)
         : freshList;
+      const recentFallback = (cleanFresh.length > 0 && isLiveRefresh)
+        ? (fallbackList || []).filter(it => isWithinRecentDays(it?.pubDateShort, 5))
+        : (fallbackList || []);
       const cleanFallback = typeof sanitizeAndFilterTrendList === 'function'
-        ? sanitizeAndFilterTrendList(fallbackList, tabKey)
-        : fallbackList;
+        ? sanitizeAndFilterTrendList(recentFallback, tabKey)
+        : recentFallback;
 
       const seenInTab = new Set();
       const freshBrandNew = [];
@@ -4264,18 +4293,18 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
         const nk = String(item?.keyword || '').replace(/\s+/g, '').toLowerCase();
         if (!nk || seenInTab.has(nk)) continue;
         seenInTab.add(nk);
-        if (forceRefresh && prevTopNormSet.has(nk)) freshExisting.push(item);
+        if (isLiveRefresh && excludeNormSet.has(nk)) freshExisting.push(item);
         else freshBrandNew.push(item);
       }
       for (const item of cleanFallback) {
         const nk = String(item?.keyword || '').replace(/\s+/g, '').toLowerCase();
         if (!nk || seenInTab.has(nk)) continue;
         seenInTab.add(nk);
-        if (forceRefresh && prevTopNormSet.has(nk)) fallbackExisting.push(item);
+        if (isLiveRefresh && excludeNormSet.has(nk)) fallbackExisting.push(item);
         else fallbackBrandNew.push(item);
       }
 
-      const ordered = forceRefresh
+      const ordered = isLiveRefresh
         ? [...freshBrandNew, ...fallbackBrandNew, ...freshExisting, ...fallbackExisting]
         : [...freshBrandNew, ...freshExisting, ...fallbackBrandNew, ...fallbackExisting];
       return ordered.slice(0, 10).map((it, idx) => ({ ...it, rank: idx + 1 }));
@@ -4283,7 +4312,7 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
 
     try {
       const isLocalServer = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
-      if (!isLocalServer || forceRefresh) {
+      if (!isLocalServer || isLiveRefresh) {
         throw new Error('USE_HYBRID_LIVE_REFRESH');
       }
       const radar = await apiFetch('/api/trends');
@@ -4310,7 +4339,7 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
       let snapshotDataObj = null;
       let snapshotTs = 0;
 
-      // 1) 정적 스냅샷(./live-trends.json) 메타 확인 (접속 시 과금 0원 · 0.1초 즉시 로드용)
+      // 1) 정적 스냅샷(./live-trends.json) 메타 확인 (0.1초 초기 표시용)
       try {
         const snapRes = await fetch(`./live-trends.json?t=${Date.now()}`);
         if (snapRes.ok) {
@@ -4323,9 +4352,10 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
         }
       } catch (snapErr) {}
 
-      // 2) [전문가 추천 수동 갱신 방식] 강제 새로고침(forceRefresh === true)이 아닐 때:
-      //    단순 접속이나 F5 새로고침 시에는 API 과금이 전혀 발생하지 않도록 localStorage 캐시(6시간 유효)와 정적 스냅샷 중 더 최신 데이터를 0.1초 만에 즉시 표시!
-      if (!forceRefresh) {
+      // 2) 초기 진입 시 캐시/스냅샷의 최신성 점검:
+      //    - 오늘 날짜(todayStr)에 수집된 6시간 이내 캐시/스냅샷이고 F5 새로고침이 아니면 즉시 사용
+      //    - 오랜만에 접속하여 캐시/스냅샷 날짜가 오늘이 아니거나 6시간이 지났다면, 먼저 스냅샷을 화면에 보여준 뒤 즉시 실시간 최신 수집(isLiveRefresh = true)을 자동 실행!
+      if (!isLiveRefresh) {
         let cachedObj = null;
         try {
           const cachedRaw = localStorage.getItem(CLIENT_TREND_CACHE_KEY);
@@ -4333,26 +4363,26 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
         } catch (err) {}
 
         const cacheTs = Number(cachedObj?.timestamp || 0);
-        const isCacheFresh = cacheTs > 0 && (Date.now() - cacheTs < CLIENT_TREND_TTL_MS);
-        let activeLoadedTs = 0;
+        const cacheDateStr = cacheTs > 0 ? new Date(cacheTs).toISOString().slice(0, 10) : '';
+        const snapDateStr = snapshotTs > 0 ? new Date(snapshotTs).toISOString().slice(0, 10) : '';
+        const isCacheFreshToday = cacheTs > 0 && cacheDateStr === todayStr && (Date.now() - cacheTs < CLIENT_TREND_TTL_MS);
+        const isSnapFreshToday = snapshotTs > 0 && snapDateStr === todayStr && (Date.now() - snapshotTs < CLIENT_TREND_TTL_MS);
 
-        if (isCacheFresh && cacheTs >= snapshotTs && cachedObj?.data) {
+        if (isCacheFreshToday && cacheTs >= snapshotTs && cachedObj?.data) {
           state.trendRadar = sanitizeAllTrendRadarObj(cachedObj.data);
           state.trendUpdatedAt = formatTrendTimestamp(cacheTs);
-          state.trendSourceLabel = '최근 수집 캐시 (접속 과금 0원)';
+          state.trendSourceLabel = '오늘자 최신 캐시 (접속 과금 0원)';
           loadedFromCacheOrSnapshot = true;
-          activeLoadedTs = cacheTs;
           const curStats = getClientUsageStats();
           curStats.cacheHitsOnRefresh = (curStats.cacheHitsOnRefresh || 0) + 1;
           saveClientUsageStats(curStats);
-        } else if (snapshotDataObj) {
+        } else if (isSnapFreshToday && snapshotDataObj) {
           state.trendRadar = snapshotDataObj;
-          state.trendUpdatedAt = formatTrendTimestamp(snapshotTs || Date.now());
-          state.trendSourceLabel = '공유 스냅샷 로드 (접속 과금 0원)';
-          activeLoadedTs = snapshotTs;
+          state.trendUpdatedAt = formatTrendTimestamp(snapshotTs);
+          state.trendSourceLabel = '오늘자 공유 스냅샷 (접속 과금 0원)';
           try {
             localStorage.setItem(CLIENT_TREND_CACHE_KEY, JSON.stringify({
-              timestamp: snapshotTs || Date.now(),
+              timestamp: snapshotTs,
               data: snapshotDataObj
             }));
           } catch (err) {}
@@ -4360,50 +4390,39 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
           const curStats = getClientUsageStats();
           curStats.cacheHitsOnRefresh = (curStats.cacheHitsOnRefresh || 0) + 1;
           saveClientUsageStats(curStats);
-        }
-
-        // 만약 스냅샷/캐시의 기준일이 오늘이 아니라면(예: 전주 스냅샷), 화면은 0.1초 만에 즉시 띄운 뒤 백그라운드에서 무료 실시간 구글 뉴스 RSS(과금 0원)로 오늘자 이슈를 자동 보강!
-        const activeDateStr = activeLoadedTs > 0 ? new Date(activeLoadedTs).toISOString().slice(0, 10) : '';
-        if (loadedFromCacheOrSnapshot && activeDateStr && activeDateStr !== todayStr) {
-          fetchBrowserLiveRssTrends([], 0).then(rssFresh => {
-            const sanitizedRss = sanitizeAllTrendRadarObj(rssFresh);
-            const hasRss = (sanitizedRss.brandPromoTrends?.length || 0) > 0 || (sanitizedRss.portalRetailTrends?.length || 0) > 0;
-            if (hasRss) {
-              state.trendRadar = {
-                googleTrends: mergeTabTo10(sanitizedRss.googleTrends, state.trendRadar.googleTrends || [], 'google'),
-                portalRetailTrends: mergeTabTo10(sanitizedRss.portalRetailTrends, state.trendRadar.portalRetailTrends || [], 'portal'),
-                shortFormTrends: mergeTabTo10(sanitizedRss.shortFormTrends, state.trendRadar.shortFormTrends || [], 'shortform'),
-                newsletterTrends: mergeTabTo10(sanitizedRss.newsletterTrends, state.trendRadar.newsletterTrends || [], 'newsletter'),
-                brandPromoTrends: mergeTabTo10(sanitizedRss.brandPromoTrends, state.trendRadar.brandPromoTrends || [], 'brandpromo')
-              };
-              const nowTs = Date.now();
-              state.trendUpdatedAt = formatTrendTimestamp(nowTs);
-              state.trendSourceLabel = '오늘자 실시간 RSS 자동 최신화 (과금 0원)';
-              try {
-                localStorage.setItem(CLIENT_TREND_CACHE_KEY, JSON.stringify({
-                  timestamp: nowTs,
-                  data: state.trendRadar
-                }));
-              } catch (err) {}
-              if (state.screen === 'home') render(true);
-            }
-          }).catch(() => {});
+        } else {
+          // 오랜만에 접속해 캐시/스냅샷이 지난 날짜이거나 만료된 경우:
+          // 빈 화면 방지용으로 스냅샷을 먼저 세팅한 뒤, 그 옛날 키워드들을 제외 목록(prevByTab)에 넣고 실시간 최신 수집으로 자동 전환!
+          if (snapshotDataObj) {
+            state.trendRadar = snapshotDataObj;
+            if (state.screen === 'home') render(true);
+          }
+          isLiveRefresh = true;
+          state.trendRefreshCycle = (state.trendRefreshCycle || 0) + 1;
+          loadedFromCacheOrSnapshot = false;
         }
       }
 
-      // 3) 사용자가 '↻ 실시간 트렌드 새로고침' 버튼을 직접 눌렀을 때(forceRefresh === true)
-      //    브라우저에서 Perplexity AI + 실시간 한국 뉴스 RSS 무중단 하이브리드 수집으로 직전 노출 키워드를 제외하고 오늘 기준 최신 이슈 50선을 즉시 갱신!
+      // 3) 실시간 최신 수집 실행 (새로고침 버튼 클릭 / F5 새로고침 / 오랜만에 접속하여 캐시 만료 시 모두 작동!)
       let loadedFromClientPplx = loadedFromCacheOrSnapshot;
-      if (forceRefresh || !loadedFromCacheOrSnapshot) {
+      if (isLiveRefresh || !loadedFromCacheOrSnapshot) {
+        prevByTab = captureCurrentKeywordsByTab(state.trendRadar?.shortFormTrends?.length ? state.trendRadar : snapshotDataObj);
+        prevTopKeywords = Object.values(prevByTab).flat();
+        if (prevTopKeywords.length > 0) {
+          state.seenTrendKeywordsHistory = [...prevTopKeywords, ...(state.seenTrendKeywordsHistory || [])].slice(0, 50);
+        }
+        const excludePool = Array.from(new Set([...prevTopKeywords, ...(state.seenTrendKeywordsHistory || []).slice(0, 50)]));
+        const excludeNormSet = new Set(excludePool.map(k => String(k || '').replace(/\s+/g, '').toLowerCase()).filter(Boolean));
+
         try {
-          const pplxTrends = await fetchClientPerplexityTrends(clientKey, forceRefresh ? prevByTab : [], state.trendRefreshCycle || 0);
+          const pplxTrends = await fetchClientPerplexityTrends(clientKey, prevByTab, state.trendRefreshCycle || 1);
           const sanitizedPplx = sanitizeAllTrendRadarObj(pplxTrends);
           const mergedRadar = {
-            googleTrends: mergeTabTo10(sanitizedPplx.googleTrends, snapshotDataObj?.googleTrends || state.trendRadar?.googleTrends || [], 'google'),
-            portalRetailTrends: mergeTabTo10(sanitizedPplx.portalRetailTrends, snapshotDataObj?.portalRetailTrends || state.trendRadar?.portalRetailTrends || [], 'portal'),
-            shortFormTrends: mergeTabTo10(sanitizedPplx.shortFormTrends, snapshotDataObj?.shortFormTrends || state.trendRadar?.shortFormTrends || [], 'shortform'),
-            newsletterTrends: mergeTabTo10(sanitizedPplx.newsletterTrends, snapshotDataObj?.newsletterTrends || state.trendRadar?.newsletterTrends || [], 'newsletter'),
-            brandPromoTrends: mergeTabTo10(sanitizedPplx.brandPromoTrends, snapshotDataObj?.brandPromoTrends || state.trendRadar?.brandPromoTrends || [], 'brandpromo')
+            googleTrends: mergeTabTo10(sanitizedPplx.googleTrends, snapshotDataObj?.googleTrends || state.trendRadar?.googleTrends || [], 'google', excludeNormSet),
+            portalRetailTrends: mergeTabTo10(sanitizedPplx.portalRetailTrends, snapshotDataObj?.portalRetailTrends || state.trendRadar?.portalRetailTrends || [], 'portal', excludeNormSet),
+            shortFormTrends: mergeTabTo10(sanitizedPplx.shortFormTrends, snapshotDataObj?.shortFormTrends || state.trendRadar?.shortFormTrends || [], 'shortform', excludeNormSet),
+            newsletterTrends: mergeTabTo10(sanitizedPplx.newsletterTrends, snapshotDataObj?.newsletterTrends || state.trendRadar?.newsletterTrends || [], 'newsletter', excludeNormSet),
+            brandPromoTrends: mergeTabTo10(sanitizedPplx.brandPromoTrends, snapshotDataObj?.brandPromoTrends || state.trendRadar?.brandPromoTrends || [], 'brandpromo', excludeNormSet)
           };
           const hasValidItems =
             (mergedRadar.shortFormTrends?.length || 0) > 0 ||
@@ -4413,7 +4432,7 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
             state.trendRadar = mergedRadar;
             const nowTs = Date.now();
             state.trendUpdatedAt = formatTrendTimestamp(nowTs);
-            state.trendSourceLabel = `수동 실시간 수집 완료 (#${state.trendRefreshCycle || 1})`;
+            state.trendSourceLabel = `실시간 최신 수집 완료 (#${state.trendRefreshCycle || 1})`;
             try {
               localStorage.setItem(CLIENT_TREND_CACHE_KEY, JSON.stringify({
                 timestamp: nowTs,
@@ -4491,16 +4510,19 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
   }
 
   async function initApp() {
-    // 구버전 캐시(고정 샘플 또는 정제 전 쇼츠 제목이 섞여 있던 v1~v4) 즉시 삭제 후 최신 캐시만 복원
+    // 구버전 캐시 및 날짜가 지난 만료 캐시 즉시 정리 후 오늘자 최신 캐시만 초기 복원
     try {
       localStorage.removeItem('mk_pplx_trend_cache_v1');
       localStorage.removeItem('mk_pplx_trend_cache_v2');
       localStorage.removeItem('mk_pplx_trend_cache_v3');
       localStorage.removeItem('mk_pplx_trend_cache_v4');
+      const todayStr = new Date().toISOString().slice(0, 10);
       const cachedRaw = localStorage.getItem(CLIENT_TREND_CACHE_KEY);
       if (cachedRaw) {
         const cachedObj = JSON.parse(cachedRaw);
-        if (cachedObj && cachedObj.data) {
+        const cacheTs = Number(cachedObj?.timestamp || 0);
+        const cacheDateStr = cacheTs > 0 ? new Date(cacheTs).toISOString().slice(0, 10) : '';
+        if (cachedObj && cachedObj.data && cacheDateStr === todayStr && (Date.now() - cacheTs < CLIENT_TREND_TTL_MS)) {
           state.trendRadar = {
             googleTrends: cachedObj.data.googleTrends || [],
             portalRetailTrends: cachedObj.data.portalRetailTrends || [],
@@ -4508,6 +4530,8 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
             newsletterTrends: cachedObj.data.newsletterTrends || [],
             brandPromoTrends: cachedObj.data.brandPromoTrends || []
           };
+        } else {
+          localStorage.removeItem(CLIENT_TREND_CACHE_KEY);
         }
       }
     } catch (e) {}
