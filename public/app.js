@@ -319,6 +319,27 @@
     }
   }
 
+  function formatKstDateTime(d = new Date()) {
+    const kst = new Date(d.getTime() + 9 * 60 * 60 * 1000);
+    return kst.toISOString().slice(0, 19).replace('T', ' ');
+  }
+
+  function syncLiveApiUsageMonitorDom(stats) {
+    if (!stats) return;
+    const totalEl = document.getElementById('apiModalTotalCalls');
+    const subEl = document.getElementById('apiModalSubCalls');
+    const krwEl = document.getElementById('apiModalCostKrw');
+    const usdEl = document.getElementById('apiModalCostUsdTokens');
+    const cacheEl = document.getElementById('apiModalCacheHits');
+    const lastEl = document.getElementById('apiModalLastCalledAt');
+    if (totalEl) totalEl.textContent = `${stats.totalCalls || 0}회`;
+    if (subEl) subEl.textContent = `트렌드 ${stats.trendCalls || 0} · 초안 ${stats.draftCalls || 0}`;
+    if (krwEl) krwEl.textContent = `약 ${(stats.estimatedCostKrw || 0).toLocaleString()}원`;
+    if (usdEl) usdEl.textContent = `$${Number(stats.estimatedCostUsd || 0).toFixed(4)} (${(stats.totalTokens || 0).toLocaleString()} 토큰)`;
+    if (cacheEl) cacheEl.textContent = `${stats.cacheHitsOnRefresh || 0}회 절약`;
+    if (lastEl) lastEl.textContent = stats.lastCalledAt && stats.lastCalledAt !== '-' ? `최근 반영: ${stats.lastCalledAt} (KST)` : '아직 호출 기록 없음';
+  }
+
   function saveClientUsageStats(stats) {
     stats.model = getSelectedWriterModel();
     try {
@@ -327,26 +348,39 @@
       // ignore storage quota errors
     }
     state.apiUsageStats = stats;
+    syncLiveApiUsageMonitorDom(stats);
   }
 
   function recordClientPerplexityUsage(usage = {}, callType = 'draft') {
+    const safeUsage = (usage && typeof usage === 'object') ? usage : {};
     const stats = getClientUsageStats();
-    const pTokens = Number(usage.input_tokens || usage.prompt_tokens) || 950;
-    const cTokens = Number(usage.output_tokens || usage.completion_tokens) || 1450;
+    const pTokens = Number(safeUsage.input_tokens || safeUsage.prompt_tokens) || 950;
+    const cTokens = Number(safeUsage.output_tokens || safeUsage.completion_tokens) || 1450;
     stats.model = getSelectedWriterModel();
-    stats.totalCalls += 1;
-    if (callType === 'trend') stats.trendCalls += 1;
-    else stats.draftCalls += 1;
+    if (callType === 'trend') {
+      stats.totalCalls += 1;
+      stats.trendCalls += 1;
+    } else if (callType === 'trend_part') {
+      // 동일 트렌드 새로고침 내 2번째 병렬 호출은 토큰과 비용만 합산 (트렌드 1회 클릭 = 1회로 정확히 카운트)
+    } else if (callType === 'draft_search') {
+      // 2단계 하이브리드 초안 생성 중 1단계 검색은 토큰과 비용만 합산하고 2단계 완료 시 초안 1회로 카운트
+    } else {
+      stats.totalCalls += 1;
+      stats.draftCalls += 1;
+    }
     stats.promptTokens += pTokens;
     stats.completionTokens += cTokens;
     stats.totalTokens += pTokens + cTokens;
-    const exactCostUsd = Number(usage?.cost?.total_cost);
+    const exactCostUsd = Number(safeUsage?.cost?.total_cost);
     const callCostUsd = (!Number.isNaN(exactCostUsd) && exactCostUsd > 0)
       ? exactCostUsd
-      : (pTokens / 1_000_000) * 2.0 + (cTokens / 1_000_000) * 10.0;
+      : (pTokens / 1_000_000) * 3.0 + (cTokens / 1_000_000) * 15.0 + 0.005;
     stats.estimatedCostUsd = Number((stats.estimatedCostUsd + callCostUsd).toFixed(5));
-    stats.estimatedCostKrw = Math.round(stats.estimatedCostUsd * 1380);
-    stats.lastCalledAt = new Date().toISOString().slice(0, 19).replace('T', ' ');
+    stats.estimatedCostKrw = Math.max(
+      stats.totalCalls > 0 ? 1 : 0,
+      Math.round(stats.estimatedCostUsd * 1390)
+    );
+    stats.lastCalledAt = formatKstDateTime(new Date());
     saveClientUsageStats(stats);
   }
 
@@ -815,7 +849,8 @@
 
   async function callPerplexityDirectFromBrowser(apiKey, systemPrompt, userPrompt, recencyFilter = 'month', callType = 'draft', maxTokensOverride = 0, preferredModel = '', abortSignal = null) {
     const selectedModel = preferredModel || getSelectedWriterModel() || DEFAULT_PPLX_MODEL;
-    const isSonarDirect = selectedModel === 'sonar-pro' || callType === 'trend' || maxTokensOverride === 2500;
+    const isTrendCall = callType === 'trend' || callType === 'trend_part';
+    const isSonarDirect = selectedModel === 'sonar-pro' || isTrendCall || maxTokensOverride === 2500;
 
     // 1) 트렌드 수집 / 최신 뉴스 메모 추가 / Sonar-Pro 직접 선택 시: 초고속 sonar-pro 단일 호출 (충분한 대기 시간 120초 보장)
     if (isSonarDirect) {
@@ -841,8 +876,8 @@
                 { role: 'system', content: systemPrompt },
                 { role: 'user', content: userPrompt }
               ],
-              max_tokens: maxTokensOverride || (callType === 'trend' ? 6500 : 8000),
-              temperature: callType === 'trend' ? 0.35 : 0.2
+              max_tokens: maxTokensOverride || (isTrendCall ? 6500 : 8000),
+              temperature: isTrendCall ? 0.45 : 0.2
             })
           }, 120000, 'Perplexity Sonar-Pro');
           if (!res.ok) {
@@ -903,7 +938,7 @@
         }, 30000, '1단계 실시간 뉴스 검색(Sonar-Pro)');
         if (s1Res.ok) {
           const s1Data = await s1Res.json();
-          recordClientPerplexityUsage(s1Data?.usage, 'trend');
+          recordClientPerplexityUsage(s1Data?.usage, 'draft_search');
           stage1FactsText = s1Data?.choices?.[0]?.message?.content || '';
           stage1SearchResults = Array.isArray(s1Data?.search_results)
             ? s1Data.search_results.filter(r => r && isRealArticleUrl(r.url))
@@ -1427,14 +1462,22 @@
 
     // Perplexity AI 2분할 호출과 실시간 구글 뉴스 RSS 수집을 동시에 실행 (어느 한쪽이 지연/실패해도 절대 전체 오류가 나지 않음!)
     const [settledA, settledB, settledRss] = await Promise.allSettled([
-      callPerplexityDirectFromBrowser(apiKey, commonSys, usrGroupA, 'week', 'trend', 4500),
-      callPerplexityDirectFromBrowser(apiKey, commonSys, usrGroupB, 'week', 'trend', 5000),
+      callPerplexityDirectFromBrowser(apiKey, commonSys, usrGroupA, 'week', 'trend_part', 4500),
+      callPerplexityDirectFromBrowser(apiKey, commonSys, usrGroupB, 'week', 'trend_part', 5000),
       fetchBrowserLiveRssTrends(flatExisting, refreshCycle)
     ]);
 
     const resA = settledA.status === 'fulfilled' ? settledA.value : null;
     const resB = settledB.status === 'fulfilled' ? settledB.value : null;
     const rssTrends = settledRss.status === 'fulfilled' ? settledRss.value : {};
+
+    if (resA || resB) {
+      const curStats = getClientUsageStats();
+      curStats.totalCalls = (curStats.totalCalls || 0) + 1;
+      curStats.trendCalls = (curStats.trendCalls || 0) + 1;
+      curStats.lastCalledAt = formatKstDateTime(new Date());
+      saveClientUsageStats(curStats);
+    }
 
     const combinedSearchResults = [
       ...(resA?.searchResults || []),
@@ -4316,13 +4359,7 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
         throw new Error('USE_HYBRID_LIVE_REFRESH');
       }
       const radar = await apiFetch('/api/trends');
-      if (radar.apiUsageStats) {
-        const localStats = getClientUsageStats();
-        const mergedStats = (radar.apiUsageStats.totalCalls >= (localStats.totalCalls || 0))
-          ? radar.apiUsageStats
-          : localStats;
-        saveClientUsageStats(mergedStats);
-      }
+      state.apiUsageStats = getClientUsageStats();
       state.trendRadar = sanitizeAllTrendRadarObj(radar);
       const nowTs = Date.now();
       state.trendUpdatedAt = formatTrendTimestamp(radar.updatedAt || nowTs);
@@ -4493,13 +4530,7 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
       }
       state.hasPerplexityKey = Boolean(cfg.hasPerplexityKey || clientKey);
       state.maskedKey = cfg.maskedKey || maskApiKey(clientKey) || '';
-      if (cfg.apiUsageStats) {
-        const localStats = getClientUsageStats();
-        const mergedStats = (cfg.apiUsageStats.totalCalls >= (localStats.totalCalls || 0))
-          ? cfg.apiUsageStats
-          : localStats;
-        saveClientUsageStats(mergedStats);
-      }
+      state.apiUsageStats = getClientUsageStats();
     } catch (e) {
       // GitHub Pages 등 정적 호스팅 환경: URL 공유 키, 브라우저 저장 키, 또는 팀 기본 내장 키 자동 활성화
       state.isStaticHosting = true;
@@ -4922,16 +4953,8 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
     await loadConfig();
     const modalRoot = document.getElementById('modalRoot');
     if (!modalRoot) return;
-    const stats = state.apiUsageStats || {
-      model: DEFAULT_PPLX_MODEL,
-      totalCalls: 0,
-      trendCalls: 0,
-      draftCalls: 0,
-      totalTokens: 0,
-      estimatedCostUsd: 0,
-      estimatedCostKrw: 0,
-      cacheHitsOnRefresh: 0
-    };
+    const stats = getClientUsageStats();
+    state.apiUsageStats = stats;
     const fullShareUrl = buildShareableTeamUrl();
 
     modalRoot.innerHTML = `
@@ -4946,7 +4969,7 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
           </p>
 
           <!-- 실시간 API 사용량 & 예상 비용 대시보드 -->
-          <div style="padding: 12px 14px; background-color: var(--bg-subtle); border: var(--border-thin); border-radius: var(--radius-general); margin-bottom: 14px;">
+          <div id="apiUsageMonitorBox" style="padding: 12px 14px; background-color: var(--bg-subtle); border: var(--border-thin); border-radius: var(--radius-general); margin-bottom: 14px;">
             <div class="flex-between mb-6" style="gap: 8px; flex-wrap: wrap;">
               <strong style="font-size: 12.5px; color: var(--text-primary);">📊 내 브라우저 누적 API 호출 및 예상 소진액</strong>
               <div class="flex-row" style="gap: 8px;">
@@ -4957,22 +4980,23 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
             <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; text-align: center;">
               <div style="padding: 8px; background: var(--white); border: var(--border-thin); border-radius: 6px;">
                 <div style="font-size: 11px; color: var(--text-muted);">내 브라우저 호출</div>
-                <div style="font-size: 15px; font-weight: 800; color: var(--text-primary);">${stats.totalCalls}회</div>
-                <div style="font-size: 10.5px; color: var(--text-secondary);">트렌드 ${stats.trendCalls} · 초안 ${stats.draftCalls}</div>
+                <div id="apiModalTotalCalls" style="font-size: 15px; font-weight: 800; color: var(--text-primary);">${stats.totalCalls || 0}회</div>
+                <div id="apiModalSubCalls" style="font-size: 10.5px; color: var(--text-secondary);">트렌드 ${stats.trendCalls || 0} · 초안 ${stats.draftCalls || 0}</div>
               </div>
               <div style="padding: 8px; background: var(--white); border: var(--border-thin); border-radius: 6px;">
                 <div style="font-size: 11px; color: var(--text-muted);">내 브라우저 예상액</div>
-                <div style="font-size: 15px; font-weight: 800; color: var(--mk-orange);">약 ${stats.estimatedCostKrw}원</div>
-                <div style="font-size: 10.5px; color: var(--text-secondary);">$${stats.estimatedCostUsd} (${stats.totalTokens.toLocaleString()} 토큰)</div>
+                <div id="apiModalCostKrw" style="font-size: 15px; font-weight: 800; color: var(--mk-orange);">약 ${(stats.estimatedCostKrw || 0).toLocaleString()}원</div>
+                <div id="apiModalCostUsdTokens" style="font-size: 10.5px; color: var(--text-secondary);">$${Number(stats.estimatedCostUsd || 0).toFixed(4)} (${(stats.totalTokens || 0).toLocaleString()} 토큰)</div>
               </div>
               <div style="padding: 8px; background: var(--white); border: var(--border-thin); border-radius: 6px;">
                 <div style="font-size: 11px; color: var(--text-muted);">새로고침 캐시 방어</div>
-                <div style="font-size: 15px; font-weight: 800; color: var(--status-green);">${stats.cacheHitsOnRefresh}회 절약</div>
-                <div style="font-size: 10.5px; color: var(--text-secondary);">F5 접속 시 0원</div>
+                <div id="apiModalCacheHits" style="font-size: 15px; font-weight: 800; color: var(--status-green);">${stats.cacheHitsOnRefresh || 0}회 절약</div>
+                <div style="font-size: 10.5px; color: var(--text-secondary);">캐시 적중 시 0원</div>
               </div>
             </div>
-            <div style="margin-top: 8px; font-size: 11px; color: var(--text-muted); line-height: 1.45;">
-              ※ 위 수치는 현재 접속 중인 내 브라우저 기준 누적 추정치입니다. (팀 전체 총 결제·차감액은 Perplexity 관리자 대시보드에서 확인 가능)
+            <div class="flex-between" style="margin-top: 8px; font-size: 11px; color: var(--text-muted); line-height: 1.45; gap: 6px; flex-wrap: wrap;">
+              <span>※ 현재 접속 중인 내 브라우저 기준 실시간 누적 추정치입니다.</span>
+              <span id="apiModalLastCalledAt" style="font-weight: 700; color: var(--text-secondary);">${stats.lastCalledAt && stats.lastCalledAt !== '-' ? `최근 반영: ${escapeHtml(stats.lastCalledAt)} (KST)` : '아직 호출 기록 없음'}</span>
             </div>
           </div>
 
@@ -5485,6 +5509,9 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
       if (abortController.signal.aborted || runId !== currentDraftRunId) return;
       if (!res.usedPerplexity && getClientPerplexityKey()) {
         throw new Error('SERVER_FALLBACK_RETRY_IN_CLIENT');
+      }
+      if (res.usedPerplexity) {
+        recordClientPerplexityUsage({}, 'draft');
       }
       await loadConfig();
       if (abortController.signal.aborted || runId !== currentDraftRunId) return;
@@ -9051,6 +9078,9 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
         }
         if (rebuildDraft && !res.usedPerplexity && getClientPerplexityKey()) {
           throw new Error('SERVER_FALLBACK_RETRY_IN_CLIENT');
+        }
+        if (res.usedPerplexity) {
+          recordClientPerplexityUsage({}, 'draft');
         }
         state.isRefreshingInEditor = false;
         currentDraftAbortController = null;
