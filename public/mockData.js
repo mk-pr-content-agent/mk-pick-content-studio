@@ -2289,9 +2289,10 @@ function buildDynamicWorkFromNews({ keyword, company, subKeywords = '', directio
   newsItems.forEach((n, idx) => {
     const srcId = `src-live-${idx + 1}`;
     const reworked = paraphraseNewsToMkFact(n.title, kw, n.source, idx);
+    const actualArticleUrl = n.url || n.link || `https://www.mk.co.kr/search?word=${encodeURIComponent(kw)}`;
     sources.push({
       id: srcId,
-      url: n.link || 'https://www.mk.co.kr',
+      url: actualArticleUrl,
       title: `[참고 보도 · ${n.source || '언론'}] ${n.title}`,
       method: '실시간 트렌드 수집',
       reliability: '높음',
@@ -2302,6 +2303,7 @@ function buildDynamicWorkFromNews({ keyword, company, subKeywords = '', directio
       category: `추출 팩트 #${idx + 1} (${reworked.extractedNumbers !== '주요 지표 확인' ? reworked.extractedNumbers : n.pubDateShort || '최신'})`,
       fact: reworked.paraphrasedSentence,
       rawReference: `참고 보도 주제: ${n.title} (${n.source})`,
+      sourceUrl: actualArticleUrl,
       sourceIds: [srcId],
       usedInSection: idx === 0 ? 1 : (idx <= 2 ? 2 : 3)
     });
@@ -2993,28 +2995,37 @@ function buildContextualFanoutQuestions(kw = '', comp = '', tId = 4) {
 }
 
 // 4대 대표 레퍼런스 시나리오 빌더 (+ 실제 에디터 원고 기반 버츄얼 아이돌 계보 시나리오 포함)
-function buildPresetScenario({ keyword, url, company, selectedType }) {
+function buildPresetScenario({ keyword, url, company, subKeywords = '', direction = '', rawText = '', selectedType, typeId, newsItems = [] }) {
   const kw = (keyword || '10월 10일 임산부의 날').trim();
   const comp = (company || '').trim();
   const targetUrl = (url || '').trim();
-  const tId = Number(selectedType) || 2;
+  const tId = Number(selectedType || typeId) || 2;
 
   if (isVirtualIdolQuery(kw, comp)) {
     return getVirtualIdolScenario(kw);
   }
-  if (kw.includes('결혼') || tId === 1) {
+  if (kw.includes('결혼 트렌드')) {
     return getWeddingScenario(kw, comp || '오늘의집·번개장터', targetUrl, 1, 5, '', '');
   }
-  if (kw.includes('민음사') || tId === 3) {
+  if (kw.includes('민음사빵')) {
     return getViralBreadScenario(kw, 3, 4, '', '');
   }
-  if (tId === 4 && !kw.includes('임산부')) {
-    return getDynamicType4Preset(kw, comp);
-  }
-  if (tId === 5 || kw.includes('번개장터') || kw.includes('도씨')) {
+  if (kw.includes('번개장터 안전결제') || kw.includes('도씨')) {
     return getB2BTargetScenario(kw, comp || '번개장터', targetUrl, 5, 1, '', '');
   }
-  return getPregnantDayScenario(kw, 2, 1, '', '');
+  if (kw.includes('임산부의 날')) {
+    return getPregnantDayScenario(kw, 2, 1, '', '');
+  }
+  return buildDynamicWorkFromNews({
+    keyword: kw,
+    company: comp,
+    subKeywords,
+    direction,
+    url: targetUrl,
+    rawText,
+    typeId: tId,
+    newsItems
+  });
 }
 
 // 실제 MK Pick 에디터 원고 완벽 반영: '아담, 키즈나아이, 이세계아이돌, 플레이브, 나이비스' 버츄얼 아이돌 타임라인 & 대표 주자 개별 심층 조명 시나리오
@@ -3352,8 +3363,8 @@ function getPregnantDayScenario(kw, primaryType, secondaryType, primaryReason, s
     },
     {
       id: 'src-3',
-      url: 'https://www.mk.co.kr/news/business/11138290',
-      title: '매일경제 - 유통·육아업계 10월 10일 임산부의 날 맞아 프로모션 총출동',
+      url: `https://www.mk.co.kr/search?word=${encodeURIComponent('임산부의 날')}`,
+      title: '매일경제 - 유통·육아업계 10월 10일 임산부의 날 관련 보도 검색',
       method: '언론 보도',
       reliability: '높음',
       excluded: false
@@ -3548,16 +3559,16 @@ function getWeddingScenario(kw, comp, targetUrl, primaryType, secondaryType, pri
   const sources = [
     {
       id: 'src-w1',
-      url: targetUrl || 'https://www.ohou.se/exhibitions/wedding',
-      title: '오늘의집 공식 웨딩 기획전 및 신혼 가구·인테리어 트렌드 리포트',
+      url: targetUrl || 'https://www.ohou.se',
+      title: '오늘의집 공식 홈페이지 및 신혼 가구·인테리어 트렌드',
       method: '기업 공식',
       reliability: '높음',
       excluded: false
     },
     {
       id: 'src-w2',
-      url: 'https://www.mk.co.kr/news/economy/11140211',
-      title: '매일경제 - 2026 웨딩 트렌드 및 신혼 소비 분석',
+      url: `https://www.mk.co.kr/search?word=${encodeURIComponent('웨딩 트렌드')}`,
+      title: '매일경제 - 웨딩 트렌드 및 신혼 소비 관련 보도 검색',
       method: '언론 보도',
       reliability: '높음',
       excluded: false
@@ -3668,8 +3679,8 @@ function getViralBreadScenario(kw, primaryType, secondaryType, primaryReason, se
   const sources = [
     {
       id: 'src-b1',
-      url: 'https://www.mk.co.kr/news/culture/11102931',
-      title: '매일경제 - 민음사 세계문학전집 책갈피 콜라보 열풍 분석',
+      url: `https://www.mk.co.kr/search?word=${encodeURIComponent('민음사 책갈피')}`,
+      title: '매일경제 - 민음사 세계문학전집 책갈피 콜라보 관련 보도 검색',
       method: '언론 보도',
       reliability: '높음',
       excluded: false
