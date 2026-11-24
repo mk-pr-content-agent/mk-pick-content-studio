@@ -789,9 +789,10 @@
 
   function matchBestSearchResult(rf, searchResults = [], usedUrls = new Set()) {
     if (!Array.isArray(searchResults) || searchResults.length === 0) return null;
-    const kwText = String(rf?.sourceTitle || '').toLowerCase();
+    const rawSourceTitle = String(rf?.sourceTitle || '').replace(/^\[[^\]]*\]\s*/, '').trim();
+    const kwText = rawSourceTitle.toLowerCase();
     const targetText = `${kwText} ${rf?.fact || ''}`.toLowerCase();
-    const stopWords = new Set(['관련', '보도', '참고', '팩트', '최근', '기준', '통해', '밝혔습니다', '있습니다', '출시', '신상', '신제품', '신메뉴', '한정판', '한정', '시즌', '겨울', '연말', '크리스마스', '홀리데이', '기획전', '프로모션', '할인', '특가', '이벤트', '팝업', '팝업스토어', '오픈런', '품절', '완판', '열풍', '화제', '인기', '트렌드', '소비', '검색', '급상승']);
+    const stopWords = new Set(['관련', '보도', '참고', '팩트', '최근', '기준', '통해', '밝혔습니다', '있습니다', '출시', '신상', '신제품', '신메뉴', '한정판', '한정', '시즌', '겨울', '연말', '크리스마스', '홀리데이', '기획전', '프로모션', '할인', '특가', '이벤트', '팝업', '팝업스토어', '오픈런', '품절', '완판', '열풍', '화제', '인기', '트렌드', '소비', '검색', '급상승', '선물', '예약', '사전예약', '추천', '비교', '메뉴', '제품', '상품', '브랜드', '매장', '오픈', '행사', '단독', '공개']);
     const kwTokens = kwText
       .replace(/[^\w가-힣\s]/g, ' ')
       .split(/\s+/)
@@ -801,7 +802,11 @@
       .split(/\s+/)
       .filter(w => w.length >= 2 && !stopWords.has(w));
 
-    if (tokens.length === 0) return null;
+    if (kwTokens.length === 0) return null;
+
+    // 핵심 브랜드명 또는 첫 번째 주어 토큰이 실제 기사 제목에 반드시 포함되어야만 매칭 허용! (예: '쿠팡' 키워드에 '쿠팡'이 없는 더바디샵 기사 매칭 원천 차단)
+    const detectedBrand = (typeof extractBrandFromTopic === 'function' ? extractBrandFromTopic(rawSourceTitle) : '').split(',')[0].trim().toLowerCase();
+    const primarySubjectToken = detectedBrand || kwTokens[0];
 
     let bestItem = null;
     let bestScore = 0;
@@ -811,6 +816,12 @@
       if (usedUrls.has(sr.url)) continue;
       const titleLower = String(sr.title || '').toLowerCase();
       const hay = `${titleLower} ${sr.snippet || ''}`.toLowerCase();
+
+      // 기사 제목(title)에 핵심 브랜드명/주어(primarySubjectToken)가 아예 없으면 즉시 탈락!
+      if (primarySubjectToken && !titleLower.includes(primarySubjectToken)) {
+        continue;
+      }
+
       let score = 0;
       let matchedTokens = 0;
       let titleMatchedCore = 0;
@@ -827,8 +838,9 @@
           matchedTokens += 1;
         }
       }
-      // 최소 1개 이상의 핵심 키워드(브랜드·상품명)가 기사 제목(title)에 포함되고 총점 5점 이상일 때만 실제 매칭으로 인정!
-      if (titleMatchedCore >= 1 && matchedTokens >= 1 && score >= 5 && score > bestScore) {
+      // 핵심 브랜드/주어가 기사 제목에 포함되고 최소 2개 이상 토큰이 일치할 때만 실제 매칭으로 인정!
+      const minRequiredCore = kwTokens.length >= 2 ? 2 : 1;
+      if (titleMatchedCore >= minRequiredCore && score >= 6 && score > bestScore) {
         bestScore = score;
         bestItem = sr;
       }
@@ -1620,12 +1632,19 @@
         if (!directUrl || !isRealArticleUrl(directUrl)) return null;
         const verifiedPressName = resolvePressNameFromUrl(directUrl, rawSrc);
         if (!verifiedPressName) return null;
+        const actualHeadline = String(matchedSr?.title || '').replace(/\s+-\s+[^-]+$/, '').trim();
+        const verifiedKw = (actualHeadline && cleanTrendTopicKeyword)
+          ? cleanTrendTopicKeyword(actualHeadline)
+          : rawKw;
+        const verifiedDesc = (actualHeadline && paraphraseNewsToMkFact)
+          ? paraphraseNewsToMkFact(actualHeadline, verifiedKw, verifiedPressName).paraphrasedSentence
+          : rawDesc;
         usedUrls.add(directUrl);
         return {
           ...item,
-          keyword: rawKw,
-          company: rawComp,
-          desc: rawDesc,
+          keyword: verifiedKw || rawKw,
+          company: rawComp || (extractBrandFromTopic ? extractBrandFromTopic(verifiedKw) : ''),
+          desc: verifiedDesc || rawDesc,
           source: verifiedPressName,
           pubDateShort: item.pubDateShort || matchedSr?.date || todayStr,
           verifiedPress: true,
@@ -1750,13 +1769,17 @@ ${url ? `- 참고 URL: ${url}\n` : ''}${rawText ? `- 추가 메모: ${rawText}\n
     const usedSrUrls = new Set();
     const factsArr = Array.isArray(parsed.researchFacts) ? parsed.researchFacts : [];
     const enrichedFacts = factsArr.map((rf, i) => {
-      const matchedSr = matchBestSearchResult(rf, searchResults, usedSrUrls);
-      const directUrl = isRealArticleUrl(rf.sourceUrl)
-        ? rf.sourceUrl.trim()
-        : (matchedSr?.url || (isRealArticleUrl(citations[i]) ? citations[i] : `https://search.naver.com/search.naver?where=news&sort=1&query=${encodeURIComponent(keyword)}`));
-      if (isRealArticleUrl(directUrl)) usedSrUrls.add(directUrl);
-      const pubDate = rf.pubDate || matchedSr?.date || todayStr;
-      const srcTitle = rf.sourceTitle || (matchedSr?.title ? `[최신 보도 · ${pubDate}] ${matchedSr.title}` : `[Perplexity 실시간 검증 출처 #${i + 1}] ${keyword} 관련 보도`);
+      const exactSr = (searchResults || []).find(sr => sr && isRealArticleUrl(sr.url) && sr.url.trim() === String(rf.sourceUrl || '').trim() && !usedSrUrls.has(sr.url.trim()));
+      const matchedSr = exactSr || matchBestSearchResult(rf, searchResults, usedSrUrls);
+      const directUrl = matchedSr?.url
+        ? matchedSr.url.trim()
+        : `https://search.naver.com/search.naver?where=news&sort=1&query=${encodeURIComponent(keyword)}`;
+      if (matchedSr?.url) usedSrUrls.add(directUrl);
+      const pubDate = matchedSr?.date || rf.pubDate || todayStr;
+      const resolvedPress = matchedSr?.url ? resolvePressNameFromUrl(matchedSr.url, '') : '';
+      const srcTitle = matchedSr?.title
+        ? `[${resolvedPress || '공식 보도'} · ${pubDate}] ${matchedSr.title}`
+        : (rf.sourceTitle || `[최신 보도 확인 · ${pubDate}] ${keyword} 관련 보도`);
       const srcId = `src-pplx-${i + 1}`;
       mergedSources.push({
         id: srcId,
