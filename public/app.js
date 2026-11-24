@@ -4522,19 +4522,9 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
     state.lastTrendRefreshError = '';
     const todayStr = new Date().toISOString().slice(0, 10);
 
-    // 브라우저 새로고침(F5) 감지: 홈 트렌드 화면에서 F5를 눌렀을 때도 최신 이슈로 즉시 새로 수집
-    let isBrowserReloadOnTrends = false;
-    try {
-      const navEntry = (typeof performance !== 'undefined' && performance.getEntriesByType)
-        ? performance.getEntriesByType('navigation')[0]
-        : null;
-      if (navEntry && navEntry.type === 'reload' && !window.__mkReloadHandledOnce && state.screen === 'home' && state.homeDiscoveryTab === 'trends') {
-        window.__mkReloadHandledOnce = true;
-        isBrowserReloadOnTrends = true;
-      }
-    } catch (e) {}
-
-    let isLiveRefresh = Boolean(forceRefresh || isBrowserReloadOnTrends);
+    // 수동 새로고침 방식 보장: 사이트 접속이나 브라우저 전체 새로고침(F5) 시에는 절대 자동으로 AI 수집을 돌리지 않고,
+    // 오직 사용자가 [🔄 실시간 트렌드 새로고침] 버튼을 직접 클릭했을 때(forceRefresh === true)만 실시간 수집을 실행합니다!
+    let isLiveRefresh = Boolean(forceRefresh);
     if (isLiveRefresh) {
       state.trendRefreshCycle = (state.trendRefreshCycle || 0) + 1;
     }
@@ -4658,30 +4648,19 @@ ${JSON.stringify(currentArticlePayload, null, 2)}
           const curStats = getClientUsageStats();
           curStats.cacheHitsOnRefresh = (curStats.cacheHitsOnRefresh || 0) + 1;
           saveClientUsageStats(curStats);
-        } else if (isSnapFreshToday && snapshotDataObj) {
+        } else if (snapshotDataObj) {
           state.trendRadar = snapshotDataObj;
-          state.trendUpdatedAt = formatTrendTimestamp(snapshotTs);
-          state.trendSourceLabel = '오늘자 공유 스냅샷 (접속 과금 0원)';
-          try {
-            localStorage.setItem(CLIENT_TREND_CACHE_KEY, JSON.stringify({
-              timestamp: snapshotTs,
-              data: snapshotDataObj
-            }));
-          } catch (err) {}
+          state.trendUpdatedAt = formatTrendTimestamp(snapshotTs || Date.now());
+          state.trendSourceLabel = '수동 새로고침 대기 (접속 시 과금 0원 · 버튼 클릭 시 즉시 최신화)';
           loadedFromCacheOrSnapshot = true;
           const curStats = getClientUsageStats();
           curStats.cacheHitsOnRefresh = (curStats.cacheHitsOnRefresh || 0) + 1;
           saveClientUsageStats(curStats);
-        } else {
-          // 오랜만에 접속해 캐시/스냅샷이 지난 날짜이거나 만료된 경우:
-          // 빈 화면 방지용으로 스냅샷을 먼저 세팅한 뒤, 그 옛날 키워드들을 제외 목록(prevByTab)에 넣고 실시간 최신 수집으로 자동 전환!
-          if (snapshotDataObj) {
-            state.trendRadar = snapshotDataObj;
-            if (state.screen === 'home') render(true);
-          }
-          isLiveRefresh = true;
-          state.trendRefreshCycle = (state.trendRefreshCycle || 0) + 1;
-          loadedFromCacheOrSnapshot = false;
+        } else if (cachedObj?.data) {
+          state.trendRadar = sanitizeAllTrendRadarObj(cachedObj.data);
+          state.trendUpdatedAt = formatTrendTimestamp(cacheTs || Date.now());
+          state.trendSourceLabel = '수동 새로고침 대기 (접속 시 과금 0원 · 버튼 클릭 시 즉시 최신화)';
+          loadedFromCacheOrSnapshot = true;
         }
       }
 
