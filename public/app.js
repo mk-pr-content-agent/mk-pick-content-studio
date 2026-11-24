@@ -121,7 +121,7 @@
   const CLIENT_STORAGE_KEY = 'mk_pplx_api_key_v1';
   const CLIENT_DISCONNECTED_FLAG = 'mk_pplx_disconnected_v1';
   const CLIENT_USAGE_KEY = 'mk_pplx_usage_stats_v2';
-  const CLIENT_TREND_CACHE_KEY = 'mk_pplx_trend_cache_v12';
+  const CLIENT_TREND_CACHE_KEY = 'mk_pplx_trend_cache_v13';
   try {
     localStorage.removeItem('mk_pplx_usage_stats_v1');
     localStorage.removeItem('mk_pplx_trend_cache_v5');
@@ -131,6 +131,7 @@
     localStorage.removeItem('mk_pplx_trend_cache_v9');
     localStorage.removeItem('mk_pplx_trend_cache_v10');
     localStorage.removeItem('mk_pplx_trend_cache_v11');
+    localStorage.removeItem('mk_pplx_trend_cache_v12');
   } catch (e) {}
   const CLIENT_WORKS_STORAGE_KEY = 'mk_pplx_saved_works_v1';
   const CLIENT_HISTORY_BACKUP_KEY = 'mk_pplx_work_history_backup_v1';
@@ -700,11 +701,85 @@
     }
   }
 
+  // 공신력 있는 국내 주요 언론사(경제지·종합일간지·통신사·방송사·주요 전문지) 허용 정규식
+  const TRUSTED_KOREAN_PRESS_REGEX = /^(?:매일경제|한국경제|서울경제|서울경제TV|머니투데이|아시아경제|헤럴드경제|파이낸셜뉴스|이데일리|조선비즈|Chosunbiz|이투데이|아주경제|연합뉴스|연합뉴스TV|뉴시스|뉴스1|조선일보|중앙일보|동아일보|한겨레|경향신문|국민일보|세계일보|서울신문|문화일보|한국일보|부산일보|매일신문|국제신문|강원일보|KBS|MBC|SBS|SBS\s*Biz|JTBC|YTN|MBN|채널A|TV조선|전자신문|디지털타임스|지디넷코리아|ZDNet\s*Korea|아이뉴스24|블로터|더벨|비즈니스포스트|딜사이트|뉴스핌|뉴스웨이|데일리안|쿠키뉴스|노컷뉴스|시사저널|일요신문|주간동아|한경비즈니스|매경이코노미|이코노미스트|포브스코리아|패션비즈|어패럴뉴스|뷰티누리|식품저널|더구루|뉴스토마토|브릿지경제|대한경제|에너지경제|메트로신문)$/i;
+
+  function resolvePressNameFromUrl(url = '', fallbackSource = '') {
+    const u = String(url || '').toLowerCase();
+    const domainMap = [
+      [/mk\.co\.kr/, '매일경제'],
+      [/hankyung\.com/, '한국경제'],
+      [/sedaily\.com/, '서울경제'],
+      [/sentv\.co\.kr/, '서울경제TV'],
+      [/edaily\.co\.kr/, '이데일리'],
+      [/mt\.co\.kr/, '머니투데이'],
+      [/asiae\.co\.kr/, '아시아경제'],
+      [/heraldcorp\.com/, '헤럴드경제'],
+      [/fnnews\.com/, '파이낸셜뉴스'],
+      [/biz\.chosun\.com/, '조선비즈'],
+      [/chosun\.com/, '조선일보'],
+      [/joongang\.co\.kr/, '중앙일보'],
+      [/donga\.com/, '동아일보'],
+      [/hani\.co\.kr/, '한겨레'],
+      [/khan\.co\.kr/, '경향신문'],
+      [/kmib\.co\.kr/, '국민일보'],
+      [/segye\.com/, '세계일보'],
+      [/seoul\.co\.kr/, '서울신문'],
+      [/munhwa\.com/, '문화일보'],
+      [/hankookilbo\.com/, '한국일보'],
+      [/yonhapnewstv\.co\.kr/, '연합뉴스TV'],
+      [/yna\.co\.kr/, '연합뉴스'],
+      [/newsis\.com/, '뉴시스'],
+      [/news1\.kr/, '뉴스1'],
+      [/etnews\.com/, '전자신문'],
+      [/dt\.co\.kr/, '디지털타임스'],
+      [/zdnet\.co\.kr/, '지디넷코리아'],
+      [/inews24\.com/, '아이뉴스24'],
+      [/bloter\.net/, '블로터'],
+      [/etoday\.co\.kr/, '이투데이'],
+      [/ajunews\.com/, '아주경제'],
+      [/newspim\.com/, '뉴스핌'],
+      [/newsway\.co\.kr/, '뉴스웨이'],
+      [/dailian\.co\.kr/, '데일리안'],
+      [/kukinews\.com/, '쿠키뉴스'],
+      [/nocutnews\.co\.kr/, '노컷뉴스'],
+      [/kbs\.co\.kr/, 'KBS'],
+      [/imbc\.com/, 'MBC'],
+      [/sbs\.co\.kr/, 'SBS'],
+      [/jtbc\.co\.kr/, 'JTBC'],
+      [/ytn\.co\.kr/, 'YTN'],
+      [/mbn\.co\.kr/, 'MBN'],
+      [/ekn\.kr/, '에너지경제'],
+      [/dnews\.co\.kr/, '대한경제'],
+      [/newstomato\.com/, '뉴스토마토'],
+      [/theguru\.co\.kr/, '더구루'],
+      [/news\.nate\.com/, '네이트뉴스'],
+      [/v\.daum\.net/, '다음뉴스'],
+      [/n\.news\.naver\.com/, '네이버뉴스']
+    ];
+    for (const [regex, pressName] of domainMap) {
+      if (regex.test(u)) return pressName;
+    }
+    const cleanFb = String(fallbackSource || '').trim();
+    if (/^chosunbiz$/i.test(cleanFb)) return '조선비즈';
+    if (/^zdnet\s*korea$/i.test(cleanFb)) return '지디넷코리아';
+    return TRUSTED_KOREAN_PRESS_REGEX.test(cleanFb) ? cleanFb : '';
+  }
+
   function isRealArticleUrl(u) {
     if (!u || typeof u !== 'string') return false;
     const s = u.trim();
     if (!/^https?:\/\//i.test(s)) return false;
+    // 검색 결과 페이지 URL 배제
     if (s.includes('news.google.com/search') || s.includes('google.com/search') || s.includes('search.naver.com/search')) {
+      return false;
+    }
+    // 개인 블로그·티스토리·카페·위키·AI블로그·팝업모음집·해외 잡사이트·SNS 원천 배제
+    if (/tistory\.com|blog\.naver\.com|post\.naver\.com|cafe\.naver\.com|brunch\.co\.kr|velog\.io|aeobot\.ai|howbuzzy\.com|seoulstart\.com|syioknya|mognavi|excite\.co\.jp|lawson\.co\.jp|koreancenter\.or\.kr|dcinside\.com|fmkorea\.com|theqoo\.net|instiz\.net|namu\.wiki|wikipedia\.org|youtube\.com|instagram\.com|tiktok\.com|facebook\.com|twitter\.com|x\.com/i.test(s)) {
+      return false;
+    }
+    // 개별 기사가 아닌 카테고리/아카이브/목록 페이지 배제 (예: /archive/20261124, /industry/1216?page=1, /popups/)
+    if (/\/archive\/|\/popups\/|\/category\/|\/tag\/|[?&]page=\d+$|^https?:\/\/[^/]+\/?$/i.test(s)) {
       return false;
     }
     return true;
@@ -712,22 +787,46 @@
 
   function matchBestSearchResult(rf, searchResults = [], usedUrls = new Set()) {
     if (!Array.isArray(searchResults) || searchResults.length === 0) return null;
-    const targetText = `${rf?.sourceTitle || ''} ${rf?.fact || ''}`.toLowerCase();
+    const kwText = String(rf?.sourceTitle || '').toLowerCase();
+    const targetText = `${kwText} ${rf?.fact || ''}`.toLowerCase();
+    const stopWords = new Set(['관련', '보도', '참고', '팩트', '최근', '기준', '통해', '밝혔습니다', '있습니다', '출시', '신상', '신제품', '신메뉴', '한정판', '한정', '시즌', '겨울', '연말', '크리스마스', '홀리데이', '기획전', '프로모션', '할인', '특가', '이벤트', '팝업', '팝업스토어', '오픈런', '품절', '완판', '열풍', '화제', '인기', '트렌드', '소비', '검색', '급상승']);
+    const kwTokens = kwText
+      .replace(/[^\w가-힣\s]/g, ' ')
+      .split(/\s+/)
+      .filter(w => w.length >= 2 && !stopWords.has(w));
     const tokens = targetText
       .replace(/[^\w가-힣\s]/g, ' ')
       .split(/\s+/)
-      .filter(w => w.length >= 2 && !['관련', '보도', '참고', '팩트', '최근', '기준', '통해', '밝혔습니다', '있습니다'].includes(w));
+      .filter(w => w.length >= 2 && !stopWords.has(w));
+
+    if (tokens.length === 0) return null;
 
     let bestItem = null;
-    let bestScore = -1;
+    let bestScore = 0;
     for (const sr of searchResults) {
       if (!sr || !isRealArticleUrl(sr.url)) continue;
-      const hay = `${sr.title || ''} ${sr.snippet || ''}`.toLowerCase();
-      let score = usedUrls.has(sr.url) ? -3 : 0;
-      for (const tk of tokens) {
-        if (hay.includes(tk)) score += 2;
+      // 이미 다른 항목에 사용된 URL은 절대 재사용하지 않음 (동일 URL 중복 매칭 원천 차단!)
+      if (usedUrls.has(sr.url)) continue;
+      const titleLower = String(sr.title || '').toLowerCase();
+      const hay = `${titleLower} ${sr.snippet || ''}`.toLowerCase();
+      let score = 0;
+      let matchedTokens = 0;
+      let titleMatchedCore = 0;
+
+      for (const kt of kwTokens) {
+        if (titleLower.includes(kt)) {
+          score += 3;
+          titleMatchedCore += 1;
+        }
       }
-      if (score > bestScore) {
+      for (const tk of tokens) {
+        if (hay.includes(tk)) {
+          score += 2;
+          matchedTokens += 1;
+        }
+      }
+      // 최소 1개 이상의 핵심 키워드(브랜드·상품명)가 기사 제목(title)에 포함되고 총점 5점 이상일 때만 실제 매칭으로 인정!
+      if (titleMatchedCore >= 1 && matchedTokens >= 1 && score >= 5 && score > bestScore) {
         bestScore = score;
         bestItem = sr;
       }
@@ -736,12 +835,8 @@
       usedUrls.add(bestItem.url);
       return bestItem;
     }
-    const unused = searchResults.find(sr => sr && isRealArticleUrl(sr.url) && !usedUrls.has(sr.url));
-    if (unused) {
-      usedUrls.add(unused.url);
-      return unused;
-    }
-    return searchResults[0] || null;
+    // 매칭되는 기사가 없으면 절대 엉뚱한 다른 기사 URL(searchResults[0])을 끼워 넣지 않고 null 반환!
+    return null;
   }
 
   // AI 채팅 기사 수정 진행 중 사용자가 [⏹ 수정 중단]을 눌렀을 때 즉시 요청을 취소하기 위한 컨트롤러
@@ -1327,6 +1422,7 @@
 
       const mapped = [];
       for (const it of items) {
+        if (!it.link || !isRealArticleUrl(it.link)) continue;
         let rawTitle = String(it.title || '')
           .replace(/&amp;amp;/gi, '&')
           .replace(/&amp;?/gi, '&')
@@ -1341,29 +1437,33 @@
           if (!source) source = dashMatch[1].trim();
           rawTitle = rawTitle.replace(/\s+-\s+[^-]+$/, '').trim();
         }
-        if (!rawTitle || /부고|인사|동정|주가|코스피|사망|별세|사고|구속|재판|영업이익|적자/.test(rawTitle)) continue;
+        if (/^chosunbiz$/i.test(source)) source = '조선비즈';
+        if (/^zdnet\s*korea$/i.test(source)) source = '지디넷코리아';
+        // 공신력 있는 국내 주요 언론사 보도만 허용 (개인 블로그·출처 불명 사이트 원천 차단)
+        if (!source || !TRUSTED_KOREAN_PRESS_REGEX.test(source)) continue;
+        if (!rawTitle || /부고|인사|동정|주가|코스피|사망|별세|사고|구속|재판|영업이익|적자|유출|해킹|배상|소송/.test(rawTitle)) continue;
         if (isUnusableGossipOrBlindItem && isUnusableGossipOrBlindItem(rawTitle, '', tabKey)) continue;
         const kw = cleanTrendTopicKeyword ? cleanTrendTopicKeyword(rawTitle) : rawTitle;
         if (!kw) continue;
         const pubDateShort = it.pubDate ? String(it.pubDate).slice(0, 10) : todayStr;
         const comp = extractBrandFromTopic ? extractBrandFromTopic(`${kw} ${rawTitle}`) : '';
         const desc = paraphraseNewsToMkFact
-          ? paraphraseNewsToMkFact(rawTitle, kw, source || '언론 보도').paraphrasedSentence
-          : `${source || '언론'} 보도에 따르면 "${rawTitle}" 소식이 전해지며 소비자 관심을 모으고 있습니다.`;
+          ? paraphraseNewsToMkFact(rawTitle, kw, source).paraphrasedSentence
+          : `${source} 보도에 따르면 "${rawTitle}" 소식이 전해지며 소비자 관심을 모으고 있습니다.`;
         mapped.push({
           keyword: kw,
           company: comp,
-          source: source || '언론 보도',
+          source,
           pubDateShort,
           verifiedPress: true,
           badge: tabKey === 'shortFormTrends'
-            ? `✓ 언론 보도 확인 · ${source || '최신'}`
+            ? `✓ 언론 보도 확인 · ${source}`
             : tabKey === 'googleTrends'
-              ? `실시간 급상승 · ${source || '최신'}`
-              : `${source || '언론 보도'} · ${pubDateShort}`,
-          ...(tabKey === 'newsletterTrends' ? { category: `${source || 'MZ 트렌드'} · ${pubDateShort}` } : {}),
+              ? `실시간 급상승 · ${source}`
+              : `${source} · ${pubDateShort}`,
+          ...(tabKey === 'newsletterTrends' ? { category: `${source} · ${pubDateShort}` } : {}),
           desc,
-          url: it.link || `https://news.google.com/search?q=${encodeURIComponent(kw)}&hl=ko&gl=KR&ceid=KR:ko`
+          url: it.link
         });
       }
 
@@ -1508,29 +1608,34 @@
         const rawKw = String(item.keyword || item.title || item.name || item.topic || '').trim();
         const rawComp = String(item.company || item.brand || '').trim();
         const rawDesc = String(item.desc || item.details || item.description || item.summary || '').trim();
-        const rawSrc = String(item.source || item.pressName || '').replace(/\[\d+\]/g, '').trim() || '주요 언론';
+        const rawSrc = String(item.source || item.pressName || '').replace(/\[\d+\]/g, '').trim();
         if (!rawKw && !rawDesc) return null;
         const matchedSr = matchBestSearchResult({ sourceTitle: rawKw, fact: rawDesc }, combinedSearchResults, usedUrls);
-        const directUrl = isRealArticleUrl(item.url)
+        const directUrl = (isRealArticleUrl(item.url) && !usedUrls.has(item.url.trim()))
           ? item.url.trim()
-          : (matchedSr?.url || `https://news.google.com/search?q=${encodeURIComponent(rawKw)}&hl=ko&gl=KR&ceid=KR:ko`);
-        if (isRealArticleUrl(directUrl)) usedUrls.add(directUrl);
+          : (matchedSr?.url || '');
+        // 1:1로 정확히 매칭되는 실제 기사 원문 URL이 없거나 블로그/비공식 사이트이면 할루시네이션·오연결 방지를 위해 제외!
+        if (!directUrl || !isRealArticleUrl(directUrl)) return null;
+        const verifiedPressName = resolvePressNameFromUrl(directUrl, rawSrc);
+        if (!verifiedPressName) return null;
+        usedUrls.add(directUrl);
         return {
           ...item,
           keyword: rawKw,
           company: rawComp,
           desc: rawDesc,
-          source: rawSrc,
+          source: verifiedPressName,
           pubDateShort: item.pubDateShort || matchedSr?.date || todayStr,
           verifiedPress: true,
-          badge: item.badge || (tabKey === 'shortform' ? `✓ 언론 보도 확인 · ${rawSrc}` : tabKey === 'google' ? `실시간 급상승 · ${rawSrc}` : `${rawSrc} · ${todayStr}`),
-          ...(tabKey === 'newsletter' && !item.category ? { category: `${rawSrc} · ${todayStr}` } : {}),
+          badge: tabKey === 'shortform' ? `✓ 언론 보도 확인 · ${verifiedPressName}` : tabKey === 'google' ? `실시간 급상승 · ${verifiedPressName}` : `${verifiedPressName} · ${todayStr}`,
+          ...(tabKey === 'newsletter' ? { category: `${verifiedPressName} · ${todayStr}` } : {}),
           url: directUrl
         };
       }).filter(Boolean);
 
-      // 탭별 고유 RSS 기사와 Perplexity 기사를 교차 병합하여 탭별 고유성 극대화
-      const merged = [...(Array.isArray(rssArr) ? rssArr : []), ...mapped];
+      // 100% 실제 원문 링크가 검증된 공식 뉴스 RSS 기사와 검증 통과한 Perplexity 기사를 병합
+      const validRss = (Array.isArray(rssArr) ? rssArr : []).filter(r => r && r.url && isRealArticleUrl(r.url) && !usedUrls.has(r.url));
+      const merged = [...validRss, ...mapped];
       const sanitized = sanitizeAndFilterTrendList ? sanitizeAndFilterTrendList(merged, tabKey) : merged;
       const unseen = [];
       const seen = [];
@@ -1539,6 +1644,8 @@
         const sig = getCrossTabTopicSignature(it);
         if (!nk || globalSeenKeywords.has(nk)) continue;
         if (sig && globalSeenTopicSigs.has(sig)) continue;
+        if (!it.url || !isRealArticleUrl(it.url)) continue;
+        usedUrls.add(it.url);
         globalSeenKeywords.add(nk);
         if (sig) globalSeenTopicSigs.add(sig);
         if (excludeSet.has(nk)) seen.push(it);

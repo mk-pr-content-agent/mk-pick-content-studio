@@ -1356,7 +1356,7 @@ function isUnusableGossipOrBlindItem(rawTitle = '', fullContext = '', tabKey = '
 
   // 1) 연예인 다이어트/일상 가십, 스포츠 경기, 군사/외교, 사건사고, 의학/질병 공포, B2B/정치/지역구 민원 기사 원천 배제
   if (
-    /\d+\s*kg\s*(?:빼고|감량|살\s*빼)|디저트는\s*못\s*참아|광대\s*승천|남매\s*자랑|열애설|이혼\s*고백|이혼숙려캠프|베드신|탁재훈|공항패션|포토월|무력시위|전투기에|조기경보기|공중급유기|구속|영장|재판|사망|별세|타계|고검장|백악관|전수조사|부고|인사|동정|서킷브레이커|circuit\s*breaker|혈당\s*쓰나미|당뇨병\s*키운다|주주서한|주주환원\s*유보|AI가\s*매달\s*보고|임직원은\s*원인\s*분석|최인석\s*의장|미래\s*마케팅\s*경쟁력|만덕다이소|민원현장|농심천심|라임꿀샷|신문\s*가판대|신문\s*구해요|우승\s*소식.*편의점|2분기\s*연속\s*적자|디지털\s*엑스레이|필리핀\s*세탁기|싱클리|불편한\s*편의점|EY\s*최우수|단체복\s*(?:시장|비즈니스)|무신사\s*유니폼|상업용\s*디스플레이\s*관리|유니폼\s*B2B|대륙\s*흔드는\s*열풍.*롤모델|LNG선\s*배상|등기부\s*열람료|이창호\s*9단|개인정보.*유출|신제품\s*없다|수주·매출\s*연결\s*과제|네팔\s*프리미어리그|로손|모그나비|익사이트뉴스|사루타히코|AEOBOT|Syioknya|하우버지|마이케이팝뉴스|서울스타트|^상장\s*검색\s*급상승$|^아이폰\s*검색\s*급상승$|^이현중\s*검색\s*급상승$|^[①②③④⑤⑥⑦⑧⑨⑩]|^0\d{5}$|주간조선/i.test(combined)
+    /\d+\s*kg\s*(?:빼고|감량|살\s*빼)|디저트는\s*못\s*참아|광대\s*승천|남매\s*자랑|열애설|이혼\s*고백|이혼숙려캠프|베드신|탁재훈|공항패션|포토월|무력시위|전투기에|조기경보기|공중급유기|구속|영장|재판|사망|별세|타계|고검장|백악관|전수조사|부고|인사|동정|서킷브레이커|circuit\s*breaker|혈당\s*쓰나미|당뇨병\s*키운다|주주서한|주주환원\s*유보|AI가\s*매달\s*보고|임직원은\s*원인\s*분석|최인석\s*의장|미래\s*마케팅\s*경쟁력|만덕다이소|민원현장|농심천심|라임꿀샷|신문\s*가판대|신문\s*구해요|우승\s*소식.*편의점|2분기\s*연속\s*적자|디지털\s*엑스레이|필리핀\s*세탁기|싱클리|불편한\s*편의점|EY\s*최우수|단체복\s*(?:시장|비즈니스)|무신사\s*유니폼|상업용\s*디스플레이\s*관리|유니폼\s*B2B|대륙\s*흔드는\s*열풍.*롤모델|LNG선\s*배상|등기부\s*열람료|이창호\s*9단|개인정보.*유출|신제품\s*없다|수주·매출\s*연결\s*과제|네팔\s*프리미어리그|로손|모그나비|익사이트뉴스|사루타히코|AEOBOT|Syioknya|하우버지|마이케이팝뉴스|서울스타트|피해\s*소상공인|과다채무|혹독한\s*겨울나기|셧다운\s*초읽기|내복까지\s*껴입고|^성수동에서\s*만나는\s*K-?뷰티$|^성수동에\s*마련된\s*K-?뷰티\s*팝업스토어$|갱단\s*섬멸|부켈레|가두시위|지자체\s*홍보대상|장물\s*보관함|편의점\s*고양이|반반\s*얼굴.*고양이|광명\s*차은우|종이\s*숏폼|개방화장실|화장실\s*QR코드|술\s*안\s*마시고\s*여기|성수동에\s*뜬.*정체|가전의\s*정체|김장\s*담그는.*대표이사|사랑의\s*김장나눔|봉사활동\s*실시|^상장\s*검색\s*급상승$|^아이폰\s*검색\s*급상승$|^이현중\s*검색\s*급상승$|^[①②③④⑤⑥⑦⑧⑨⑩]|^0\d{5}$|주간조선/i.test(combined)
   ) {
     return true;
   }
@@ -1448,6 +1448,8 @@ function cleanTrendTopicKeyword(rawTitle = '', fullContext = '') {
   // 언론사 꼬리표, 섹션 분류(: 테크/과학 등), 파이프 부제(｜...), 불필요 태그 제거
   base = base
     .replace(/^[①②③④⑤⑥⑦⑧⑨⑩]\s*/g, '')
+    .replace(/^[가-힣A-Za-z0-9\s]+\([A-Za-z0-9.-]+\.[a-z]{2,}\)\s*::\s*/i, '')
+    .replace(/^\(단독\)\s*/g, '')
     .replace(/\s+:\s+[가-힣A-Za-z/·\s]+$/g, '')
     .replace(/\s*[｜|]\s*.+$/g, '')
     .replace(/\s+-\s+[가-힣A-Za-z0-9.\s]+$/, '')
@@ -1650,7 +1652,7 @@ function cleanTrendTopicKeyword(rawTitle = '', fullContext = '') {
     const p1HasQuestion = /\?/.test(rawP1) || /(?:준다|주나요|할까|볼까|길래|무슨|왜)/.test(p1);
     const p1IsPureHook =
       p1HasQuestion ||
-      /(?:사야\s*한다|가볼까|낮춘다|난리났다|돌파하더니|길래|일상이\s*된|놀이터된|구해요|누가\s*돌아왔|아침부터\s*밤까지)/.test(p1);
+      /(?:사야\s*한다|가볼까|낮춘다|난리났다|돌파하더니|길래|일상이\s*된|놀이터된|구해요|누가\s*돌아왔|아침부터\s*밤까지|이\s*돈이면|직접\s*만들자|산타가\s*찾아왔다|바꾼\s*편의점\s*디저트|책\s*읽는\s*게\s*멋지다|드라마\s*본\s*적도\s*없는데)/.test(p1);
     const p2IsPureQuoteOrHook =
       /^[“"‘].+[”"’”]$/.test(rawP2) ||
       /(?:부숴야\s*제맛|못\s*참아|비결은|이유는|가보니|먹어보니|써보니|힘줬다|체험부터\s*할인까지\s*풍성)/.test(p2);
@@ -1730,7 +1732,7 @@ function cleanTrendTopicKeyword(rawTitle = '', fullContext = '') {
     .trim();
 
   // 문장 끝에 남은 불완전 조사·관형형 어미 제거 (내놓은, 부른, 찾아 등 미완성 수식어로 끝나는 현상 방지)
-  s = s.replace(/\s+(?:에서|으로|에게|에는|까지|부터|보는|담은|쓴|써도|메고|앞|통해|맞아|겨냥|위한|따른|가볼까|할까|결합이|푸드위크서|내놓은|부른|찾아|선보인|출시한)$/, '').trim();
+  s = s.replace(/\s+(?:에서|으로|에게|에는|까지|부터|보는|담은|쓴|써도|메고|앞|통해|맞아|겨냥|위한|따른|가볼까|할까|결합이|푸드위크서|내놓은|부른|찾아|선보인|출시한|도|의)$/, '').trim();
 
   if (!s) return String(rawTitle || '').trim();
   // 한국어 제목은 핵심 명사가 맨 뒤에 오므로 30자에서 뒷단어를 자르지 않고 38자까지 온전히 보존
@@ -1741,7 +1743,7 @@ function cleanTrendTopicKeyword(rawTitle = '', fullContext = '') {
     if ((acc + ' ' + w).trim().length > 38) break;
     acc = (acc + ' ' + w).trim();
   }
-  acc = acc.replace(/\s+(?:에서|으로|에게|에는|까지|부터|보는|담은|쓴|써도|메고|앞|통해|맞아|겨냥|위한|따른|내놓은|부른|찾아|선보인|출시한)$/, '').trim();
+  acc = acc.replace(/\s+(?:에서|으로|에게|에는|까지|부터|보는|담은|쓴|써도|메고|앞|통해|맞아|겨냥|위한|따른|내놓은|부른|찾아|선보인|출시한|도|의|연말)$/, '').trim();
   return acc || s.slice(0, 38);
 }
 
@@ -1754,9 +1756,15 @@ const BRAND_DETECTION_RULES = [
   { pattern: /GS25/i, tokenPattern: /^GS25$/i, name: 'GS25' },
   { pattern: /(^|[^A-Za-z])CU([^A-Za-z]|$)/, tokenPattern: /^CU$/, name: 'CU' },
   { pattern: /이마트24/, tokenPattern: /^이마트24$/, name: '이마트24' },
+  { pattern: /트레이더스/, tokenPattern: /^트레이더스$/, name: '트레이더스' },
+  { pattern: /이케아/, tokenPattern: /^이케아(?:코리아)?$/, name: '이케아' },
+  { pattern: /신라호텔/, tokenPattern: /^(?:서울)?신라호텔$/, name: '신라호텔' },
+  { pattern: /더바디샵/, tokenPattern: /^더바디샵$/, name: '더바디샵' },
+  { pattern: /하이트진로/, tokenPattern: /^하이트진로$/, name: '하이트진로' },
   { pattern: /더현대\s*대구|대구\s*더현대/, tokenPattern: /^(?:더현대\s*대구|대구\s*더현대)$/, name: '더현대 대구' },
   { pattern: /더현대/, tokenPattern: /^더현대(?:서울)?$/, name: '더현대' },
   { pattern: /무신사/, tokenPattern: /^무신사$/, name: '무신사' },
+  { pattern: /대상(?:\s|·)|정원e샵|청정원|종가/, tokenPattern: /^(?:대상|정원e샵|청정원|종가)$/, name: '대상' },
   { pattern: /이디야/, tokenPattern: /^이디야(?:커피)?$/, name: '이디야커피' },
   { pattern: /맘스터치/, tokenPattern: /^맘스터치$/, name: '맘스터치' },
   { pattern: /메가MGC커피|메가커피/, tokenPattern: /^메가(?:MGC)?커피$/, name: '메가MGC커피' },
@@ -1965,7 +1973,7 @@ function sanitizeAndFilterTrendList(list = [], tabKey = '') {
     const normKey = cleanKw.replace(/\s+/g, '').toLowerCase();
     if (seenKeywords.has(normKey)) continue;
 
-    const coreTopicToken = (cleanKw.match(/호빵|라스트픽|쓱데이|다마고치|치이카와|대방어|구미라면|갤럭시\s*버즈\s*온|북엇국라면|헬로키티|뽀로로|컬리뷰티페스타|겨울\s*패션위크|미니키링북|가나\s*쇼콜라\s*립파이|라임꿀샷|네이비\s*짐|크림탑\s*스초생/) || [''])[0];
+    const coreTopicToken = (cleanKw.match(/호빵|라스트픽|쓱데이|다마고치|치이카와|대방어|구미라면|갤럭시\s*버즈\s*온|북엇국라면|헬로키티|뽀로로|컬리뷰티페스타|겨울\s*패션위크|미니키링북|가나\s*쇼콜라\s*립파이|라임꿀샷|네이비\s*짐|크림탑\s*스초생|닭똥집튀김|텍스트힙|60만원|트러플\s*케이크|참깨라면|오디세이\s*G6/) || [''])[0];
     const topicSig = coreTopicToken
       ? `TOPIC:${coreTopicToken.replace(/\s+/g, '')}`
       : (meta.company.includes(',') ? `COLLAB:${meta.company}` : '');
@@ -3866,6 +3874,7 @@ if (typeof module !== 'undefined' && module.exports) {
     detectBestContentType,
     recommendMkPickCategory,
     paraphraseNewsToMkFact,
+    decodeHtmlEntitiesText,
     cleanTrendTopicKeyword,
     isUnusableGossipOrBlindItem,
     extractTrendContextMetadata,
@@ -3893,6 +3902,7 @@ if (typeof module !== 'undefined' && module.exports) {
     detectBestContentType,
     recommendMkPickCategory,
     paraphraseNewsToMkFact,
+    decodeHtmlEntitiesText,
     cleanTrendTopicKeyword,
     isUnusableGossipOrBlindItem,
     extractTrendContextMetadata,
